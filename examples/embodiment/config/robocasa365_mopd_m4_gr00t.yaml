@@ -271,17 +271,20 @@ actor:
       padding_value: 1024
 
   optim:
-    lr: 3.0e-5
-    value_lr: 3.0e-5
+    # Keep M4 directly comparable with the M1 pilot. The official offline recipe is only
+    # a scale reference for this on-policy objective, and the constant schedule has no
+    # dependency on runner.max_steps. A future decaying schedule must declare its own
+    # total_training_steps horizon.
+    lr: 2.0e-6
+    value_lr: 2.0e-6
     adam_beta1: 0.95
     adam_beta2: 0.999
     adam_eps: 1.0e-08
     weight_decay: 1.0e-5
     clip_grad: 1.0
     critic_warmup_steps: 0
-    total_training_steps: ${runner.max_steps}
-    lr_scheduler: cosine
-    lr_warmup_steps_ratio: 0.05
+    lr_scheduler: constant
+    lr_warmup_steps: 0
 
   fsdp_config:
     strategy: "fsdp"

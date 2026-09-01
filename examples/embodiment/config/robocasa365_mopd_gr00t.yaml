@@ -264,20 +264,22 @@ actor:
       padding_value: 1024
 
   optim:
-    # Match the recovered RoboCasa365 post-training optimizer family. The short MOPD
-    # schedule is expressed in update steps, so it inherits the 5% warmup/cosine shape
-    # without pretending to reproduce the original 300k-step offline run.
-    lr: 3.0e-5
-    value_lr: 3.0e-5
+    # The released RoboCasa365 recipe is only a scale reference: offline post-training
+    # and on-policy velocity distillation have different data and update semantics. Use
+    # the highest MOPD rate previously observed to preserve policy quality. A direct
+    # constant schedule also keeps the short pilot interpretable; it intentionally has no
+    # dependency on runner.max_steps. If a decaying schedule is introduced later, set an
+    # independent total_training_steps horizon rather than interpolating runner.max_steps.
+    lr: 2.0e-6
+    value_lr: 2.0e-6
     adam_beta1: 0.95
     adam_beta2: 0.999
     adam_eps: 1.0e-08
     weight_decay: 1.0e-5
     clip_grad: 1.0
     critic_warmup_steps: 0
-    total_training_steps: ${runner.max_steps}
-    lr_scheduler: cosine
-    lr_warmup_steps_ratio: 0.05
+    lr_scheduler: constant
+    lr_warmup_steps: 0
 
   fsdp_config:
     strategy: "fsdp"
