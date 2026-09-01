@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import copy
-import math
 import time
 from functools import partial
 from typing import Any, Optional
@@ -27,10 +26,13 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 import rlinf.algorithms  # noqa: F401
 from rlinf.algorithms.expert import build_expert_model_config
-from rlinf.algorithms.losses import (
-    flow_sde_kl_weights,
-    flow_sde_transition_coeffs,
+from rlinf.algorithms.flow_opd import (
+    build_flat_valid_transition_mask,
+    flow_teacher_transition_logprobs,
+    select_flow_opd_logprobs,
+    select_opd_metric_rows,
 )
+from rlinf.algorithms.losses import flow_sde_kl_weights
 from rlinf.algorithms.registry import (
     calculate_adv_and_returns,
     get_policy_loss,
@@ -104,6 +106,11 @@ from rlinf.workers.rollout.utils import RankMapper
 # "velocity_distill" (M1) weights timesteps uniformly; "analytic_local_kl" (M3 and
 # M3-Hybrid) weights them by the local Flow-SDE KL's w(tau).
 VELOCITY_DISTILL_LOSS_TYPES = ("velocity_distill", "analytic_local_kl")
+
+# Model families whose action head is a flow. They share the transition algebra that M3 and
+# M4 are defined on, so adv_type="opd" scores a sampled *flow transition* for them rather
+# than the action tokens the OpenVLA path scores.
+FLOW_MODELS = (SupportedModel.OPENPI, SupportedModel.GR00T)
 
 
 def process_nested_dict_for_adv(nested_dict, rollout_epoch):
@@ -1326,7 +1333,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             return {}
 
         if self.cfg.algorithm.adv_type == "opd":
-            if SupportedModel(self.cfg.actor.model.model_type) == SupportedModel.OPENPI:
+            if SupportedModel(self.cfg.actor.model.model_type) in FLOW_MODELS:
                 # Method 4: the teacher scores the student's sampled flow transition. The
                 # OpenVLA path below scores action *tokens* and does not apply here.
                 self.compute_teacher_velocities()
@@ -1339,7 +1346,11 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             "rewards": self.rollout_batch["rewards"],
             "dones": self.rollout_batch["dones"],
             "values": self.rollout_batch.get("prev_values", None),
-            "prev_logprobs": self.rollout_batch.get("prev_logprobs", None),
+            # For flow-model OPD the advantage compares against the sampled step only;
+            # see _opd_prev_logprobs_at_sampled_step for why this is a separate key.
+            "prev_logprobs": self.rollout_batch.get(
+                "opd_prev_logprobs", self.rollout_batch.get("prev_logprobs", None)
+            ),
             "teacher_logprobs": self.rollout_batch.get("teacher_logprobs", None),
             "num_action_chunks": self.cfg.actor.model.num_action_chunks,
             "gamma": self.cfg.algorithm.get("gamma", 1),
@@ -1530,7 +1541,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self.log_info(f"Loaded routed OPD teacher {name!r}.")
         return self._routed_teacher_models[name]
 
-    def _suite_balanced_sample(self, flat_batch_size: int) -> Optional[torch.Tensor]:
+    def _suite_balanced_sample(
+        self, flat_batch_size: int, time_dim: int, batch_dim: int
+    ) -> Optional[torch.Tensor]:
         """Draw a suite-balanced subset of the flat rollout, or None to use all of it.
 
         Enabled by ``algorithm.suite_balanced_sampling``. Every task suite then contributes
@@ -1564,10 +1577,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # whenever auto_reset and ignore_terminations are both False, which is what the
         # velocity-distillation configs use.
         loss_mask = self.rollout_batch.get("loss_mask", None)
-        if loss_mask is not None:
-            valid = loss_mask.reshape(flat_batch_size, -1).any(dim=-1).cpu()
-        else:
-            valid = torch.ones(flat_batch_size, dtype=torch.bool)
+        valid = build_flat_valid_transition_mask(
+            flat_batch_size, time_dim, batch_dim, loss_mask
+        )
 
         target = int(self.cfg.actor.global_batch_size) // self._world_size
         suites = sorted(set(teacher_ids.tolist()))
@@ -1701,7 +1713,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # Held on the worker, not in rollout_batch: that dict is walked by several
         # helpers that assume every entry is a [T, B, ...] tensor, and a 1-D index would
         # be reshaped along with them.
-        sample_idx = self._suite_balanced_sample(flat_batch_size)
+        sample_idx = self._suite_balanced_sample(flat_batch_size, time_dim, batch_dim)
         self._sample_idx = sample_idx
 
         if sample_idx is None:
@@ -1754,7 +1766,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             # computed above -- mu_T only differs from mu_S through v_T -- so M4 costs the
             # same single teacher forward as M1/M3. Sigma_k comes from the student's
             # schedule so teacher and student share it, as the reverse KL requires.
-            self.rollout_batch["teacher_logprobs"] = self._teacher_transition_logprobs(
+            teacher_logprobs = self._teacher_transition_logprobs(
                 flat_chains=flat_chains,
                 x_cur=x_t,
                 step_idx=step_idx,
@@ -1763,6 +1775,11 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 time_dim=time_dim,
                 batch_dim=batch_dim,
             )
+            self.rollout_batch["teacher_logprobs"] = teacher_logprobs
+            reduced = self._opd_prev_logprobs_at_sampled_step(step_idx)
+            if reduced is not None:
+                self.rollout_batch["opd_prev_logprobs"] = reduced
+                self._log_opd_reward_per_suite(teacher_logprobs, reduced)
 
         clear_memory()
 
@@ -1854,6 +1871,70 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         self.log_info(f"Routed teacher velocities over {counts}.")
         return teacher_velocities
 
+    def _log_opd_reward_per_suite(
+        self, teacher_logprobs: torch.Tensor, prev_logprobs: torch.Tensor
+    ) -> None:
+        """Break the OPD reward down by suite.
+
+        ``r_OPD = l_T - l_S`` is M4's whole objective, and the aggregate says nothing about
+        where it comes from. The three suites start from very different places -- the
+        student scores 0.44 / 0.08 / 0.00 on the pilot tasks while the routed teachers
+        score 0.85 / 0.75 / 0.52 -- so if the reward is the same size on the suite where
+        the two policies are 0.52 apart as on the one where they are 0.42 apart, then this
+        quantity is not tracking policy quality at all, and no learning rate will fix that.
+        """
+        teacher_ids = self.rollout_batch["forward_inputs"].get("teacher_ids", None)
+        if teacher_ids is None:
+            return
+        names = self._teacher_names()
+        ids, reward = select_opd_metric_rows(
+            teacher_ids,
+            teacher_logprobs,
+            prev_logprobs,
+            sample_idx=getattr(self, "_sample_idx", None),
+            loss_mask=self.rollout_batch.get("loss_mask", None),
+        )
+        parts = {}
+        for suite in sorted(set(ids.tolist())):
+            rows = reward[ids == suite]
+            parts[names[suite]] = (
+                f"mean {rows.mean().item():+.4f} "
+                f"sd {rows.std(unbiased=False).item():.4f}"
+            )
+        self.log_info(f"OPD reward per suite: {parts}")
+
+    def _opd_prev_logprobs_at_sampled_step(
+        self, step_idx: torch.Tensor
+    ) -> Optional[torch.Tensor]:
+        """The student's log-prob of the transition it sampled, shaped for the advantage.
+
+        ``compute_opd_advantages`` asserts the teacher's log-probs and the student's have
+        the same shape, and it accepts ``[T, B, chunk, dim]``. The teacher's already are.
+        The rollout's are not: they carry one entry per denoise step,
+        ``[T, B, num_steps(+1), chunk, dim]``, because the rollout scores every step and
+        leaves the deterministic ones at exactly 0.
+
+        The reduced copy is stored under its own key rather than replacing
+        ``prev_logprobs``. GR00T's ``default_forward`` re-derives its own aligned copy at
+        training time with ``prev_logprobs[arange, denoise_inds[:, 0], ...]``, so
+        collapsing that axis in place would break the indexing it depends on -- the two
+        consumers want different shapes of the same quantity.
+
+        Selection, not summation: the other steps are zero only because they are
+        deterministic today.
+        """
+        prev = self.rollout_batch.get("prev_logprobs", None)
+        if prev is None or prev.dim() < 5:
+            # OpenVLA-style token log-probs already match the teacher's rank.
+            return None
+        return select_flow_opd_logprobs(
+            prev,
+            step_idx,
+            joint_logprob=bool(
+                self.cfg.actor.model.rl_head_config.joint_logprob
+            ),
+        )
+
     def _teacher_transition_logprobs(
         self,
         flat_chains: torch.Tensor,
@@ -1881,33 +1962,19 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         """
         noise_level, chunk, env_dim, c_sign = self._flow_sde_transition_spec()
 
-        w0, w1, c, sigma = flow_sde_transition_coeffs(
-            num_steps=num_steps, noise_level=noise_level
+        return flow_teacher_transition_logprobs(
+            flat_chains=flat_chains,
+            x_cur=x_cur,
+            step_idx=step_idx,
+            teacher_velocities=teacher_velocities,
+            num_steps=num_steps,
+            noise_level=noise_level,
+            action_chunk=chunk,
+            action_env_dim=env_dim,
+            c_sign=c_sign,
+            time_dim=time_dim,
+            batch_dim=batch_dim,
         )
-        assert torch.all(sigma > 0), (
-            "Method 4 needs a stochastic transition; sigma == 0 means the rollout was "
-            "deterministic ODE and the sampled reverse-KL is undefined there."
-        )
-        scale = (w0 + w1)[step_idx].to(torch.float32)[:, None, None]
-        # mu_T is affine in c, so the wrong sign would not raise -- it would move the
-        # teacher's mean the wrong way and quietly invert r_OPD = l_T - l_S.
-        c_k = (c_sign * c)[step_idx].to(torch.float32)[:, None, None]
-        sigma_k = sigma[step_idx].to(torch.float32)[:, None, None]
-
-        # x_{k+1}: the sample whose log-prob both models are scored on.
-        arange = torch.arange(flat_chains.shape[0])
-        x_next = flat_chains[arange, step_idx + 1].float()[:, :chunk]
-        # teacher_velocities is already sliced to action_chunk by nft_forward.
-        mu_teacher = x_cur.float()[:, :chunk] * scale + teacher_velocities.float() * c_k
-
-        # Same expression as openpi_action_model.get_logprob_norm.
-        log_probs = (
-            -torch.log(sigma_k)
-            - 0.5 * math.log(2 * math.pi)
-            - 0.5 * ((x_next - mu_teacher) / sigma_k) ** 2
-        )
-        log_probs = log_probs[:, :, :env_dim].contiguous()
-        return log_probs.reshape(time_dim, batch_dim, *log_probs.shape[1:])
 
     def _build_sft_data_loader(self):
         if SupportedModel(self.cfg.actor.model.model_type) in [SupportedModel.OPENPI]:

@@ -1,0 +1,173 @@
+# Copyright 2026 The RLinf Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tensor alignment helpers for sampled flow-transition OPD."""
+
+import math
+from typing import Optional
+
+import torch
+
+from rlinf.algorithms.losses import flow_sde_transition_coeffs
+
+
+def build_flat_valid_transition_mask(
+    flat_batch_size: int,
+    time_dim: int,
+    batch_dim: int,
+    loss_mask: Optional[torch.Tensor],
+) -> torch.Tensor:
+    """Return valid rows in a flattened ``[time, batch]`` rollout.
+
+    ``loss_mask`` describes transitions while flow chains describe states, so the mask's
+    time axis can be one shorter. Any trailing state has no transition after it and is
+    therefore invalid for distillation.
+    """
+    assert flat_batch_size == time_dim * batch_dim, (
+        f"flat batch size {flat_batch_size} does not match "
+        f"time_dim * batch_dim ({time_dim} * {batch_dim})."
+    )
+    valid = torch.ones(flat_batch_size, dtype=torch.bool)
+    if loss_mask is None:
+        return valid
+
+    assert loss_mask.shape[1] == batch_dim, (
+        f"loss_mask batch dim {loss_mask.shape[1]} does not match the rollout's "
+        f"{batch_dim}; only the time axis may differ."
+    )
+    usable = min(loss_mask.shape[0], time_dim)
+    flat_mask = (
+        loss_mask[:usable].reshape(usable * batch_dim, -1).any(dim=-1).cpu()
+    )
+    valid[: usable * batch_dim] = flat_mask
+    valid[usable * batch_dim :] = False
+    return valid
+
+
+def select_flow_opd_logprobs(
+    prev_logprobs: torch.Tensor,
+    step_idx: torch.Tensor,
+    *,
+    joint_logprob: bool,
+) -> torch.Tensor:
+    """Select the rollout log-prob of each sample's stochastic denoise step."""
+    assert prev_logprobs.dim() >= 5, (
+        "flow OPD expects prev_logprobs shaped "
+        "[time, batch, denoise_step, action_chunk, action_dim]."
+    )
+    time_dim, batch_dim = prev_logprobs.shape[:2]
+    flat_prev = prev_logprobs.reshape(-1, *prev_logprobs.shape[2:])
+    assert step_idx.numel() == flat_prev.shape[0], (
+        f"step_idx has {step_idx.numel()} entries for {flat_prev.shape[0]} samples."
+    )
+
+    offset = 1 if joint_logprob else 0
+    gather_idx = step_idx.reshape(-1).to(device=flat_prev.device, dtype=torch.long)
+    gather_idx = gather_idx + offset
+    assert int(gather_idx.min()) >= 0, (
+        f"denoise step {int(gather_idx.min())} is negative."
+    )
+    assert int(gather_idx.max()) < flat_prev.shape[1], (
+        f"denoise step {int(gather_idx.max())} is out of range for prev_logprobs "
+        f"with {flat_prev.shape[1]} scored steps."
+    )
+
+    rows = torch.arange(flat_prev.shape[0], device=flat_prev.device)
+    picked = flat_prev[rows, gather_idx]
+    return picked.reshape(time_dim, batch_dim, *picked.shape[1:])
+
+
+def select_opd_metric_rows(
+    teacher_ids: torch.Tensor,
+    teacher_logprobs: torch.Tensor,
+    prev_logprobs: torch.Tensor,
+    *,
+    sample_idx: Optional[torch.Tensor],
+    loss_mask: Optional[torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Select exactly the rows contributing to the OPD training metric.
+
+    Suite-balanced sampling may contain duplicate indices. They are deliberately kept so
+    this diagnostic has the same weighting as the actual gradient.
+    """
+    assert teacher_logprobs.shape == prev_logprobs.shape, (
+        f"teacher_logprobs {teacher_logprobs.shape} must match "
+        f"prev_logprobs {prev_logprobs.shape}."
+    )
+    time_dim, batch_dim = teacher_logprobs.shape[:2]
+    flat_size = time_dim * batch_dim
+    ids = teacher_ids.reshape(-1).cpu().long()
+    assert ids.numel() == flat_size, (
+        f"teacher_ids has {ids.numel()} entries for {flat_size} samples."
+    )
+    reward = (teacher_logprobs.float() - prev_logprobs.float()).reshape(
+        flat_size, -1
+    )
+
+    if sample_idx is not None:
+        rows = sample_idx.reshape(-1).cpu().long()
+    else:
+        valid = build_flat_valid_transition_mask(
+            flat_size, time_dim, batch_dim, loss_mask
+        )
+        rows = torch.nonzero(valid, as_tuple=False).reshape(-1)
+    return ids[rows], reward[rows]
+
+
+def flow_teacher_transition_logprobs(
+    *,
+    flat_chains: torch.Tensor,
+    x_cur: torch.Tensor,
+    step_idx: torch.Tensor,
+    teacher_velocities: torch.Tensor,
+    num_steps: int,
+    noise_level: float,
+    action_chunk: int,
+    action_env_dim: int,
+    c_sign: float,
+    time_dim: int,
+    batch_dim: int,
+) -> torch.Tensor:
+    """Score the student's sampled Flow-SDE transition under the teacher."""
+    flat_size = time_dim * batch_dim
+    assert flat_chains.shape[0] == flat_size
+    assert x_cur.shape[0] == flat_size
+    assert teacher_velocities.shape[0] == flat_size
+    assert step_idx.numel() == flat_size
+
+    w0, w1, c, sigma = flow_sde_transition_coeffs(
+        num_steps=num_steps, noise_level=noise_level
+    )
+    assert torch.all(sigma > 0), (
+        "Sampled flow OPD needs a stochastic transition; sigma must be positive."
+    )
+    device = x_cur.device
+    step_idx = step_idx.reshape(-1).to(device=device, dtype=torch.long)
+    scale = (w0 + w1).to(device=device)[step_idx].float()[:, None, None]
+    c_k = (c_sign * c).to(device=device)[step_idx].float()[:, None, None]
+    sigma_k = sigma.to(device=device)[step_idx].float()[:, None, None]
+
+    rows = torch.arange(flat_size, device=flat_chains.device)
+    chain_steps = step_idx.to(flat_chains.device)
+    x_next = flat_chains[rows, chain_steps + 1].float()
+    x_next = x_next[:, :action_chunk, :action_env_dim]
+    mu_teacher = (
+        x_cur.float()[:, :action_chunk, :action_env_dim] * scale
+        + teacher_velocities.float()[:, :action_chunk, :action_env_dim] * c_k
+    )
+    log_probs = (
+        -torch.log(sigma_k)
+        - 0.5 * math.log(2 * math.pi)
+        - 0.5 * ((x_next - mu_teacher) / sigma_k) ** 2
+    ).contiguous()
+    return log_probs.reshape(time_dim, batch_dim, *log_probs.shape[1:])
