@@ -1471,6 +1471,39 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             )
         return num_steps, joint_logprob, timestep_values
 
+    def _flow_sde_transition_spec(self):
+        """Per-model-family inputs to the shared ``flow_sde`` transition coefficients.
+
+        ``flow_sde_transition_coeffs`` was written against OpenPI, but GR00T's ``flow_sde``
+        branch was checked against it numerically and agrees on ``w0 + w1``, ``sigma`` and
+        ``|c|``, indexed by the same denoise step. Only ``c``'s sign differs (GR00T +,
+        OpenPI -), which cancels in M3's ``w = c**2 / (2 sigma**2)`` but not in M4's
+        ``mu_T``. Both reduce to ``c = delta * (1 + noise_level**2 / 2)``.
+
+        Returns:
+            ``(noise_level, action_chunk, action_env_dim, c_sign)``.
+        """
+        model_type = SupportedModel(self.cfg.actor.model.model_type)
+        if model_type in [SupportedModel.OPENPI]:
+            openpi_cfg = self.cfg.actor.model.openpi
+            return (
+                float(openpi_cfg.noise_level),
+                int(openpi_cfg.action_chunk),
+                int(openpi_cfg.action_env_dim),
+                1.0,
+            )
+        elif model_type in [SupportedModel.GR00T]:
+            return (
+                float(self.cfg.actor.model.rl_head_config.noise_level),
+                int(self.cfg.actor.model.num_action_chunks),
+                int(self.cfg.actor.model.action_dim),
+                -1.0,
+            )
+        else:
+            raise NotImplementedError(
+                f"flow_sde transition coefficients are not defined for {model_type}."
+            )
+
     def _teacher_names(self) -> list[str]:
         """Configured teachers, in the order the rollout worker indexed them."""
         expert_models = self.cfg.rollout.get("expert_models", None)
@@ -1592,23 +1625,23 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         self.rollout_batch["nft_timesteps"] = tau.reshape(time_dim, batch_dim)
 
         if self.cfg.algorithm.loss_type == "analytic_local_kl":
-            assert SupportedModel(self.cfg.actor.model.model_type) in [
-                SupportedModel.OPENPI
-            ], "analytic_local_kl weights are derived for OpenPI's flow transition only."
             # w(tau) for the local Flow-SDE analytic KL (M3 / M3-Hybrid). Built from the
             # closed-form flow_sde schedule even when the rollout is deterministic ODE --
             # see flow_sde_kl_weights for why.
+            #
+            # Formerly OPENPI-only: the two families' flow_sde transitions agree on
+            # w = c**2 / (2 sigma**2). See _flow_sde_transition_spec.
+            noise_level, _, _, _ = self._flow_sde_transition_spec()
             weights = flow_sde_kl_weights(
                 num_steps=num_steps,
-                noise_level=self.cfg.actor.model.openpi.noise_level,
+                noise_level=noise_level,
             )
             kl_weight = weights[step_idx].to(torch.float32)
             self.rollout_batch["nft_kl_weight"] = kl_weight.reshape(time_dim, batch_dim)
 
         if self.cfg.algorithm.adv_type == "opd":
-            assert SupportedModel(self.cfg.actor.model.model_type) in [
-                SupportedModel.OPENPI
-            ], "sampled reverse-KL OPD is implemented for OpenPI's flow transition only."
+            # Formerly OPENPI-only; unlike M3 this needs the signed c, see
+            # _teacher_transition_logprobs.
             # M4: the teacher's log-probability of the transition the student actually
             # sampled, l_T = log N(x_{k+1}; mu_T, Sigma_k). Reuses the teacher velocities
             # computed above -- mu_T only differs from mu_S through v_T -- so M4 costs the
@@ -1731,19 +1764,19 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         Returns:
             ``[T, B, action_chunk, action_env_dim]``, matching ``prev_logprobs``.
         """
-        openpi_cfg = self.cfg.actor.model.openpi
-        chunk = int(openpi_cfg.action_chunk)
-        env_dim = int(openpi_cfg.action_env_dim)
+        noise_level, chunk, env_dim, c_sign = self._flow_sde_transition_spec()
 
         w0, w1, c, sigma = flow_sde_transition_coeffs(
-            num_steps=num_steps, noise_level=openpi_cfg.noise_level
+            num_steps=num_steps, noise_level=noise_level
         )
         assert torch.all(sigma > 0), (
             "Method 4 needs a stochastic transition; sigma == 0 means the rollout was "
             "deterministic ODE and the sampled reverse-KL is undefined there."
         )
         scale = (w0 + w1)[step_idx].to(torch.float32)[:, None, None]
-        c_k = c[step_idx].to(torch.float32)[:, None, None]
+        # mu_T is affine in c, so the wrong sign would not raise -- it would move the
+        # teacher's mean the wrong way and quietly invert r_OPD = l_T - l_S.
+        c_k = (c_sign * c)[step_idx].to(torch.float32)[:, None, None]
         sigma_k = sigma[step_idx].to(torch.float32)[:, None, None]
 
         # x_{k+1}: the sample whose log-prob both models are scored on.

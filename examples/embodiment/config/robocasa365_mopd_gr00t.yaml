@@ -200,9 +200,13 @@ actor:
     embodiment_tag: "new_embodiment"
     policy_setup: "robocasa_panda_omron"
     rl_head_config:
-      joint_logprob: False      # one stochastic denoise step per rollout (Hybrid SDE);
-                                # GR00T's train path has no fully deterministic mode
-      noise_method: "flow_sde"
+      # M1 needs a deterministic ODE rollout, matching the mechanism study's
+      # maniskill_veldistill_openpi_pi05.yaml. joint_logprob: True makes every denoise
+      # step take the mode="train" branch, which under flow_ode is deterministic -- it is
+      # not a request for more noise, and False raises here. noise_level is unused by M1;
+      # it matters only for M3-Hybrid and M4.
+      joint_logprob: True
+      noise_method: "flow_ode"
       add_value_head: ${..add_value_head}
       # eagle_input_ids are padded to exactly this length, and F.pad with a negative
       # amount TRUNCATES. RoboCasa's three cameras tokenize to 826 for a long task

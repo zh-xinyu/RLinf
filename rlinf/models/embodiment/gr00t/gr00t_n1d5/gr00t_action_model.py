@@ -212,7 +212,15 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
             )  # notice the plus here, it's different from openpi.
             x_t_std = torch.zeros_like(t_input)
         elif mode == "train":
-            if self.rl_config.noise_method == "flow_sde":
+            if self.rl_config.noise_method == "flow_ode":
+                # Same Euler step as the mode == "eval" branch above. It is duplicated
+                # because the two are selected by different things: `mode` is chosen per
+                # denoise step, `noise_method` is fixed for the run -- so without this
+                # there is no way to ask for a rollout where no step is stochastic.
+                x0_weight = 1 - (t_input + delta)
+                x1_weight = t_input + delta
+                x_t_std = torch.zeros_like(t_input)
+            elif self.rl_config.noise_method == "flow_sde":
                 sigmas = (
                     noise_level
                     * torch.sqrt(
@@ -240,7 +248,10 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
                 x1_weight = t_input + delta
                 x_t_std = self.reinflow_explore_noise_net(model_output)
             else:
-                raise ValueError(f"Invalid noise method: {self.rl_config.noise_method}")
+                raise ValueError(
+                    f"Invalid noise method: {self.rl_config.noise_method}. "
+                    'Supported: "flow_ode", "flow_sde", "flow_cps", "reinflow".'
+                )
         # In eval, this equals to x_t_mean = x_t + v*dt(dt>0).
         x_t_mean = x0_pred * x0_weight + x1_pred * x1_weight
         return x_t_mean, x_t_std
@@ -309,9 +320,19 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         # determine the denoise step for the logprob calculation
         if mode == "train":
             if self.rl_config.joint_logprob:
+                # Every step takes the mode="train" branch -- deterministic under
+                # flow_ode (M1/M3), perturbed under a stochastic noise_method.
                 denoise_inds = torch.arange(num_steps)
             else:
-                if self.rl_config.noise_method == "flow_sde":
+                if self.rl_config.noise_method == "flow_ode":
+                    # No stochastic transition to sample, and denoise_inds decides which
+                    # flow state teacher supervision scores -- so this is an error, not a no-op.
+                    raise ValueError(
+                        'noise_method="flow_ode" requires joint_logprob=True: a '
+                        "deterministic rollout has no stochastic step for "
+                        "joint_logprob=False to select."
+                    )
+                elif self.rl_config.noise_method == "flow_sde":
                     if self.rl_config.ignore_last:
                         denoise_inds = torch.tensor(
                             [random.randint(0, num_steps - 2)] * num_steps
