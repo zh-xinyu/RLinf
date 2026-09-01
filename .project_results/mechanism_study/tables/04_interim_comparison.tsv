@@ -1,0 +1,5 @@
+method	rollout	training loss	run_id	success_once mean 11-25	delta vs M1	significance	success_once mean 21-25	success_once best	beats M1 at N of 25 eval points	final velocity_mse	final velocity_cosine	verdict	what it is
+M1	ODE	velocity MSE	m1_25	0.8079	-	-	0.8344	0.8656	-	0.0067	0.997	reference	baseline
+M3	ODE	analytic local KL	m3_25	0.8342	+0.026	+0.9 SD	0.8387	0.8562	19/25	0.0092	0.997	no detectable difference from M1	= M1 under a fixed timestep reweight (F1)
+M3-Hybrid	Hybrid SDE	analytic local KL	m3h_manual	0.8277	+0.020	+0.7 SD	0.8344	0.8594	16/25	0.0080	0.997	no detectable difference from M1	varies env-state coverage only (F3)
+M4	Hybrid SDE	sampled reverse-KL	m4_dbg4	0.7865	-0.021	-0.7 SD	0.7938	0.8281	5/25	n/a (different loss)	n/a (different loss)	consistently lowest arm	score-function on one sampled transition

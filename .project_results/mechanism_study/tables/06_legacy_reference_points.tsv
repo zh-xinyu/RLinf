@@ -1,0 +1,6 @@
+checkpoint	global_step	success_at_end	success_once	reward	return	note
+Student SFT (baseline)	0	0.550	0.575	0.0086	-	PRE-FIX harness (flow_noise rollout + wrong tau pairing) -- NOT comparable to rounds A/B
+Teacher RL-FlowSDE	-	0.691	0.856	0.0110	0.877	PRE-FIX harness -- NOT comparable
+M1 legacy step 25	25	0.741	0.856	0.0116	0.931	branch opd-velocity-distill, 2026-08-03, pre-fix
+M1 legacy step 50	50	0.744	0.869	0.0116	0.928	pre-fix
+M1 legacy step 200 (final)	200	0.753	0.869	0.0117	0.939	pre-fix; velocity_mse 0.000306, cosine 1.000

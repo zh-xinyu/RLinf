@@ -1,0 +1,8 @@
+round	method	n_eval_points	success_once_first	success_once_final	success_once_best	success_once_mean_last5	success_once_mean_steps11plus	success_at_end_final	success_at_end_mean_last5	final_velocity_mse	final_velocity_cosine
+Final (25-step, 4 arms)	M1	25	0.7531	0.8656	0.8656	0.8344	0.8079	0.6656	0.6444	0.0067	0.997
+Final (25-step, 4 arms)	M3	25	0.7656	0.8438	0.8562	0.8387	0.8342	0.6813	0.6375	0.0092	0.997
+Final (25-step, 4 arms)	M3-Hybrid	25	0.7906	0.8219	0.8594	0.8344	0.8277	0.6031	0.6088	0.0080	0.997
+Final (25-step, 4 arms)	M4	25	0.7000	0.7688	0.8281	0.7938	0.7865	0.6031	0.5975		
+Preliminary (50-step, 3 arms)	M1	4	0.8250	0.8469	0.8625	0.8383	0.8383	0.6250	0.6422	0.0024	0.999
+Preliminary (50-step, 3 arms)	M3	5	0.7937	0.8656	0.8688	0.8469	0.8602	0.6813	0.6512	0.0029	0.999
+Preliminary (50-step, 3 arms)	M3-Hybrid	5	0.8187	0.8875	0.8875	0.8431	0.8492	0.6625	0.6450	0.0027	0.999

@@ -1,0 +1,6 @@
+checkpoint,global_step,success_at_end,success_once,velocity_mse,velocity_cosine,reward,return,notes
+Student SFT (baseline),0,0.550,0.575,-,-,0.008566407,-,Pre-trained student before distillation
+Teacher RL-FlowSDE,-,0.691,0.856,-,-,0.0109570315,0.8765625,Frozen teacher used for distillation
+Step 25,25,0.741,0.856,-,-,0.011632813,0.93062496,Early distillation checkpoint
+Step 50,50,0.744,0.869,-,-,0.011605469,0.9284374,Mid distillation checkpoint
+Step 200 (final),200,0.753,0.869,0.000306,1.000,0.011734376,0.93874997,Final checkpoint after full training

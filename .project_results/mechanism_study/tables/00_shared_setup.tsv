@@ -1,0 +1,23 @@
+field	value	note
+study	Flow-Based OPD Mechanism Study	plan: .project_plan/Flow-Based OPD Mechanism Study.md
+branch	opd-mechanism-study	forked from RLinf main @ e7609d4c
+model	pi0.5 (openpi)	model_type: openpi
+student init	/egr/.../models/RLinf-Pi05-ManiSkill-25Main-SFT	SFT checkpoint
+teacher (frozen)	/egr/.../models/veldistill_teacher_RL-FlowSDE	RL-FlowSDE weights + SFT norm stats (symlinked); teacher and student MUST share normalization
+env	ManiSkill put_on_plate_in_scene_25_main	ROBOT_PLATFORM=BRIDGE, widowx_bridge
+total_num_envs	320	train and eval
+max_episode_steps	80	
+group_size	1	
+num_action_chunks	5	
+num_steps (denoise)	4	
+action_horizon	8	
+noise_params	[0.16, 0.12, 200]	
+add_value_head	False	no critic, no GAE, no env reward in the loss
+lr	5.0e-5	same for all four arms (NOT the reference PPO 7.91e-6 -- see FINDINGS F6)
+micro_batch_size	32	
+global_batch_size	5120	~5 optimizer steps per rollout
+seed	0	one seed per method (main caveat)
+world size	8 x RTX A6000	FSDP, ~31 GB/GPU peak
+eval episodes	320	fixed seeds
+primary metric	eval/success_once	the metric the final round is judged on. success_at_end is kept as a secondary column only (it measures holding success rather than reaching it, and orders the methods differently)
+binomial SE	0.021 at p=0.83, n=320	SE of a difference between two runs ~0.030
