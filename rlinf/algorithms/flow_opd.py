@@ -21,6 +21,78 @@ import torch
 from rlinf.algorithms.losses import flow_sde_transition_coeffs
 
 
+def sample_flow_timestep_indices(
+    flat_batch_size: int,
+    num_steps: int,
+    *,
+    seed: int,
+    rank: int,
+    draw_count: int,
+) -> torch.Tensor:
+    """Draw reproducible per-sample timesteps without repeating every update."""
+    assert flat_batch_size > 0, "Flow timestep sampling needs a non-empty batch."
+    assert num_steps > 0, "Flow timestep sampling needs at least one denoise step."
+    assert draw_count > 0, "draw_count must advance once per supervision batch."
+    generator = torch.Generator()
+    generator.manual_seed(int(seed) + int(rank) + int(draw_count) * 104729)
+    return torch.randint(
+        0, num_steps, (flat_batch_size,), generator=generator, dtype=torch.long
+    )
+
+
+def count_flow_timesteps_by_suite(
+    step_idx: torch.Tensor,
+    num_steps: int,
+    *,
+    teacher_ids: Optional[torch.Tensor] = None,
+    sample_idx: Optional[torch.Tensor] = None,
+    num_teachers: Optional[int] = None,
+) -> torch.Tensor:
+    """Count the exact sampled training distribution over suite and timestep.
+
+    Duplicate indices from suite-balanced sampling are retained because they also occur
+    multiple times in the gradient batch.
+    """
+    steps = step_idx.reshape(-1).cpu().long()
+    assert steps.numel() > 0, "Flow timestep counts need at least one sample."
+    assert int(steps.min()) >= 0 and int(steps.max()) < num_steps, (
+        f"flow timestep indices must be in [0, {num_steps}), got "
+        f"[{int(steps.min())}, {int(steps.max())}]."
+    )
+
+    if teacher_ids is None:
+        ids = torch.zeros_like(steps)
+        suite_count = 1
+    else:
+        assert num_teachers is not None and num_teachers > 0, (
+            "num_teachers is required when teacher_ids are provided."
+        )
+        ids = teacher_ids.reshape(-1).cpu().long()
+        assert ids.numel() == steps.numel(), (
+            f"teacher_ids has {ids.numel()} entries for {steps.numel()} timesteps."
+        )
+        assert int(ids.min()) >= 0 and int(ids.max()) < num_teachers, (
+            f"teacher ids must be in [0, {num_teachers}), got "
+            f"[{int(ids.min())}, {int(ids.max())}]."
+        )
+        suite_count = num_teachers
+
+    if sample_idx is not None:
+        rows = sample_idx.reshape(-1).cpu().long()
+        assert rows.numel() > 0, "sample_idx must not select an empty training batch."
+        assert int(rows.min()) >= 0 and int(rows.max()) < steps.numel(), (
+            f"sample_idx must be in [0, {steps.numel()}), got "
+            f"[{int(rows.min())}, {int(rows.max())}]."
+        )
+        steps = steps[rows]
+        ids = ids[rows]
+
+    encoded = ids * num_steps + steps
+    return torch.bincount(encoded, minlength=suite_count * num_steps).reshape(
+        suite_count, num_steps
+    )
+
+
 def build_flat_valid_transition_mask(
     flat_batch_size: int,
     time_dim: int,
@@ -46,9 +118,7 @@ def build_flat_valid_transition_mask(
         f"{batch_dim}; only the time axis may differ."
     )
     usable = min(loss_mask.shape[0], time_dim)
-    flat_mask = (
-        loss_mask[:usable].reshape(usable * batch_dim, -1).any(dim=-1).cpu()
-    )
+    flat_mask = loss_mask[:usable].reshape(usable * batch_dim, -1).any(dim=-1).cpu()
     valid[: usable * batch_dim] = flat_mask
     valid[usable * batch_dim :] = False
     return valid
@@ -126,9 +196,7 @@ def select_opd_metric_rows(
     assert ids.numel() == flat_size, (
         f"teacher_ids has {ids.numel()} entries for {flat_size} samples."
     )
-    reward = (teacher_logprobs.float() - prev_logprobs.float()).reshape(
-        flat_size, -1
-    )
+    reward = (teacher_logprobs.float() - prev_logprobs.float()).reshape(flat_size, -1)
 
     if sample_idx is not None:
         rows = sample_idx.reshape(-1).cpu().long()

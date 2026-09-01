@@ -12,15 +12,110 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from pathlib import Path
+
 import torch
 from omegaconf import DictConfig
 
 from .npu_patches import apply_npu_patches, restore_npu_patches
 
 
-def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
-    from pathlib import Path
+def _safetensors_weight_map(model_path: Path) -> dict[str, str]:
+    """Map checkpoint tensor names to their safetensors shard."""
+    index_path = model_path / "model.safetensors.index.json"
+    if index_path.is_file():
+        index = json.loads(index_path.read_text())
+        weight_map = index.get("weight_map", None)
+        if not isinstance(weight_map, dict):
+            raise ValueError(f"Invalid safetensors index: {index_path}")
+        return weight_map
 
+    checkpoint_path = model_path / "model.safetensors"
+    if checkpoint_path.is_file():
+        from safetensors import safe_open
+
+        with safe_open(checkpoint_path, framework="pt", device="cpu") as checkpoint:
+            return dict.fromkeys(checkpoint.keys(), checkpoint_path.name)
+
+    raise FileNotFoundError(
+        "FP32 action-head restoration requires model.safetensors or "
+        f"model.safetensors.index.json under {model_path}."
+    )
+
+
+def _restore_action_head_fp32(model: torch.nn.Module, model_path: Path) -> int:
+    """Restore the checkpoint's FP32 action head after a BF16 model load.
+
+    Hugging Face's ``torch_dtype`` argument casts every checkpoint tensor to one dtype.
+    The RoboCasa365 GR00T checkpoints instead store the backbone in BF16 and all action
+    head tensors in FP32. Merely casting an already-loaded BF16 head back to FP32 cannot
+    recover the discarded mantissa bits, so the original tensors must be read again.
+
+    Returns:
+        Number of restored parameters and persistent buffers.
+    """
+    from safetensors import safe_open
+
+    action_head = model.action_head
+    action_head.to(torch.float32)
+
+    prefix = "action_head."
+    parameters = {
+        prefix + name: parameter
+        for name, parameter in action_head.named_parameters()
+        if parameter.is_floating_point()
+    }
+    buffers = {
+        prefix + name: buffer
+        for name, buffer in action_head.named_buffers()
+        if buffer.is_floating_point()
+    }
+    targets = parameters | buffers
+    weight_map = _safetensors_weight_map(model_path)
+
+    # A value head is deliberately initialized after checkpoint loading. Every other
+    # floating action-head parameter must come from the released FP32 checkpoint; silently
+    # retaining an up-cast BF16 tensor would recreate the numerical bug this path fixes.
+    required = {
+        name for name in parameters if not name.startswith(prefix + "value_head.")
+    }
+    missing = sorted(required - weight_map.keys())
+    if missing:
+        preview = ", ".join(missing[:3])
+        raise KeyError(
+            f"Checkpoint {model_path} is missing {len(missing)} action-head "
+            f"parameter(s), including: {preview}"
+        )
+
+    by_shard: dict[str, list[str]] = {}
+    for name in targets.keys() & weight_map.keys():
+        by_shard.setdefault(weight_map[name], []).append(name)
+
+    restored = 0
+    with torch.no_grad():
+        for shard_name, names in sorted(by_shard.items()):
+            shard_path = model_path / shard_name
+            with safe_open(shard_path, framework="pt", device="cpu") as checkpoint:
+                for name in sorted(names):
+                    source = checkpoint.get_tensor(name)
+                    target = targets[name]
+                    if source.dtype != torch.float32:
+                        raise TypeError(
+                            f"Expected checkpoint tensor {name!r} to be FP32, got "
+                            f"{source.dtype}."
+                        )
+                    if source.shape != target.shape:
+                        raise ValueError(
+                            f"Checkpoint tensor {name!r} has shape {source.shape}, "
+                            f"expected {target.shape}."
+                        )
+                    target.copy_(source)
+                    restored += 1
+    return restored
+
+
+def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     from rlinf.utils.patcher import Patcher
 
     Patcher.clear()
@@ -54,7 +149,6 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
 
             module_name, class_name = spec.split(":")
             return getattr(importlib.import_module(module_name), class_name)()
-
 
         from rlinf.models.embodiment.gr00t.gr00t_n1d5.gr00t_action_model import (
             GR00T_N1_5_ForRLActionPrediction,
@@ -129,6 +223,26 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     modules_by_name = dict(model.named_modules())
     for name, original in preserved_inv_freq.items():
         modules_by_name[name].inv_freq = original
+
+    action_head_precision = cfg.get("action_head_precision", None)
+    if action_head_precision is not None:
+        if action_head_precision in (32, "32", "fp32", "32-true"):
+            restored = _restore_action_head_fp32(model, model_path)
+            from rlinf.utils.logging import get_logger
+
+            get_logger().info(
+                f"Restored {restored} GR00T action-head tensors in FP32 from "
+                f"{model_path}."
+            )
+        elif action_head_precision in ("bf16", "bf16-mixed"):
+            model.action_head.to(torch.bfloat16)
+        elif action_head_precision in (16, "16", "fp16", "16-mixed"):
+            model.action_head.to(torch.float16)
+        else:
+            raise ValueError(
+                "action_head_precision must be one of fp32, bf16, or fp16; got "
+                f"{action_head_precision!r}."
+            )
 
     if cfg.rl_head_config.add_value_head:
         # reinitialize the value head after model loading, or there are nan values in the value head after model loading.

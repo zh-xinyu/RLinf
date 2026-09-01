@@ -143,6 +143,10 @@ class MultiStepRolloutWorker(Worker):
         with open_dict(rollout_model_config):
             rollout_model_config.precision = self.cfg.rollout.model.precision
             rollout_model_config.model_path = self.cfg.rollout.model.model_path
+            if "action_head_precision" in self.cfg.rollout.model:
+                rollout_model_config.action_head_precision = (
+                    self.cfg.rollout.model.action_head_precision
+                )
 
         self.hf_model: BasePolicy = get_model(rollout_model_config)
 

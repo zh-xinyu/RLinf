@@ -18,11 +18,44 @@ import torch
 
 from rlinf.algorithms.flow_opd import (
     build_flat_valid_transition_mask,
+    count_flow_timesteps_by_suite,
     flow_teacher_transition_logprobs,
+    sample_flow_timestep_indices,
     select_flow_opd_logprobs,
     select_opd_metric_rows,
     teacher_suite_presence,
 )
+
+
+def test_sample_flow_timestep_indices_advance_per_supervision_batch():
+    first = sample_flow_timestep_indices(128, 4, seed=7, rank=2, draw_count=1)
+    repeated = sample_flow_timestep_indices(128, 4, seed=7, rank=2, draw_count=1)
+    second = sample_flow_timestep_indices(128, 4, seed=7, rank=2, draw_count=2)
+
+    torch.testing.assert_close(first, repeated)
+    assert not torch.equal(first, second)
+    assert int(first.min()) >= 0
+    assert int(first.max()) < 4
+
+
+def test_count_flow_timesteps_by_suite_keeps_balanced_sample_duplicates():
+    counts = count_flow_timesteps_by_suite(
+        torch.tensor([0, 1, 2, 3, 1, 0]),
+        4,
+        teacher_ids=torch.tensor([0, 0, 1, 1, 1, 0]),
+        sample_idx=torch.tensor([4, 0, 4, 3]),
+        num_teachers=2,
+    )
+
+    torch.testing.assert_close(
+        counts,
+        torch.tensor(
+            [
+                [1, 0, 0, 0],
+                [0, 2, 0, 1],
+            ]
+        ),
+    )
 
 
 @pytest.mark.parametrize("joint_logprob", [False, True])
@@ -31,9 +64,7 @@ def test_select_flow_opd_logprobs_picks_sampled_step(joint_logprob):
     prev = torch.arange(2 * 2 * step_count * 3 * 2).reshape(2, 2, step_count, 3, 2)
     step_idx = torch.tensor([0, 1, 2, 3])
 
-    selected = select_flow_opd_logprobs(
-        prev, step_idx, joint_logprob=joint_logprob
-    )
+    selected = select_flow_opd_logprobs(prev, step_idx, joint_logprob=joint_logprob)
 
     flat = prev.reshape(4, step_count, 3, 2)
     offset = int(joint_logprob)

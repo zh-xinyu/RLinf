@@ -151,6 +151,9 @@ class FSDPStrategy(FSDPStrategyBase):
             param_dtype=param_dtype,
             reduce_dtype=reduce_dtype,
             buffer_dtype=buffer_dtype,
+            cast_forward_inputs=mixed_precision_config.get(
+                "cast_forward_inputs", False
+            ),
         )
 
         sharding_strategy = get_sharding_strategy(

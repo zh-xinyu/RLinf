@@ -198,6 +198,10 @@ rollout:
   model:
     model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/pretraining/checkpoint-80000"   # student init
     precision: ${actor.model.precision}
+    # Inference receives synchronized FP32 actor weights cast to BF16. Keeping this
+    # explicit prevents the actor-only master-weight override below from leaking through
+    # the rollout worker's copied model config.
+    action_head_precision: bf16
 
   # Routed teachers. Keys are RoboCasa task-suite (task_soup) labels; the rollout worker
   # turns each sample's suite into an index into this mapping and the actor groups the
@@ -206,12 +210,15 @@ rollout:
     atomic_seen:
       model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/atomic_seen/checkpoint-60000"
       precision: ${actor.model.precision}
+      action_head_precision: bf16
     composite_seen:
       model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_seen/checkpoint-60000"
       precision: ${actor.model.precision}
+      action_head_precision: bf16
     composite_unseen:
       model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_unseen/checkpoint-60000"
       precision: ${actor.model.precision}
+      action_head_precision: bf16
 
 actor:
   group_name: "ActorGroup"
@@ -235,6 +242,11 @@ actor:
     obs_converter_type: "robocasa365"
     embodiment_tag: "new_embodiment"
     policy_setup: "robocasa_panda_omron"
+    # The released checkpoint stores the frozen backbone in BF16 and the flow action head
+    # in FP32. Preserve that split for optimizer master weights; FSDP casts the head to
+    # BF16 only while computing.
+    action_head_precision: fp32
+    require_fp32_trainable_params: True
     rl_head_config:
       # M1 needs a deterministic ODE rollout, matching the mechanism study's
       # maniskill_veldistill_openpi_pi05.yaml. joint_logprob: True makes every denoise
@@ -252,14 +264,20 @@ actor:
       padding_value: 1024
 
   optim:
-    lr: 2.0e-5
-    value_lr: 2.0e-5
-    adam_beta1: 0.9
-    adam_beta2: 0.95
+    # Match the recovered RoboCasa365 post-training optimizer family. The short MOPD
+    # schedule is expressed in update steps, so it inherits the 5% warmup/cosine shape
+    # without pretending to reproduce the original 300k-step offline run.
+    lr: 3.0e-5
+    value_lr: 3.0e-5
+    adam_beta1: 0.95
+    adam_beta2: 0.999
     adam_eps: 1.0e-08
-    weight_decay: 0.01
+    weight_decay: 1.0e-5
     clip_grad: 1.0
     critic_warmup_steps: 0
+    total_training_steps: ${runner.max_steps}
+    lr_scheduler: cosine
+    lr_warmup_steps_ratio: 0.05
 
   fsdp_config:
     strategy: "fsdp"
@@ -276,9 +294,12 @@ actor:
         - TimestepEncoder
         - TimestepEmbedding
     mixed_precision:
-      param_dtype: ${actor.model.precision}
-      reduce_dtype: ${actor.model.precision}
-      buffer_dtype: ${actor.model.precision}
+      param_dtype: bf16
+      reduce_dtype: bf16
+      buffer_dtype: bf16
+      # The FP32-master action head is a nested FSDP unit. Its inputs must follow the
+      # temporary BF16 compute parameters rather than the outside-forward master dtype.
+      cast_forward_inputs: True
 
 reward:
   use_reward_model: False

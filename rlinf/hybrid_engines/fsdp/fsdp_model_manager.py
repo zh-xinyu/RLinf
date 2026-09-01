@@ -66,15 +66,6 @@ class FSDPModelManager:
         self._cfg = cfg
         self._logger = get_logger()
         self.torch_dtype = torch_dtype_from_precision(self._cfg.model.precision)
-        if self.torch_dtype != torch.float32:
-            self._logger.warning(
-                "Provided there is sufficient GPU memory, "
-                "set the actor.model.precision parameter to fp32 "
-                "to allow the optimizer to run in fp32 for better convergence. "
-                "Meanwhile, setting mixed_precision.param_dtype to 16-bit dtype "
-                "can help maximize speed, as it will automatically "
-                "convert fp32 to fp16 during operator execution."
-            )
 
         self.optimizer_steps = 0
         self.critic_warmup_steps = 0
@@ -109,6 +100,68 @@ class FSDPModelManager:
         self.bucket_capacity = cfg.get("sync_bucket_capacity", 128 * 1024 * 1024)
 
         self.param_names_need_sync: list[str] = None
+
+    def _validate_trainable_param_dtypes(self, module: nn.Module) -> None:
+        """Log master-weight dtypes and enforce FP32 when explicitly requested."""
+        counts: dict[torch.dtype, int] = {}
+        for parameter in module.parameters():
+            if parameter.requires_grad and parameter.is_floating_point():
+                counts[parameter.dtype] = (
+                    counts.get(parameter.dtype, 0) + parameter.numel()
+                )
+
+        summary = ", ".join(
+            f"{dtype}: {count:,}" for dtype, count in sorted(counts.items(), key=str)
+        )
+        self._logger.info(
+            f"[FSDP] Trainable master parameter dtypes: {summary or 'none'}"
+        )
+
+        non_fp32 = {
+            dtype: count for dtype, count in counts.items() if dtype != torch.float32
+        }
+        require_fp32 = self._cfg.model.get("require_fp32_trainable_params", False)
+        if require_fp32 and not counts:
+            raise ValueError(
+                "model.require_fp32_trainable_params=True, but the model has no "
+                "floating trainable parameters."
+            )
+        if require_fp32 and non_fp32:
+            raise TypeError(
+                "model.require_fp32_trainable_params=True, but trainable master "
+                f"parameters include non-FP32 dtypes: {non_fp32}."
+            )
+        if non_fp32:
+            self._logger.warning(
+                "Trainable master parameters are not all FP32. Provided there is "
+                "sufficient memory, keep optimizer-facing parameters in FP32 and use "
+                "fsdp_config.mixed_precision.param_dtype for lower-precision compute."
+            )
+
+    def _validate_optimizer_state_dtypes(self, optimizer: Optimizer) -> None:
+        """Ensure Adam moments stay FP32 for configs that require FP32 masters."""
+        if not self._cfg.model.get("require_fp32_trainable_params", False):
+            return
+
+        invalid = []
+        checked = 0
+        for parameter, state in optimizer.state.items():
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                value = state.get(name, None)
+                if isinstance(value, torch.Tensor):
+                    checked += 1
+                    if value.dtype != torch.float32:
+                        invalid.append((name, parameter.dtype, value.dtype))
+        if checked == 0:
+            raise ValueError(
+                "Could not find initialized Adam moments for the FP32 precision check."
+            )
+        if invalid:
+            raise TypeError(
+                "FP32 trainable parameters require FP32 Adam moments, but found "
+                f"{invalid[:3]}."
+            )
+        self._logger.info("[FSDP] Verified FP32 Adam optimizer moments.")
 
     def _create_amp_context(self) -> ContextManager:
         """
@@ -260,6 +313,7 @@ class FSDPModelManager:
         Setup model, lr_scheduler, optimizer and grad_scaler.
         """
         module = self.model_provider_func()
+        self._validate_trainable_param_dtypes(module)
 
         # Enable gradient checkpointing if configured
         if self._cfg.fsdp_config.get("gradient_checkpointing", False):
@@ -575,6 +629,7 @@ class FSDPModelManager:
         # to avoid KeyError during get_state_dict/set_state_dict
         # in save/load_checkpoint calls
         warmup_optimizer_state(optimizer)
+        self._validate_optimizer_state_dtypes(optimizer)
         return optimizer
 
     def build_optimizers(

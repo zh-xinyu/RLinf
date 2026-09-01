@@ -28,7 +28,9 @@ import rlinf.algorithms  # noqa: F401
 from rlinf.algorithms.expert import build_expert_model_config
 from rlinf.algorithms.flow_opd import (
     build_flat_valid_transition_mask,
+    count_flow_timesteps_by_suite,
     flow_teacher_transition_logprobs,
+    sample_flow_timestep_indices,
     select_flow_opd_logprobs,
     select_opd_metric_rows,
     teacher_suite_presence,
@@ -1659,10 +1661,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         assert self.rollout_batch.get("teacher_velocities", None) is None, (
             "teacher_velocities must be computed once after rollout."
         )
-        assert (
-            self.cfg.rollout.get("expert_model", None) is not None
-            or self.cfg.rollout.get("expert_models", None)
-        ), (
+        assert self.cfg.rollout.get(
+            "expert_model", None
+        ) is not None or self.cfg.rollout.get("expert_models", None), (
             "velocity distillation requires a teacher: rollout.expert_model for a single "
             "teacher, or rollout.expert_models for routed multi-teacher OPD."
         )
@@ -1690,7 +1691,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         flat_forward_inputs = flatten_nested_tensor_time_batch(
             forward_inputs, ("forward_inputs",)
         )
-        flat_chains = flat_forward_inputs["chains"]  # [flat, num_steps + 1, horizon, dim]
+        flat_chains = flat_forward_inputs[
+            "chains"
+        ]  # [flat, num_steps + 1, horizon, dim]
 
         # Which denoise step to supervise. Index k in [0, num_steps) pairs chains[k] with
         # timesteps[k], matching the model's own NFT convention
@@ -1706,9 +1709,14 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # control, differing only in analytic-vs-sampled. A pure ODE rollout has no
         # distinguished step, so draw one uniformly per sample instead.
         if joint_logprob:
-            g = torch.Generator()
-            g.manual_seed(self.cfg.actor.seed + self._rank)
-            step_idx = torch.randint(0, num_steps, (flat_batch_size,), generator=g)
+            self._timestep_draw_count = getattr(self, "_timestep_draw_count", 0) + 1
+            step_idx = sample_flow_timestep_indices(
+                flat_batch_size,
+                num_steps,
+                seed=self.cfg.actor.seed,
+                rank=self._rank,
+                draw_count=self._timestep_draw_count,
+            )
         else:
             step_idx = flat_forward_inputs["denoise_inds"][:, 0].cpu().long()
             assert step_idx.shape[0] == flat_batch_size, (
@@ -1738,6 +1746,35 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # be reshaped along with them.
         sample_idx = self._suite_balanced_sample(flat_batch_size, time_dim, batch_dim)
         self._sample_idx = sample_idx
+
+        teacher_ids = flat_forward_inputs.get("teacher_ids", None)
+        teacher_names = self._teacher_names()
+        timestep_counts = count_flow_timesteps_by_suite(
+            step_idx,
+            num_steps,
+            teacher_ids=teacher_ids,
+            sample_idx=sample_idx,
+            num_teachers=len(teacher_names) if teacher_ids is not None else None,
+        )
+        if torch.distributed.is_initialized():
+            device = Worker.torch_platform.current_device()
+            device_counts = timestep_counts.to(device)
+            torch.distributed.all_reduce(
+                device_counts, op=torch.distributed.ReduceOp.SUM
+            )
+            timestep_counts = device_counts.cpu()
+        labels = teacher_names if teacher_ids is not None else ["all"]
+        assert len(labels) == timestep_counts.shape[0], (
+            f"Have {len(labels)} suite labels for {timestep_counts.shape[0]} "
+            "timestep-count rows."
+        )
+        count_summary = {
+            label: counts.tolist()
+            for label, counts in zip(labels, timestep_counts, strict=True)
+        }
+        self.log_info(
+            f"Flow supervision counts by suite and denoise step: {count_summary}."
+        )
 
         if sample_idx is None:
             teacher_velocities = self._teacher_velocity_pass(
@@ -1819,6 +1856,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         moved to the GPU, run over its own partition, and moved back -- so peak GPU memory
         matches the single-teacher case however many teachers are configured.
         """
+
         def _run(model, inputs: dict[str, torch.Tensor], size: int) -> torch.Tensor:
             # Chunk count must come from this call's own size, not from the whole batch:
             # the routed path calls _run once per suite on a partition, and
@@ -1953,9 +1991,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         return select_flow_opd_logprobs(
             prev,
             step_idx,
-            joint_logprob=bool(
-                self.cfg.actor.model.rl_head_config.joint_logprob
-            ),
+            joint_logprob=bool(self.cfg.actor.model.rl_head_config.joint_logprob),
         )
 
     def _teacher_transition_logprobs(
