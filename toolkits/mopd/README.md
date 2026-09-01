@@ -55,3 +55,20 @@ as a lighter approximation. The probe accumulates the expected uniform-timestep 
 gradient separately for each suite, copies the gradients to CPU, and reports their norms,
 pairwise cosine, and `||sum g|| / sum ||g||` cancellation ratio. It never calls
 `optimizer.step()`.
+
+For Method 4, isolate sampled reverse-KL variance from transition or routing errors:
+
+```bash
+MUJOCO_GL=egl PYTHONPATH="$PWD" \
+  /localscratch2/liyifa11/venvs/gr00t_robocasa365/bin/python \
+  toolkits/mopd/probe_m4.py \
+  --output outputs/mopd/m4_probe.json
+```
+
+The M4 probe uses the same fixed resets, forces each denoise timestep in turn, and reports
+action drift plus conditional reward bias/variance at several Flow-SDE noise levels. It
+then runs real single-rank FSDP backwards to compare finite-sample M4 gradients with the
+analytic M3-Hybrid local-KL gradient at exactly the same states, including per-suite
+signal-to-noise and multi-teacher gradient geometry. It never steps an environment,
+constructs an optimizer, or changes model weights. Use `--skip-gradients` for the cheaper
+reward/action-only part.
