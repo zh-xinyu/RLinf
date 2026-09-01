@@ -687,6 +687,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         return {"v_theta": v_theta, "x_t": x_t, "timesteps": idx}
 
     @torch.no_grad()
+    @torch.no_grad()
     def predict_action_batch(
         self,
         env_obs,
@@ -717,21 +718,34 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
             if normalized_input[key].dtype == torch.float32:
                 normalized_input[key] = normalized_input[key].to(torch.bfloat16)
 
-        normalized_input["eagle_input_ids"] = torch.nn.functional.pad(
-            normalized_input["eagle_input_ids"],
-            pad=(0, self.padding_value - normalized_input["eagle_input_ids"].shape[-1]),
-            mode="constant",
-            value=0,
-        )
-        normalized_input["eagle_attention_mask"] = torch.nn.functional.pad(
-            normalized_input["eagle_attention_mask"],
-            pad=(
-                0,
-                self.padding_value - normalized_input["eagle_attention_mask"].shape[-1],
-            ),
-            mode="constant",
-            value=0,
-        )
+        # RoboCasa365: no fixed-length padding. GR00T carries no mask on this path --
+        # process_backbone_output runs vlln + vl_self_attention over the whole sequence and
+        # the DiT's cross-attention has `encoder_attention_mask` commented out -- so padded
+        # positions contaminate the real tokens and are then cross-attended. Measured:
+        # padding alone moves the first action dimension from -0.0070 to -0.0746 and takes
+        # success_once from 0.88 to 0.00. The processor already pads to the longest prompt
+        # in the batch, which is what the reference implementation relies on.
+        if self.obs_convert_fn is not OBS_CONVERSION["robocasa365"]:
+            normalized_input["eagle_input_ids"] = torch.nn.functional.pad(
+                normalized_input["eagle_input_ids"],
+                pad=(
+                    0,
+                    self.padding_value
+                    - normalized_input["eagle_input_ids"].shape[-1],
+                ),
+                mode="constant",
+                value=0,
+            )
+            normalized_input["eagle_attention_mask"] = torch.nn.functional.pad(
+                normalized_input["eagle_attention_mask"],
+                pad=(
+                    0,
+                    self.padding_value
+                    - normalized_input["eagle_attention_mask"].shape[-1],
+                ),
+                mode="constant",
+                value=0,
+            )
 
         normalized_action, result = self._get_rl_action(normalized_input, mode=mode)
         unnormalized_action = self._get_unnormalized_action(normalized_action)

@@ -230,6 +230,7 @@ def convert_robocasa_obs_to_gr00t_format(env_obs):
     # [B, H, W, C] -> [B, T, H, W, C]
     groot_obs["video.robot0_agentview_left"] = env_obs["main_images"].unsqueeze(1).numpy()
     groot_obs["video.robot0_eye_in_hand"] = env_obs["wrist_images"].unsqueeze(1).numpy()
+    # (concat order is the data config's video_keys, not this insertion order)
     extra = env_obs.get("extra_view_images", None)
     assert extra is not None, (
         "RoboCasa365 GR00T needs a third camera (robot0_agentview_right); configure it "
@@ -250,7 +251,8 @@ def convert_robocasa_obs_to_gr00t_format(env_obs):
     for key, start, stop in ROBOCASA_STATE_SLICES:
         groot_obs[key] = states[:, :, start:stop].numpy()
 
-    groot_obs["annotation.human.action.task_description"] = env_obs["task_descriptions"]
+    # Must match RoboCasaPandaOmronDataConfig.language_keys.
+    groot_obs["annotation.human.task_description"] = env_obs["task_descriptions"]
     return groot_obs
 
 

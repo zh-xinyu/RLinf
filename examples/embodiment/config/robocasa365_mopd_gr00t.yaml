@@ -99,8 +99,8 @@ env:
     auto_reset: False           # required so preprocess_embodied_batch builds loss_mask
     ignore_terminations: False
     episode_horizon_source: max_episode_steps
-    max_episode_steps: 300      # training only needs on-policy states, not completions
-    max_steps_per_rollout_epoch: 300
+    max_episode_steps: 320      # training only needs on-policy states, not completions;
+    max_steps_per_rollout_epoch: 320   # 320 = 20 policy steps x 16 executed actions
     reward_coef: ${algorithm.reward_coef}
     group_size: ${algorithm.group_size}
     init_params:
@@ -181,7 +181,7 @@ actor:
   group_name: "ActorGroup"
   training_backend: "fsdp"
   micro_batch_size: 8
-  global_batch_size: 3840   # (300/5) * 64 = one update per rollout
+  global_batch_size: 1280   # (320/16) * 64 = one update per rollout
   seed: 0
   enable_offload: True
 
@@ -189,7 +189,11 @@ actor:
     model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/pretraining/checkpoint-80000"   # student init
     model_type: "gr00t"
     action_dim: 12
-    num_action_chunks: 5
+    # The official evaluation executes the model's full 16-step action horizon
+    # (run_phase2_paired_eval.sh: --n_action_steps 16), which is also
+    # len(action_indices) in the data config. Emitting only the first few changes the
+    # control regime entirely.
+    num_action_chunks: 16
     denoising_steps: 4
     add_value_head: False       # no critic / value head for velocity distillation
     obs_converter_type: "robocasa365"

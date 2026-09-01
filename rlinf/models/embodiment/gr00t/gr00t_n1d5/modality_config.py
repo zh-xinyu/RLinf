@@ -180,27 +180,38 @@ class LiberoFrankaDataConfig(BaseDataConfig):
 class RoboCasaPandaOmronDataConfig(BaseDataConfig):
     """Modality config for RoboCasa365 with the Panda + Omron mobile base.
 
-    Keys and shapes are read off the released RoboCasa365 GR00T N1.5 checkpoints
-    (``experiment_cfg/metadata.json``): three 256x256 cameras, a 16-d state split into
-    five groups, and a 12-d action split into five groups.
+    Ported from ``gr00t.experiment.data_config.SinglePandaGripperDataConfig``, which ships
+    with Isaac-GR00T n1.5-release and is the config the released RoboCasa365 checkpoints
+    were trained with. Only the video key *names* differ: RoboCasa365 records
+    ``robot0_agentview_left / robot0_agentview_right / robot0_eye_in_hand`` where the
+    upstream config says ``left_view / right_view / wrist_view``. Everything else -- key
+    order, rotation targets, normalization modes -- is copied verbatim, because each of
+    them silently changes what the model is fed:
 
-    ``action_concat_order`` deliberately differs from ``action_keys``: it is the layout
-    the RoboCasa environment expects, ``[eef_pos(3), eef_rot(3), gripper(1),
-    base_motion(4), control_mode(1)]``, which is what ``base_mode_index: 11`` in the env
-    config refers to.
+    - the **state concat order** puts the end effector first and the base last;
+    - the two quaternion state keys are converted to ``rotation_6d`` (so the state the
+      encoder sees is 20-d, not the 16-d raw layout in ``metadata.json``);
+    - ``gripper_close`` and ``control_mode`` are ``binary``, not ``min_max``.
+
+    Actions get normalization but no rotation target, so ``action.end_effector_rotation``
+    stays axis-angle and the emitted action is 12-d.
     """
 
+    # Order and names taken from robocasa's own GR00T wrapper
+    # (robocasa/wrappers/gym_wrapper.py: camera_names, 256x256), which is what the
+    # validated official evaluation feeds the model. metadata.json lists the cameras in a
+    # different order; that order is the dataset's, not the concat order.
     video_keys = [
         "video.robot0_agentview_left",
-        "video.robot0_eye_in_hand",
         "video.robot0_agentview_right",
+        "video.robot0_eye_in_hand",
     ]
     state_keys = [
-        "state.base_position",
-        "state.base_rotation",
         "state.end_effector_position_relative",
         "state.end_effector_rotation_relative",
         "state.gripper_qpos",
+        "state.base_position",
+        "state.base_rotation",
     ]
     action_keys = [
         "action.end_effector_position",
@@ -209,9 +220,33 @@ class RoboCasaPandaOmronDataConfig(BaseDataConfig):
         "action.base_motion",
         "action.control_mode",
     ]
-    language_keys = ["annotation.human.action.task_description"]
+    # RoboCasa365 uses "annotation.human.task_description" -- NOT the
+    # "annotation.human.action.task_description" that NVIDIA's SinglePandaGripper config
+    # (and LIBERO/ManiSkill here) use. Getting this wrong does not raise: the model simply
+    # receives no task instruction and acts blindly, which is what a 0/16 specialist looks
+    # like. Source: robocasa-benchmark/Isaac-GR00T PandaOmronDataConfig.
+    language_keys = ["annotation.human.task_description"]
     observation_indices = [0]
     action_indices = list(range(16))
+
+    state_normalization_modes = {
+        "state.end_effector_position_relative": "min_max",
+        "state.end_effector_rotation_relative": "min_max",
+        "state.gripper_qpos": "min_max",
+        "state.base_position": "min_max",
+        "state.base_rotation": "min_max",
+    }
+    state_target_rotations = {
+        "state.end_effector_rotation_relative": "rotation_6d",
+        "state.base_rotation": "rotation_6d",
+    }
+    action_normalization_modes = {
+        "action.end_effector_position": "min_max",
+        "action.end_effector_rotation": "min_max",
+        "action.gripper_close": "binary",
+        "action.base_motion": "min_max",
+        "action.control_mode": "binary",
+    }
 
     def transform(self) -> ModalityTransform:
         transforms = [
@@ -233,13 +268,14 @@ class RoboCasaPandaOmronDataConfig(BaseDataConfig):
             StateActionToTensor(apply_to=self.state_keys),
             StateActionTransform(
                 apply_to=self.state_keys,
-                normalization_modes=dict.fromkeys(self.state_keys, "min_max"),
+                normalization_modes=self.state_normalization_modes,
+                target_rotations=self.state_target_rotations,
             ),
             # action transforms
             StateActionToTensor(apply_to=self.action_keys),
             StateActionTransform(
                 apply_to=self.action_keys,
-                normalization_modes=dict.fromkeys(self.action_keys, "min_max"),
+                normalization_modes=self.action_normalization_modes,
             ),
             # concat transforms
             ConcatTransform(

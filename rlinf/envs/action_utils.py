@@ -202,26 +202,29 @@ def prepare_actions_for_robocasa(
                     f"but got {actions_env.shape[-1]}D from slice "
                     f"{openpi_valid_action_slice}. raw shape={raw_chunk_actions.shape}"
                 )
+        else:
+            actions_env = (
+                raw_chunk_actions[..., :env_action_dim].copy().astype(np.float32)
+            )
 
-            if binarize_gripper_control and env_action_dim >= 12:
-                actions_env[..., 6] = np.where(actions_env[..., 6] < 0.5, -1.0, 1.0)
-                actions_env[..., 11] = np.where(actions_env[..., 11] < 0.5, -1.0, 1.0)
+        # These two are properties of RoboCasa's action schema, not of the model that
+        # produced the action, so they apply on every path. RoboCasa's own wrapper
+        # (robocasa/wrappers/gym_wrapper.py::PandaOmronKeyConverter.unmap_action) does
+        # exactly this: `-1.0 if x < 0.5 else 1.0` for the gripper and the base mode.
+        # Policies whose action head normalises those channels as "binary" emit values in
+        # {0, 1}, while robosuite expects {-1, +1} -- passing them through leaves the
+        # gripper unable to open and the mobile base in the wrong control mode.
+        if binarize_gripper_control and env_action_dim >= 12:
+            actions_env[..., 6] = np.where(actions_env[..., 6] < 0.5, -1.0, 1.0)
+            actions_env[..., 11] = np.where(actions_env[..., 11] < 0.5, -1.0, 1.0)
 
-            if disable_base_control and env_action_dim >= 12:
-                actions_env[..., 7:10] = 0.0
-                actions_env[..., 10] = 0.0
-                if 0 <= base_mode_index < env_action_dim:
-                    actions_env[..., base_mode_index] = -1.0
-
-            return actions_env
-
-        chunk_actions = raw_chunk_actions[..., :env_action_dim].copy()
         if disable_base_control and env_action_dim >= 12:
-            chunk_actions[..., 7:10] = 0.0
-            chunk_actions[..., 10] = 0.0
+            actions_env[..., 7:10] = 0.0
+            actions_env[..., 10] = 0.0
             if 0 <= base_mode_index < env_action_dim:
-                chunk_actions[..., base_mode_index] = -1.0
-        return chunk_actions
+                actions_env[..., base_mode_index] = -1.0
+
+        return actions_env
 
     # raw_chunk_actions shape: [num_chunks, 32]
     # Extract first action_dim (<=12) dimensions as valid action chunks
