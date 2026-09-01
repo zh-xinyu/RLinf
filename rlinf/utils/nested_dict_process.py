@@ -148,6 +148,40 @@ def concat_batch(data1, data2):
     return batch
 
 
+def _pad_ragged_last_dim(key: str, tensors: list) -> list:
+    """Right-pad a prompt field whose length varies between rollout steps.
+
+    Tokenised prompts are the one field here that is not a fixed shape: the eagle processor
+    pads a batch to its own longest prompt, so a step whose envs drew shorter task
+    descriptions yields a shorter tensor than the next. Stacking across steps then fails
+    with e.g. "got [24, 825] at entry 0 and [24, 826] at entry 66" -- which is what
+    env.train.rollout_epoch > 1 hits, because envs resample tasks between epochs.
+
+    Padding to the longest stored step preserves the accompanying attention mask and is
+    limited to the difference between real batch maxima, typically one token. This is not
+    the old fixed-length padding to 1024, which introduced hundreds of unused positions.
+    The model-level effect of even this narrow padding must still be checked separately for
+    architectures that do not consume the attention mask throughout the action head.
+
+    Only the eagle prompt fields are padded. Any other ragged tensor is left alone so the
+    stack still raises rather than being silently reshaped.
+    """
+    if len(tensors) < 2 or not isinstance(tensors[0], torch.Tensor):
+        return tensors
+    if key not in ("eagle_input_ids", "eagle_attention_mask"):
+        return tensors
+    sizes = {t.shape[-1] for t in tensors}
+    if len(sizes) == 1:
+        return tensors
+    target = max(sizes)
+    return [
+        t
+        if t.shape[-1] == target
+        else torch.nn.functional.pad(t, (0, target - t.shape[-1]), value=0)
+        for t in tensors
+    ]
+
+
 def stack_list_of_dict_tensor(list_of_dict: list, dim=0):
     if len(list_of_dict) == 0:
         return {}
@@ -158,6 +192,7 @@ def stack_list_of_dict_tensor(list_of_dict: list, dim=0):
         _v0 = list_of_dict[0][key]
         if isinstance(_v0, torch.Tensor):
             v_list = [d[key] for d in list_of_dict]
+            v_list = _pad_ragged_last_dim(key, v_list)
             ret[key] = torch.stack(v_list, dim=dim)
         elif isinstance(_v0, dict):
             v_list = [d[key] for d in list_of_dict]

@@ -31,6 +31,7 @@ from rlinf.algorithms.flow_opd import (
     flow_teacher_transition_logprobs,
     select_flow_opd_logprobs,
     select_opd_metric_rows,
+    teacher_suite_presence,
 )
 from rlinf.algorithms.losses import flow_sde_kl_weights
 from rlinf.algorithms.registry import (
@@ -1582,7 +1583,29 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         )
 
         target = int(self.cfg.actor.global_batch_size) // self._world_size
-        suites = sorted(set(teacher_ids.tolist()))
+        # A per-rank quota is globally balanced only if every participating rank holds
+        # every suite. Deriving this list from local ids made a missing suite invisible:
+        # that suite was absent from both the loop and the assertion. Gather the union of
+        # suites produced across ranks, then require each rank to cover that union.
+        names = self._teacher_names()
+        expected = teacher_suite_presence(teacher_ids, len(names))
+        if torch.distributed.is_initialized():
+            device = Worker.torch_platform.current_device()
+            flags = expected.to(device)
+            torch.distributed.all_reduce(flags, op=torch.distributed.ReduceOp.MAX)
+            expected = flags.cpu()
+        suites = torch.nonzero(expected, as_tuple=False).reshape(-1).tolist()
+
+        present = set(teacher_ids.tolist())
+        missing = [names[i] for i in suites if i not in present]
+        assert not missing, (
+            f"rank {self._rank} holds no samples for suite(s) {missing}, which other "
+            "ranks do produce. The quota is drawn per rank, so an unbalanced split makes "
+            "the global weighting the mean of the per-rank ones while every local log "
+            "line still reads as balanced. Raise total_num_envs, change task placement, "
+            "or turn algorithm.suite_balanced_sampling off and accept natural horizon "
+            "weighting."
+        )
         # A fresh draw every step. Seeding on rank alone would redraw the same indices
         # forever, which no metric would reveal.
         self._sample_draw_count = getattr(self, "_sample_draw_count", 0) + 1

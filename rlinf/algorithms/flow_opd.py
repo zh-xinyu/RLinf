@@ -54,6 +54,22 @@ def build_flat_valid_transition_mask(
     return valid
 
 
+def teacher_suite_presence(
+    teacher_ids: torch.Tensor, num_teachers: int
+) -> torch.Tensor:
+    """Return a Boolean presence vector for routed teacher indices."""
+    ids = teacher_ids.reshape(-1).cpu().long()
+    assert num_teachers > 0, "At least one routed teacher must be configured."
+    assert ids.numel() > 0, "A routed rollout must contain teacher ids."
+    assert int(ids.min()) >= 0 and int(ids.max()) < num_teachers, (
+        f"teacher ids must be in [0, {num_teachers}), got "
+        f"[{int(ids.min())}, {int(ids.max())}]."
+    )
+    present = torch.zeros(num_teachers, dtype=torch.bool)
+    present[torch.unique(ids)] = True
+    return present
+
+
 def select_flow_opd_logprobs(
     prev_logprobs: torch.Tensor,
     step_idx: torch.Tensor,

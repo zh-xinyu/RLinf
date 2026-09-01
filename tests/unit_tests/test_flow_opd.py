@@ -21,6 +21,7 @@ from rlinf.algorithms.flow_opd import (
     flow_teacher_transition_logprobs,
     select_flow_opd_logprobs,
     select_opd_metric_rows,
+    teacher_suite_presence,
 )
 
 
@@ -58,6 +59,14 @@ def test_build_flat_valid_transition_mask_drops_trailing_state():
     torch.testing.assert_close(
         valid, torch.tensor([True, False, True, True, False, False])
     )
+
+
+def test_teacher_suite_presence_preserves_missing_configured_suite():
+    local = teacher_suite_presence(torch.tensor([0, 0, 2]), num_teachers=3)
+    other_rank = teacher_suite_presence(torch.tensor([1, 1]), num_teachers=3)
+
+    torch.testing.assert_close(local, torch.tensor([True, False, True]))
+    torch.testing.assert_close(local | other_rank, torch.tensor([True, True, True]))
 
 
 def test_select_opd_metric_rows_matches_sampled_training_distribution():
