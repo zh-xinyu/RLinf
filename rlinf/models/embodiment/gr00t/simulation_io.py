@@ -208,16 +208,83 @@ def convert_to_isaaclab_stack_cube_action(
     return action_array
 
 
+# RoboCasa365 state layout, in the order the GR00T N1.5 checkpoints expect. The env's
+# `observation.state_layout` must produce exactly this concatenation (16 dims total).
+ROBOCASA_STATE_SLICES = (
+    ("state.base_position", 0, 3),
+    ("state.base_rotation", 3, 7),
+    ("state.end_effector_position_relative", 7, 10),
+    ("state.end_effector_rotation_relative", 10, 14),
+    ("state.gripper_qpos", 14, 16),
+)
+
+
+def convert_robocasa_obs_to_gr00t_format(env_obs):
+    """Convert a RoboCasa365 observation to the GR00T N1.5 modality dict.
+
+    Three cameras, mapped from the env's generic image slots:
+    ``main_images`` -> agentview_left, ``wrist_images`` -> eye_in_hand,
+    ``extra_view_images[0]`` -> agentview_right.
+    """
+    groot_obs = {}
+    # [B, H, W, C] -> [B, T, H, W, C]
+    groot_obs["video.robot0_agentview_left"] = env_obs["main_images"].unsqueeze(1).numpy()
+    groot_obs["video.robot0_eye_in_hand"] = env_obs["wrist_images"].unsqueeze(1).numpy()
+    extra = env_obs.get("extra_view_images", None)
+    assert extra is not None, (
+        "RoboCasa365 GR00T needs a third camera (robot0_agentview_right); configure it "
+        "as the env's extra view."
+    )
+    if extra.ndim == 5:
+        # [B, V, H, W, C] -> take the first extra view
+        extra = extra[:, 0]
+    groot_obs["video.robot0_agentview_right"] = extra.unsqueeze(1).numpy()
+
+    states = env_obs["states"]
+    assert states.shape[-1] == 16, (
+        f"RoboCasa365 GR00T expects a 16-d state, got {states.shape[-1]}. Set the env's "
+        "observation.state_layout to [base_pos, base_quat, base_to_eef_pos, "
+        "base_to_eef_quat, gripper_qpos]."
+    )
+    states = states.unsqueeze(1)  # [B, T(1), 16]
+    for key, start, stop in ROBOCASA_STATE_SLICES:
+        groot_obs[key] = states[:, :, start:stop].numpy()
+
+    groot_obs["annotation.human.action.task_description"] = env_obs["task_descriptions"]
+    return groot_obs
+
+
+def convert_to_robocasa_action(
+    action_chunk: dict[str, np.array], chunk_size: int = 16
+) -> np.ndarray:
+    """Concatenate GR00T action groups into the 12-d vector RoboCasa expects.
+
+    Order is ``[eef_pos(3), eef_rot(3), gripper(1), base_motion(4), control_mode(1)]``,
+    which is what the env config's ``base_mode_index: 11`` indexes into.
+    """
+    parts = [
+        action_chunk["action.end_effector_position"],
+        action_chunk["action.end_effector_rotation"],
+        action_chunk["action.gripper_close"],
+        action_chunk["action.base_motion"],
+        action_chunk["action.control_mode"],
+    ]
+    parts = [np.asarray(part)[:, :chunk_size] for part in parts]
+    return np.concatenate(parts, axis=-1)
+
+
 OBS_CONVERSION = {
     "maniskill": convert_maniskill_obs_to_gr00t_format,
     "libero": convert_libero_obs_to_gr00t_format,
     "isaaclab_stack_cube": convert_libero_obs_to_gr00t_format,
+    "robocasa365": convert_robocasa_obs_to_gr00t_format,
 }
 
 ACTION_CONVERSION_N1D5 = {
     "libero": convert_to_libero_action_n1d5,
     "maniskill": convert_to_maniskill_action,
     "isaaclab_stack_cube": convert_to_isaaclab_stack_cube_action,
+    "robocasa365": convert_to_robocasa_action,
 }
 
 ACTION_CONVERSION_N1D6 = {

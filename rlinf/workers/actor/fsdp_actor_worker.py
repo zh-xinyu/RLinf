@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import math
 import time
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from torch import nn
 from torch.distributed.tensor import DTensor
 from torch.multiprocessing.reductions import reduce_tensor
@@ -1099,6 +1100,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         self.stage_num = cfg.rollout.pipeline_stage_num
         self.enable_offload = self.cfg.actor.get("enable_offload", False)
         self._opd_teacher_model = None
+        self._routed_teacher_models: dict[str, Any] = {}
         self.entropy_op_type = self.cfg.algorithm.get("entropy_op_type", "torch")
 
         self.enable_sft_co_train = cfg.actor.get("enable_sft_co_train", False)
@@ -1444,6 +1446,57 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self._opd_teacher_model = teacher_model
         return self._opd_teacher_model
 
+    def _velocity_distill_flow_spec(self):
+        """Flow conventions the velocity-distillation code needs, per model family.
+
+        Returns ``(num_steps, joint_logprob, timestep_values)`` where ``timestep_values[k]``
+        is what the model's NFT forward expects as the timestep for ``chains[k]``.
+        OpenPI runs continuous tau from 1 (noise) down to 1/num_steps; GR00T takes the
+        integer denoise index and converts internally, with time running the other way
+        (0 = noise, 1 = data). Both index ``chains`` identically, so only this mapping and
+        the config key names differ.
+        """
+        model_type = SupportedModel(self.cfg.actor.model.model_type)
+        if model_type in [SupportedModel.OPENPI]:
+            num_steps = int(self.cfg.actor.model.num_steps)
+            joint_logprob = bool(self.cfg.actor.model.openpi.joint_logprob)
+            timestep_values = torch.linspace(1.0, 1.0 / num_steps, num_steps)
+        elif model_type in [SupportedModel.GR00T]:
+            num_steps = int(self.cfg.actor.model.denoising_steps)
+            joint_logprob = bool(self.cfg.actor.model.rl_head_config.joint_logprob)
+            timestep_values = torch.arange(num_steps, dtype=torch.float32)
+        else:
+            raise NotImplementedError(
+                f"velocity distillation does not support {model_type} yet."
+            )
+        return num_steps, joint_logprob, timestep_values
+
+    def _teacher_names(self) -> list[str]:
+        """Configured teachers, in the order the rollout worker indexed them."""
+        expert_models = self.cfg.rollout.get("expert_models", None)
+        return list(expert_models.keys()) if expert_models else []
+
+    def _get_routed_teacher_model(self, name: str):
+        """Load (and cache on CPU) the teacher a task group routes to.
+
+        Teachers stay resident in host memory and are moved to the GPU one at a time --
+        reloading ~8GB of weights from the shared filesystem on every training step would
+        dominate the step time, while three cached teachers cost ~23GB of host RAM per rank.
+        """
+        if name not in self._routed_teacher_models:
+            overrides = self.cfg.rollout.expert_models[name]
+            teacher_model_config = copy.deepcopy(self.cfg.actor.model)
+            with open_dict(teacher_model_config):
+                for key, value in overrides.items():
+                    teacher_model_config[key] = value
+            teacher_model = get_model(teacher_model_config)
+            teacher_model.eval()
+            teacher_model.requires_grad_(False)
+            teacher_model.to("cpu")
+            self._routed_teacher_models[name] = teacher_model
+            self.log_info(f"Loaded routed OPD teacher {name!r}.")
+        return self._routed_teacher_models[name]
+
     @Worker.timer("actor/compute_teacher_velocities")
     def compute_teacher_velocities(self) -> None:
         """Method 1 (velocity distillation): compute the frozen teacher velocity
@@ -1457,22 +1510,28 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         assert self.rollout_batch.get("teacher_velocities", None) is None, (
             "teacher_velocities must be computed once after rollout."
         )
-        assert self.cfg.rollout.get("expert_model", None) is not None, (
-            "velocity distillation requires rollout.expert_model as the teacher config."
+        assert (
+            self.cfg.rollout.get("expert_model", None) is not None
+            or self.cfg.rollout.get("expert_models", None)
+        ), (
+            "velocity distillation requires a teacher: rollout.expert_model for a single "
+            "teacher, or rollout.expert_models for routed multi-teacher OPD."
         )
         assert "forward_inputs" in self.rollout_batch, (
             "velocity distillation requires rollout forward_inputs (chains + obs)."
         )
         assert SupportedModel(self.cfg.actor.model.model_type) in [
-            SupportedModel.OPENPI
-        ], "velocity distillation currently supports OpenPI models."
+            SupportedModel.OPENPI,
+            SupportedModel.GR00T,
+        ], "velocity distillation currently supports OpenPI and GR00T N1.5 models."
 
+        num_steps, joint_logprob, timestep_values = self._velocity_distill_flow_spec()
         forward_inputs = self.rollout_batch["forward_inputs"]
         # chains stores the initial noise plus one state per denoise step, so its step
-        # axis is num_steps + 1 (see openpi_action_model._sample_actions_with_prefix_cache).
+        # axis is num_steps + 1 (openpi_action_model._sample_actions_with_prefix_cache;
+        # gr00t_action_model.get_rl_action seeds `chains` with the initial noise too).
         chains = forward_inputs["chains"]  # [T, B, num_steps + 1, horizon, dim]
         time_dim, batch_dim = chains.shape[0], chains.shape[1]
-        num_steps = self.cfg.actor.model.num_steps
         assert chains.shape[2] == num_steps + 1, (
             f"chains step axis {chains.shape[2]} must be num_steps + 1 "
             f"({num_steps} + 1); the flow timestep convention depends on it."
@@ -1497,7 +1556,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # the rollout's prev_logprobs scores. Supervising there makes M3-Hybrid M4's
         # control, differing only in analytic-vs-sampled. A pure ODE rollout has no
         # distinguished step, so draw one uniformly per sample instead.
-        if self.cfg.actor.model.openpi.joint_logprob:
+        if joint_logprob:
             g = torch.Generator()
             g.manual_seed(self.cfg.actor.seed + self._rank)
             step_idx = torch.randint(0, num_steps, (flat_batch_size,), generator=g)
@@ -1514,36 +1573,17 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             )
         arange = torch.arange(flat_batch_size)
         x_t = flat_chains[arange, step_idx].contiguous()  # [flat, horizon, dim]
-        # timestep schedule matches model._get_timesteps (drop the appended 0.0).
-        timesteps = torch.linspace(1.0, 1.0 / num_steps, num_steps)
-        tau = timesteps[step_idx].contiguous()  # [flat]
+        # What the model's NFT forward wants as "the timestep" for chains[k]; see
+        # _velocity_distill_flow_spec.
+        tau = timestep_values[step_idx].contiguous()  # [flat]
 
         # Carry x_t / tau through the same micro-batch split as the obs.
         flat_forward_inputs["_nft_x_t"] = x_t
         flat_forward_inputs["_nft_tau"] = tau
 
-        teacher_model = self._get_opd_teacher_model()
-        teacher_model.to(self.device)
-        num_chunks = (
-            flat_batch_size + self.cfg.actor.micro_batch_size - 1
-        ) // self.cfg.actor.micro_batch_size
-        teacher_velocities = []
-        with torch.no_grad():
-            for micro_batch in split_dict_to_chunk(flat_forward_inputs, num_chunks):
-                micro_batch = put_tensor_device(micro_batch, self.device)
-                nft_inputs = {
-                    "x_t": micro_batch["_nft_x_t"],
-                    "timesteps": micro_batch["_nft_tau"],
-                }
-                with self.amp_context:
-                    out = teacher_model(
-                        forward_type=ForwardType.NFT,
-                        forward_inputs=micro_batch,
-                        nft_inputs=nft_inputs,
-                        compute_values=False,
-                    )
-                teacher_velocities.append(out["v_theta"].detach().cpu())
-        teacher_velocities = torch.cat(teacher_velocities, dim=0)  # [flat, chunk, dim]
+        teacher_velocities = self._teacher_velocity_pass(
+            flat_forward_inputs, flat_batch_size
+        )  # [flat, chunk, dim]
 
         self.rollout_batch["teacher_velocities"] = teacher_velocities.reshape(
             time_dim, batch_dim, *teacher_velocities.shape[1:]
@@ -1552,6 +1592,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         self.rollout_batch["nft_timesteps"] = tau.reshape(time_dim, batch_dim)
 
         if self.cfg.algorithm.loss_type == "analytic_local_kl":
+            assert SupportedModel(self.cfg.actor.model.model_type) in [
+                SupportedModel.OPENPI
+            ], "analytic_local_kl weights are derived for OpenPI's flow transition only."
             # w(tau) for the local Flow-SDE analytic KL (M3 / M3-Hybrid). Built from the
             # closed-form flow_sde schedule even when the rollout is deterministic ODE --
             # see flow_sde_kl_weights for why.
@@ -1563,6 +1606,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self.rollout_batch["nft_kl_weight"] = kl_weight.reshape(time_dim, batch_dim)
 
         if self.cfg.algorithm.adv_type == "opd":
+            assert SupportedModel(self.cfg.actor.model.model_type) in [
+                SupportedModel.OPENPI
+            ], "sampled reverse-KL OPD is implemented for OpenPI's flow transition only."
             # M4: the teacher's log-probability of the transition the student actually
             # sampled, l_T = log N(x_{k+1}; mu_T, Sigma_k). Reuses the teacher velocities
             # computed above -- mu_T only differs from mu_S through v_T -- so M4 costs the
@@ -1578,8 +1624,87 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 batch_dim=batch_dim,
             )
 
-        teacher_model.to("cpu")
         clear_memory()
+
+    def _teacher_velocity_pass(
+        self,
+        flat_forward_inputs: dict[str, torch.Tensor],
+        flat_batch_size: int,
+    ) -> torch.Tensor:
+        """Score the frozen teacher(s) at the cached ``(x_t, tau)``.
+
+        With a single ``rollout.expert_model`` this is one pass over the batch. With
+        ``rollout.expert_models`` (routed multi-teacher OPD) the batch is partitioned by
+        the per-sample ``teacher_ids`` the rollout worker attached, and each teacher is
+        moved to the GPU, run over its own partition, and moved back -- so peak GPU memory
+        matches the single-teacher case however many teachers are configured.
+        """
+        num_chunks = (
+            flat_batch_size + self.cfg.actor.micro_batch_size - 1
+        ) // self.cfg.actor.micro_batch_size
+
+        def _run(model, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+            velocities = []
+            with torch.no_grad():
+                for micro_batch in split_dict_to_chunk(inputs, num_chunks):
+                    micro_batch = put_tensor_device(micro_batch, self.device)
+                    nft_inputs = {
+                        "x_t": micro_batch["_nft_x_t"],
+                        "timesteps": micro_batch["_nft_tau"],
+                    }
+                    with self.amp_context:
+                        out = model(
+                            forward_type=ForwardType.NFT,
+                            forward_inputs=micro_batch,
+                            nft_inputs=nft_inputs,
+                            compute_values=False,
+                        )
+                    velocities.append(out["v_theta"].detach().cpu())
+            return torch.cat(velocities, dim=0)
+
+        teacher_names = self._teacher_names()
+        if not teacher_names:
+            teacher_model = self._get_opd_teacher_model()
+            teacher_model.to(self.device)
+            teacher_velocities = _run(teacher_model, flat_forward_inputs)
+            teacher_model.to("cpu")
+            return teacher_velocities
+
+        teacher_ids = flat_forward_inputs.get("teacher_ids", None)
+        assert teacher_ids is not None, (
+            "routed multi-teacher OPD needs per-sample teacher_ids in forward_inputs; "
+            "the rollout worker attaches them when rollout.expert_models is set."
+        )
+        teacher_ids = teacher_ids.reshape(-1).cpu().long()
+        assert teacher_ids.shape[0] == flat_batch_size, (
+            f"teacher_ids has {teacher_ids.shape[0]} entries for {flat_batch_size} samples."
+        )
+
+        teacher_velocities = None
+        counts = {}
+        for teacher_idx in sorted(set(teacher_ids.tolist())):
+            name = teacher_names[teacher_idx]
+            mask = teacher_ids == teacher_idx
+            rows = torch.nonzero(mask, as_tuple=False).reshape(-1)
+            counts[name] = int(rows.numel())
+            subset = {
+                key: value[rows] if torch.is_tensor(value) else value
+                for key, value in flat_forward_inputs.items()
+            }
+            teacher_model = self._get_routed_teacher_model(name)
+            teacher_model.to(self.device)
+            subset_velocities = _run(teacher_model, subset)
+            teacher_model.to("cpu")
+            clear_memory()
+            if teacher_velocities is None:
+                teacher_velocities = torch.zeros(
+                    (flat_batch_size, *subset_velocities.shape[1:]),
+                    dtype=subset_velocities.dtype,
+                )
+            teacher_velocities[rows] = subset_velocities
+
+        self.log_info(f"Routed teacher velocities over {counts}.")
+        return teacher_velocities
 
     def _teacher_transition_logprobs(
         self,

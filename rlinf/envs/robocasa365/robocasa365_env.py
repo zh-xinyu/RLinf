@@ -534,6 +534,13 @@ class Robocasa365Env(gym.Env):
             "states": torch.from_numpy(extracted["state"]),
             "task_descriptions": list(self.task_descriptions),
             "task_metadata": copy.deepcopy(self.task_metadata),
+            # Flat per-env task-group label. `task_metadata` is a list of dicts and is
+            # dropped by EnvOutput.prepare_observations, which normalises observations to
+            # a fixed key set; `task_groups` is part of that contract. Routed
+            # multi-teacher distillation needs this label on the rollout side.
+            "task_groups": [
+                meta.get("task_soup") for meta in self.task_metadata
+            ],
         }
         if extracted["extra_view_images"] is not None:
             obs["extra_view_images"] = torch.from_numpy(extracted["extra_view_images"])

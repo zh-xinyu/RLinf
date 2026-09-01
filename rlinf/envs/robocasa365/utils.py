@@ -237,6 +237,10 @@ def load_robocasa365_task_specs(cfg: Any) -> list[dict[str, Any]]:
         ) from exc
 
     task_names: list[str] = []
+    # Which soup each task came from. With several soups configured the flattened
+    # task_names alone cannot say, and routed multi-teacher distillation needs a
+    # per-task soup label rather than the joined "a+b+c" fallback below.
+    task_soup_of: dict[str, str] = {}
     if task_soups:
         if split is None:
             raise ValueError(
@@ -248,7 +252,11 @@ def load_robocasa365_task_specs(cfg: Any) -> list[dict[str, Any]]:
                 split=split,
                 source=dataset_source or "human",
             )
-            task_names.extend(str(task_entry["task"]) for task_entry in entries)
+            for task_entry in entries:
+                task = str(task_entry["task"])
+                task_names.append(task)
+                # A task listed in two soups keeps the first, matching the dedupe below.
+                task_soup_of.setdefault(task, task_soup)
     else:
         task_names = [
             str(task)
@@ -271,7 +279,7 @@ def load_robocasa365_task_specs(cfg: Any) -> list[dict[str, Any]]:
             metadata = {}
 
         task_label = task_name.split("/", 1)[-1]
-        task_soup = metadata.get("task_soup")
+        task_soup = metadata.get("task_soup") or task_soup_of.get(task_name)
         if not task_soup and task_soups:
             task_soup = task_soups[0] if len(task_soups) == 1 else "+".join(task_soups)
         selected_task_mode = _guess_task_mode(task_label, task_soup, metadata)

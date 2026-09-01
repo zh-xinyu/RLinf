@@ -550,7 +550,46 @@ class MultiStepRolloutWorker(Worker):
             actions = torch.from_numpy(actions)
 
         result["expert_label_flag"] = bool(expert_label_flag)
+        self._attach_teacher_ids(env_obs, result)
         return actions, result
+
+    def _attach_teacher_ids(
+        self, env_obs: dict[str, Any], result: dict[str, Any]
+    ) -> None:
+        """Tag each sample with the teacher its task routes to (routed multi-teacher OPD).
+
+        The router is a plain mapping from a task-group label to a teacher, so the label
+        only has to survive to the actor. It travels in ``forward_inputs`` because that is
+        the one per-sample dict the actor already receives whole. The index is a position
+        in ``rollout.expert_models``, which both workers read from the same config, so the
+        two sides agree without shipping the names themselves.
+        """
+        expert_models = self.cfg.rollout.get("expert_models", None)
+        if not expert_models or "forward_inputs" not in result:
+            return
+
+        route_key = str(
+            self.cfg.rollout.get("teacher_router", {}).get("obs_key", "task_groups")
+        )
+        teacher_names = list(expert_models.keys())
+        labels = env_obs.get(route_key, None)
+        assert labels is not None, (
+            f"routed multi-teacher OPD needs a per-sample {route_key!r} in the "
+            f"observation; env obs has keys {sorted(env_obs.keys())}."
+        )
+
+        teacher_ids = []
+        for label in labels:
+            assert label in teacher_names, (
+                f"a task routes to {label!r}, which is not one of the configured teachers "
+                f"{teacher_names}. Every trained task must have a teacher; add one or "
+                "drop the task."
+            )
+            teacher_ids.append(teacher_names.index(label))
+
+        result["forward_inputs"]["teacher_ids"] = torch.tensor(
+            teacher_ids, dtype=torch.int64
+        )
 
     def _predict_rollout_actions(
         self,

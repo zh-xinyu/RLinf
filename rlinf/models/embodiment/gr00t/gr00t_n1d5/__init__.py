@@ -56,6 +56,12 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
             data_config = load_data_config(
                 "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:ManiskillWidowXDataConfig"
             )
+        elif cfg.embodiment_tag in ("robocasa_panda_omron", "new_embodiment"):
+            # The released RoboCasa365 checkpoints store their statistics under the
+            # reserved "new_embodiment" tag, so both spellings select this config.
+            data_config = load_data_config(
+                "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:RoboCasaPandaOmronDataConfig"
+            )
         else:
             raise ValueError(f"Invalid embodiment tag: {cfg.embodiment_tag}")
         modality_config = data_config.modality_config()

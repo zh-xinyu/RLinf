@@ -117,6 +117,14 @@ class EnvOutput:
             if "task_descriptions" in obs and obs["task_descriptions"] is not None
             else None
         )
+        # Optional per-sample task-group label (e.g. a RoboCasa task soup). Envs that do
+        # not group their tasks leave it unset; routed multi-teacher distillation uses it
+        # to pick each sample's teacher.
+        task_groups = (
+            list(obs["task_groups"])
+            if "task_groups" in obs and obs["task_groups"] is not None
+            else None
+        )
 
         return {
             "main_images": image_tensor,  # [N_ENV, H, W, C]
@@ -124,6 +132,7 @@ class EnvOutput:
             "extra_view_images": extra_view_image_tensor,  # [N_ENV, N_IMG, H, W, C]
             "states": states,
             "task_descriptions": task_descriptions,
+            "task_groups": task_groups,  # [N_ENV] of str, or None
         }
 
     @staticmethod

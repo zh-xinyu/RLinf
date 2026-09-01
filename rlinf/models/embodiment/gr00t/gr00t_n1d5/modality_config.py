@@ -175,3 +175,84 @@ class LiberoFrankaDataConfig(BaseDataConfig):
             ),
         ]
         return ComposedModalityTransform(transforms=transforms)
+
+
+class RoboCasaPandaOmronDataConfig(BaseDataConfig):
+    """Modality config for RoboCasa365 with the Panda + Omron mobile base.
+
+    Keys and shapes are read off the released RoboCasa365 GR00T N1.5 checkpoints
+    (``experiment_cfg/metadata.json``): three 256x256 cameras, a 16-d state split into
+    five groups, and a 12-d action split into five groups.
+
+    ``action_concat_order`` deliberately differs from ``action_keys``: it is the layout
+    the RoboCasa environment expects, ``[eef_pos(3), eef_rot(3), gripper(1),
+    base_motion(4), control_mode(1)]``, which is what ``base_mode_index: 11`` in the env
+    config refers to.
+    """
+
+    video_keys = [
+        "video.robot0_agentview_left",
+        "video.robot0_eye_in_hand",
+        "video.robot0_agentview_right",
+    ]
+    state_keys = [
+        "state.base_position",
+        "state.base_rotation",
+        "state.end_effector_position_relative",
+        "state.end_effector_rotation_relative",
+        "state.gripper_qpos",
+    ]
+    action_keys = [
+        "action.end_effector_position",
+        "action.end_effector_rotation",
+        "action.gripper_close",
+        "action.base_motion",
+        "action.control_mode",
+    ]
+    language_keys = ["annotation.human.action.task_description"]
+    observation_indices = [0]
+    action_indices = list(range(16))
+
+    def transform(self) -> ModalityTransform:
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=self.video_keys),
+            VideoCrop(apply_to=self.video_keys, scale=0.95),
+            VideoResize(
+                apply_to=self.video_keys, height=224, width=224, interpolation="linear"
+            ),
+            VideoColorJitter(
+                apply_to=self.video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=self.video_keys),
+            # state transforms
+            StateActionToTensor(apply_to=self.state_keys),
+            StateActionTransform(
+                apply_to=self.state_keys,
+                normalization_modes=dict.fromkeys(self.state_keys, "min_max"),
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes=dict.fromkeys(self.action_keys, "min_max"),
+            ),
+            # concat transforms
+            ConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            # model-specific transform
+            GR00TTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+        return ComposedModalityTransform(transforms=transforms)

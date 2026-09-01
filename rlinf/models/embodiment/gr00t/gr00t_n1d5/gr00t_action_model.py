@@ -98,6 +98,55 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
             log_prob = torch.where(mask, torch.zeros_like(log_prob), log_prob)
             return log_prob
 
+    def get_velocity(
+        self,
+        vl_embs: torch.Tensor,
+        x_t: torch.Tensor,
+        idx: torch.Tensor,
+        denoise_steps: int,
+        embodiment_id: torch.Tensor,
+        state_features: torch.Tensor,
+    ):
+        """Predict the flow velocity v_theta at an explicit (x_t, idx) pair.
+
+        Split out of :meth:`sample_mean_var_val` so that velocity distillation can
+        score a teacher and a student on exactly the same computation. ``idx`` is the
+        integer denoise index; GR00T's continuous time is ``idx / denoise_steps`` and
+        runs from 0 (noise) to 1 (data), the opposite of OpenPI's convention.
+
+        Returns:
+            The velocity ``v_t`` and the raw ``model_output`` (kept for the value head).
+        """
+        device = vl_embs.device
+        t_cont = idx / float(denoise_steps)
+        timesteps_tensor = (
+            (t_cont * self.num_timestep_buckets).to(torch.int64).to(device)
+        )
+        action_features = self.action_encoder(x_t, timesteps_tensor, embodiment_id)
+        # Maybe add position embedding.
+        if self.config.add_pos_embed:
+            pos_ids = torch.arange(
+                action_features.shape[1], dtype=torch.long, device=device
+            )
+            pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
+            action_features = action_features + pos_embs
+
+        # Join vision, language, state and action embedding along sequence dimension.
+        future_tokens = self.future_tokens.weight.unsqueeze(0).expand(
+            vl_embs.shape[0], -1, -1
+        )
+        sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
+
+        model_output = self.model(
+            hidden_states=sa_embs,
+            encoder_hidden_states=vl_embs,
+            timestep=timesteps_tensor,
+        )
+        model_output = model_output[:, -self.action_horizon :]
+
+        v_t = self.action_decoder(model_output, embodiment_id)
+        return v_t, model_output
+
     def sample_mean_var_val(
         self,
         vl_embs: torch.Tensor,
@@ -136,34 +185,14 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
             noise_level = torch.tensor(self.rl_config.noise_level).to(device)
 
         # velocity prediction
-        t_cont = idx / float(denoise_steps)
-        timesteps_tensor = (
-            (t_cont * self.num_timestep_buckets).to(torch.int64).to(device)
+        v_t, model_output = self.get_velocity(
+            vl_embs=vl_embs,
+            x_t=x_t,
+            idx=idx,
+            denoise_steps=denoise_steps,
+            embodiment_id=embodiment_id,
+            state_features=state_features,
         )
-        action_features = self.action_encoder(x_t, timesteps_tensor, embodiment_id)
-        # Maybe add position embedding.
-        if self.config.add_pos_embed:
-            pos_ids = torch.arange(
-                action_features.shape[1], dtype=torch.long, device=device
-            )
-            pos_embs = self.position_embedding(pos_ids).unsqueeze(0)
-            action_features = action_features + pos_embs
-
-        # Join vision, language, state and action embedding along sequence dimension.
-        future_tokens = self.future_tokens.weight.unsqueeze(0).expand(
-            vl_embs.shape[0], -1, -1
-        )
-        sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
-
-        model_output = self.model(
-            hidden_states=sa_embs,
-            encoder_hidden_states=vl_embs,
-            timestep=timesteps_tensor,
-        )
-        model_output = model_output[:, -self.action_horizon :]
-
-        # ode/sde sampling
-        v_t = self.action_decoder(model_output, embodiment_id)
 
         timesteps = torch.linspace(
             0, 1, denoise_steps + 1, device=device, dtype=vl_embs.dtype
@@ -215,6 +244,35 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         # In eval, this equals to x_t_mean = x_t + v*dt(dt>0).
         x_t_mean = x0_pred * x0_weight + x1_pred * x1_weight
         return x_t_mean, x_t_std
+
+    def get_velocity_from_backbone(
+        self,
+        backbone_output: BatchFeature,
+        action_input: BatchFeature,
+        x_t: torch.Tensor,
+        idx: torch.Tensor,
+        denoise_steps: Optional[int] = None,
+    ) -> torch.Tensor:
+        """Velocity at an explicit (x_t, idx), starting from a backbone forward.
+
+        Used by velocity distillation, where a frozen teacher and the student must be
+        scored at exactly the same flow state.
+        """
+        backbone_output = self.process_backbone_output(backbone_output)
+        vl_embs = backbone_output.backbone_features
+        embodiment_id = action_input.embodiment_id
+        state_features = self.state_encoder(action_input.state, embodiment_id)
+        if denoise_steps is None:
+            denoise_steps = self.num_inference_timesteps
+        v_t, _ = self.get_velocity(
+            vl_embs=vl_embs,
+            x_t=x_t.to(vl_embs.dtype),
+            idx=idx,
+            denoise_steps=denoise_steps,
+            embodiment_id=embodiment_id,
+            state_features=state_features,
+        )
+        return v_t
 
     def get_rl_action(
         self,
@@ -311,7 +369,9 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         log_probs = torch.stack(log_probs, dim=1)[
             :, :, : self.action_chunk, : self.valid_action_dim
         ]
-        if compute_values:
+        # Velocity distillation runs without a critic, so the value head may not exist;
+        # asking for values then is a config error, not something to crash on.
+        if compute_values and self.rl_config.add_value_head:
             values = self.get_value(vl_embs, state_features)
             values = values[:, None]
         else:
@@ -332,10 +392,22 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         self,
         backbone_output: BatchFeature,
         action_input: BatchFeature,
-        chains,
-        denoise_inds,
+        chains=None,
+        denoise_inds=None,
         compute_values=True,
+        nft_inputs=None,
     ):
+        if nft_inputs is not None:
+            # Velocity distillation. This must be reached through __call__ so that FSDP
+            # all-gathers the head's parameters: calling get_velocity_from_backbone()
+            # directly on an FSDP-wrapped head skips the hook and the first LayerNorm
+            # sees a zero-sized weight.
+            return self.get_velocity_from_backbone(
+                backbone_output=backbone_output,
+                action_input=action_input,
+                x_t=nft_inputs["x_t"],
+                idx=nft_inputs["timesteps"],
+            )
         backbone_output = self.process_backbone_output(backbone_output)
         # Get vision and language embeddings.
         vl_embs = backbone_output.backbone_features
@@ -375,7 +447,7 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
             chains_log_probs.append(log_probs)
 
         chains_log_probs = torch.stack(chains_log_probs, dim=1)
-        if compute_values:
+        if compute_values and self.rl_config.add_value_head:
             chains_values = self.get_value(vl_embs, state_features)
             chains_values = chains_values[:, None]
         else:
@@ -491,7 +563,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
 
     def eval(self):
         self._modality_transform.eval()
-        super().eval()
+        return super().eval()
 
     def _check_state_is_batched(self, obs: dict[str, Any]) -> bool:
         for k, v in obs.items():
@@ -502,6 +574,8 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
     def forward(self, forward_type=ForwardType.DEFAULT, **kwargs):
         if forward_type == ForwardType.DEFAULT:
             return self.default_forward(**kwargs)
+        elif forward_type == ForwardType.NFT:
+            return self.nft_forward(**kwargs)
         else:
             raise NotImplementedError
 
@@ -568,6 +642,49 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
             "values": value_t,
             "entropy": None,
         }
+
+    def nft_forward(
+        self,
+        forward_inputs: dict[str, torch.Tensor],
+        **kwargs,
+    ) -> dict[str, Any]:
+        """Compute velocity v_theta at an explicit (x_t, denoise index) for NFT losses.
+
+        ``kwargs["nft_inputs"]`` carries ``x_t`` (the flow state, ``[B, horizon, dim]``)
+        and ``timesteps`` (the integer denoise index ``k``, ``[B]``). The returned
+        velocity is sliced to the executed action chunk, matching how log-probs are
+        sliced elsewhere in this class.
+        """
+        normalized_input = {
+            "state": forward_inputs["state"],
+            "state_mask": forward_inputs["state_mask"],
+            "eagle_input_ids": forward_inputs["eagle_input_ids"],
+            "eagle_attention_mask": forward_inputs["eagle_attention_mask"],
+            "eagle_pixel_values": forward_inputs["eagle_pixel_values"].reshape(
+                -1, *forward_inputs["eagle_pixel_values"].shape[2:]
+            ),
+            "eagle_image_sizes": forward_inputs["eagle_image_sizes"].reshape(
+                -1, *forward_inputs["eagle_image_sizes"].shape[2:]
+            ),
+            "embodiment_id": forward_inputs["embodiment_id"],
+        }
+        backbone_inputs, action_inputs = self.prepare_input(normalized_input)
+        backbone_outputs = self.backbone(backbone_inputs)
+
+        nft_inputs = kwargs["nft_inputs"]
+        device = next(self.parameters()).device
+        x_t = nft_inputs["x_t"].to(device)
+        idx = nft_inputs["timesteps"].to(device)
+
+        v_theta = self.action_head(
+            backbone_output=backbone_outputs,
+            action_input=action_inputs,
+            nft_inputs={"x_t": x_t, "timesteps": idx},
+        )
+        v_theta = v_theta[
+            :, : self.action_head.action_chunk, : self.valid_action_dim
+        ]
+        return {"v_theta": v_theta, "x_t": x_t, "timesteps": idx}
 
     @torch.no_grad()
     def predict_action_batch(

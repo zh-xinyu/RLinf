@@ -1470,6 +1470,10 @@ install_gr00t_model() {
             install_${ENV_NAME}_env
             install_flash_attn
             ;;
+        robocasa|robocasa365)
+            install_${ENV_NAME}_env
+            install_flash_attn
+            ;;
         isaaclab)
             install_isaaclab_env
             # Torch is modified in Isaac Lab, install flash-attn afterwards
