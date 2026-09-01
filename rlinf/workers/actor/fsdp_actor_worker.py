@@ -1530,6 +1530,87 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self.log_info(f"Loaded routed OPD teacher {name!r}.")
         return self._routed_teacher_models[name]
 
+    def _suite_balanced_sample(self, flat_batch_size: int) -> Optional[torch.Tensor]:
+        """Draw a suite-balanced subset of the flat rollout, or None to use all of it.
+
+        Enabled by ``algorithm.suite_balanced_sampling``. Every task suite then contributes
+        the same number of samples to the update, so each routed teacher gets the same share
+        of the gradient regardless of how many transitions its tasks happened to produce.
+        Without it the share is set by episode length: RoboCasa's composite horizons are
+        ~3x the atomic ones, so the atomic teacher would carry ~1/8 of the weight rather
+        than 1/3.
+
+        Drawn without replacement where a suite's pool covers its quota, and with
+        replacement only for the shortfall. A shortfall on the short-horizon suite is the
+        normal case, not an edge case -- it has the smallest pool by construction.
+        Duplicates raise variance but not bias, and the pool is regenerated from fresh
+        rollouts every step.
+
+        Returns flat indices into the ``[T, B]``-major ordering that both
+        ``flatten_nested_tensor_time_batch`` and ``process_nested_dict_for_train`` use.
+        """
+        if not self.cfg.algorithm.get("suite_balanced_sampling", False):
+            return None
+
+        forward_inputs = self.rollout_batch["forward_inputs"]
+        teacher_ids = forward_inputs.get("teacher_ids", None)
+        assert teacher_ids is not None, (
+            "suite_balanced_sampling needs per-sample teacher_ids, which the rollout "
+            "worker attaches when rollout.expert_models is set."
+        )
+        teacher_ids = teacher_ids.reshape(-1).cpu().long()
+
+        # Steps past `done` carry no valid transition. loss_mask marks them; it exists
+        # whenever auto_reset and ignore_terminations are both False, which is what the
+        # velocity-distillation configs use.
+        loss_mask = self.rollout_batch.get("loss_mask", None)
+        if loss_mask is not None:
+            valid = loss_mask.reshape(flat_batch_size, -1).any(dim=-1).cpu()
+        else:
+            valid = torch.ones(flat_batch_size, dtype=torch.bool)
+
+        target = int(self.cfg.actor.global_batch_size) // self._world_size
+        suites = sorted(set(teacher_ids.tolist()))
+        # A fresh draw every step. Seeding on rank alone would redraw the same indices
+        # forever, which no metric would reveal.
+        self._sample_draw_count = getattr(self, "_sample_draw_count", 0) + 1
+        g = torch.Generator()
+        g.manual_seed(self.cfg.actor.seed + self._rank + self._sample_draw_count * 7919)
+
+        chosen, drawn, distinct = [], {}, {}
+        for i, suite in enumerate(suites):
+            pool = torch.nonzero(
+                (teacher_ids == suite) & valid, as_tuple=False
+            ).reshape(-1)
+            # Spread the remainder over the first suites rather than dropping it.
+            quota = target // len(suites) + (1 if i < target % len(suites) else 0)
+            assert pool.numel() > 0, (
+                f"suite {self._teacher_names()[suite]!r} produced no valid transitions on "
+                f"rank {self._rank}. The quota is drawn per rank, so every rank's envs must "
+                "cover every suite: with `ordered` task sampling each env worker takes "
+                "env.train.total_num_envs / num_env_workers consecutive tasks, so that "
+                "count must be a multiple of the task filter's length."
+            )
+            if pool.numel() >= quota:
+                take = pool[torch.randperm(pool.numel(), generator=g)[:quota]]
+            else:
+                extra = torch.randint(
+                    0, pool.numel(), (quota - pool.numel(),), generator=g
+                )
+                take = torch.cat([pool, pool[extra]])
+            chosen.append(take)
+            drawn[self._teacher_names()[suite]] = int(take.numel())
+            distinct[self._teacher_names()[suite]] = int(min(pool.numel(), quota))
+
+        idx = torch.cat(chosen)
+        # Shuffle so a micro-batch is not a single suite.
+        idx = idx[torch.randperm(idx.numel(), generator=g)]
+        self.log_info(
+            f"Suite-balanced sample: drawn {drawn}, distinct {distinct}, "
+            f"total {idx.numel()} of {int(valid.sum())} valid."
+        )
+        return idx
+
     @Worker.timer("actor/compute_teacher_velocities")
     def compute_teacher_velocities(self) -> None:
         """Method 1 (velocity distillation): compute the frozen teacher velocity
@@ -1614,9 +1695,35 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         flat_forward_inputs["_nft_x_t"] = x_t
         flat_forward_inputs["_nft_tau"] = tau
 
-        teacher_velocities = self._teacher_velocity_pass(
-            flat_forward_inputs, flat_batch_size
-        )  # [flat, chunk, dim]
+        # Suite-balanced sampling, when enabled, decides here which transitions the update
+        # will use. Scoring only those caps the teacher pass, and run_training reuses the
+        # same indices so the student is not run on transitions the loss will ignore.
+        # Held on the worker, not in rollout_batch: that dict is walked by several
+        # helpers that assume every entry is a [T, B, ...] tensor, and a 1-D index would
+        # be reshaped along with them.
+        sample_idx = self._suite_balanced_sample(flat_batch_size)
+        self._sample_idx = sample_idx
+
+        if sample_idx is None:
+            teacher_velocities = self._teacher_velocity_pass(
+                flat_forward_inputs, flat_batch_size
+            )  # [flat, chunk, dim]
+        else:
+            subset = {
+                key: value[sample_idx] if torch.is_tensor(value) else value
+                for key, value in flat_forward_inputs.items()
+            }
+            subset_velocities = self._teacher_velocity_pass(
+                subset, int(sample_idx.numel())
+            )
+            # Scatter back into the full flat layout so the [T, B] reshape below and the
+            # indexing in run_training keep meaning the same thing. Rows that were not
+            # drawn stay zero and are never read.
+            teacher_velocities = torch.zeros(
+                (flat_batch_size, *subset_velocities.shape[1:]),
+                dtype=subset_velocities.dtype,
+            )
+            teacher_velocities[sample_idx] = subset_velocities
 
         self.rollout_batch["teacher_velocities"] = teacher_velocities.reshape(
             time_dim, batch_dim, *teacher_velocities.shape[1:]
@@ -1672,11 +1779,17 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         moved to the GPU, run over its own partition, and moved back -- so peak GPU memory
         matches the single-teacher case however many teachers are configured.
         """
-        num_chunks = (
-            flat_batch_size + self.cfg.actor.micro_batch_size - 1
-        ) // self.cfg.actor.micro_batch_size
-
-        def _run(model, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        def _run(model, inputs: dict[str, torch.Tensor], size: int) -> torch.Tensor:
+            # Chunk count must come from this call's own size, not from the whole batch:
+            # the routed path calls _run once per suite on a partition, and
+            # split_dict_to_chunk returns fewer chunks than asked for when the size does
+            # not divide, which then indexes past the end. Only latent while every
+            # partition happened to be a multiple of the chunk count.
+            num_chunks = max(
+                1,
+                (size + self.cfg.actor.micro_batch_size - 1)
+                // self.cfg.actor.micro_batch_size,
+            )
             velocities = []
             with torch.no_grad():
                 for micro_batch in split_dict_to_chunk(inputs, num_chunks):
@@ -1699,7 +1812,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         if not teacher_names:
             teacher_model = self._get_opd_teacher_model()
             teacher_model.to(self.device)
-            teacher_velocities = _run(teacher_model, flat_forward_inputs)
+            teacher_velocities = _run(
+                teacher_model, flat_forward_inputs, flat_batch_size
+            )
             teacher_model.to("cpu")
             return teacher_velocities
 
@@ -1726,7 +1841,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             }
             teacher_model = self._get_routed_teacher_model(name)
             teacher_model.to(self.device)
-            subset_velocities = _run(teacher_model, subset)
+            subset_velocities = _run(teacher_model, subset, int(rows.numel()))
             teacher_model.to("cpu")
             clear_memory()
             if teacher_velocities is None:
@@ -1921,9 +2036,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self.rollout_batch["prev_logprobs"].shape[0]
             * self.rollout_batch["prev_logprobs"].shape[1]
         )
-        g = torch.Generator()
-        g.manual_seed(self.cfg.actor.seed + self._rank)
-        shuffle_id = torch.randperm(rollout_size, generator=g)
+        # compute_teacher_velocities drew a suite-balanced subset and scored the teachers
+        # only on it; reuse exactly those indices so the student is not run on transitions
+        # the loss will ignore. Both sites flatten [T, B] the same way
+        # (value.reshape(-1, ...)), so a flat index means the same (t, b) in each.
+        sample_idx = getattr(self, "_sample_idx", None)
+        self._sample_idx = None  # consumed; a stale index must never be reused
+        if sample_idx is not None:
+            shuffle_id = sample_idx
+        else:
+            g = torch.Generator()
+            g.manual_seed(self.cfg.actor.seed + self._rank)
+            shuffle_id = torch.randperm(rollout_size, generator=g)
 
         with torch.no_grad():
             self.rollout_batch = process_nested_dict_for_train(

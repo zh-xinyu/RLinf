@@ -418,6 +418,25 @@ class Robocasa365Env(gym.Env):
         episode_info["reward"] = episode_info["return"] / np.maximum(
             episode_info["episode_len"], 1
         )
+
+        # Per-suite breakdown. The aggregate hides what routed distillation is meant to
+        # show: the suites have very different baselines (0.44 / 0.08 / 0.00 for the
+        # student on the three pilot tasks), so one averaged curve is dominated by
+        # whichever suite the policy is already good at and a gain on a weak suite is
+        # invisible in it.
+        #
+        # Every entry here must be **per env and full length**: env_worker indexes each
+        # key with a per-env `newly_done` mask, so a tensor holding only one suite's envs
+        # raises. Other suites' slots therefore carry NaN, and compute_evaluate_metrics
+        # reduces with nanmean.
+        suites = [meta.get("task_soup") for meta in self.task_metadata]
+        if len(suites) == self.success_once.shape[0]:
+            for suite in sorted({s for s in suites if s is not None}):
+                per_env = np.full(len(suites), np.nan, dtype=np.float32)
+                mask = np.array([s == suite for s in suites], dtype=bool)
+                per_env[mask] = self.success_once[mask].astype(np.float32)
+                episode_info[f"success_once/{suite}"] = per_env
+
         infos["episode"] = to_tensor(episode_info)
         return infos
 

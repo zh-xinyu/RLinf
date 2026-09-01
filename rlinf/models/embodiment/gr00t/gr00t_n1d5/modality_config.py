@@ -180,13 +180,20 @@ class LiberoFrankaDataConfig(BaseDataConfig):
 class RoboCasaPandaOmronDataConfig(BaseDataConfig):
     """Modality config for RoboCasa365 with the Panda + Omron mobile base.
 
-    Ported from ``gr00t.experiment.data_config.SinglePandaGripperDataConfig``, which ships
-    with Isaac-GR00T n1.5-release and is the config the released RoboCasa365 checkpoints
-    were trained with. Only the video key *names* differ: RoboCasa365 records
-    ``robot0_agentview_left / robot0_agentview_right / robot0_eye_in_hand`` where the
-    upstream config says ``left_view / right_view / wrist_view``. Everything else -- key
-    order, rotation targets, normalization modes -- is copied verbatim, because each of
-    them silently changes what the model is fed:
+    Reproduces the ``panda_omron`` config from the robocasa-benchmark Isaac-GR00T fork,
+    which is what the released RoboCasa365 checkpoints were trained with. Verified against
+    it field by field -- video, state, action and language keys, observation and action
+    indices, all six modality-config delta-index and key lists, and the transform
+    pipeline's type order -- while that fork was still available to compare against.
+
+    It exists because NVIDIA's n1.5-release does not register ``panda_omron``; the loader
+    prefers that config when the installed gr00t provides one and uses this otherwise.
+
+    An earlier version of this class was inferred from
+    ``SinglePandaGripperDataConfig`` instead, which is *not* the config these checkpoints
+    were trained with. That produced a specialist scoring 0/16 while raising nothing. Do
+    not adjust these fields from a similar-looking upstream config; re-verify against
+    ``panda_omron``. Each of the following silently changes what the model is fed:
 
     - the **state concat order** puts the end effector first and the base last;
     - the two quaternion state keys are converted to ``rotation_6d`` (so the state the

@@ -562,19 +562,17 @@ class MultiStepRolloutWorker(Worker):
         only has to survive to the actor. It travels in ``forward_inputs`` because that is
         the one per-sample dict the actor already receives whole. The index is a position
         in ``rollout.expert_models``, which both workers read from the same config, so the
-        two sides agree without shipping the names themselves.
+        two sides agree without shipping the names themselves. ``task_groups`` is the only
+        label the observation contract carries, so the key is not configurable.
         """
         expert_models = self.cfg.rollout.get("expert_models", None)
         if not expert_models or "forward_inputs" not in result:
             return
 
-        route_key = str(
-            self.cfg.rollout.get("teacher_router", {}).get("obs_key", "task_groups")
-        )
         teacher_names = list(expert_models.keys())
-        labels = env_obs.get(route_key, None)
+        labels = env_obs.get("task_groups", None)
         assert labels is not None, (
-            f"routed multi-teacher OPD needs a per-sample {route_key!r} in the "
+            "routed multi-teacher OPD needs a per-sample 'task_groups' in the "
             f"observation; env obs has keys {sorted(env_obs.keys())}."
         )
 

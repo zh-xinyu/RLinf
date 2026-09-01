@@ -336,9 +336,13 @@ def compute_evaluate_metrics(eval_metrics_list):
     for key in all_eval_metrics:
         shards = [_normalize_metric_shard(s) for s in all_eval_metrics[key]]
         stacked = torch.concat(shards).float()
+        # nanmean, not mean: a per-suite metric is emitted at full env length with NaN in
+        # the slots belonging to other suites, because env_worker indexes every episode
+        # key with a per-env mask. Metrics without NaN are unaffected.
+        finite = torch.isfinite(stacked).sum()
         all_eval_metrics[key] = (
-            stacked.mean().detach().cpu().numpy()
-            if stacked.numel() > 0
+            stacked.nanmean().detach().cpu().numpy()
+            if stacked.numel() > 0 and finite > 0
             else np.asarray(0.0, dtype=np.float64)
         )
 
