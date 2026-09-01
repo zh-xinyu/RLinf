@@ -505,6 +505,207 @@ def compute_opd_actor_loss(
     return policy_loss, metrics_data
 
 
+@register_policy_loss("velocity_distill")
+def compute_velocity_distill_loss(
+    student_velocity: torch.Tensor,
+    teacher_velocity: torch.Tensor,
+    loss_mask: Optional[torch.Tensor] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, dict]:
+    """On-policy velocity distillation (Method 1).
+
+    ``L_vel = mean || v_S(A_t^tau, o_t, tau) - stop_grad(v_T(...)) ||_2^2`` over the
+    student-visited flow states, with uniform timestep weighting. No reward, advantage,
+    critic, or PPO — a pure supervised match of the teacher's velocity field.
+
+    Args:
+        student_velocity: v_S, shape ``[..., action_chunk, action_dim]`` (requires grad).
+        teacher_velocity: v_T, same shape (stop-gradient is applied here).
+        loss_mask: optional validity mask, broadcastable over the leading (sample) dims.
+    """
+    assert student_velocity.shape == teacher_velocity.shape, (
+        f"student_velocity {tuple(student_velocity.shape)} must match "
+        f"teacher_velocity {tuple(teacher_velocity.shape)}."
+    )
+    v_teacher = teacher_velocity.detach()
+    sq_err = (student_velocity.float() - v_teacher.float()).pow(2)
+
+    if loss_mask is not None:
+        mask = loss_mask
+        while mask.dim() < sq_err.dim():
+            mask = mask.unsqueeze(-1)
+        mask = mask.expand_as(sq_err).to(sq_err.dtype)
+        loss = (sq_err * mask).sum() / mask.sum().clamp_min(1.0)
+    else:
+        loss = sq_err.mean()
+
+    with torch.no_grad():
+        s_flat = student_velocity.float().flatten(start_dim=1)
+        t_flat = v_teacher.float().flatten(start_dim=1)
+        cosine = torch.nn.functional.cosine_similarity(
+            s_flat, t_flat, dim=-1, eps=1e-8
+        ).mean()
+        # Return plain floats: this loss bypasses the dispatcher's postprocess_loss_metric,
+        # and run_training aggregates metrics via np.mean (which can't read CUDA tensors).
+        metrics_data = {
+            "actor/velocity_mse": loss.detach().item(),
+            "actor/velocity_cosine": cosine.item(),
+            "actor/student_velocity_norm": s_flat.norm(dim=-1).mean().item(),
+            "actor/teacher_velocity_norm": t_flat.norm(dim=-1).mean().item(),
+        }
+    return loss, metrics_data
+
+
+def flow_sde_transition_coeffs(
+    num_steps: int,
+    noise_level: float,
+    dtype: torch.dtype = torch.float64,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Per-step coefficients of the ``flow_sde`` transition kernel.
+
+    Mirrors ``openpi_action_model.sample_mean_var_val``'s ``flow_sde`` branch, which
+    makes the transition mean affine in the predicted velocity::
+
+        mu = x_t * (w0 + w1) + v * c(tau),
+        c(tau) = -tau * w0 + (1 - tau) * w1
+
+    so the same coefficients build both the student's and the teacher's transition
+    Gaussian ``N(mu, sigma^2)`` from their respective velocities. ``noise_level`` is the
+    student's, deliberately: teacher and student must share the covariance schedule, and
+    the teacher model only ever supplies ``v_T``.
+
+    Returns:
+        ``(w0, w1, c, sigma)``, each of shape ``[num_steps]`` and indexed by the denoise
+        step ``k`` whose timestep is ``timesteps[k]``. ``sigma`` is the transition's
+        standard deviation, i.e. ``Sigma_tau = sigma**2``.
+    """
+    timesteps = torch.linspace(1, 1 / num_steps, num_steps, dtype=dtype)
+    timesteps = torch.cat([timesteps, torch.zeros(1, dtype=dtype)])
+    t = timesteps[:-1]
+    delta = timesteps[:-1] - timesteps[1:]
+
+    # sigma schedule, including the t == 1 denominator guard used by the model.
+    denom = torch.where(timesteps == 1, timesteps[1], timesteps)
+    sigma_t = noise_level * torch.sqrt(timesteps / (1 - denom))[:-1]
+
+    w0 = 1 - (t - delta)
+    w1 = t - delta - sigma_t**2 * delta / (2 * t)
+    c = -t * w0 + (1 - t) * w1
+    sigma = torch.sqrt(delta) * sigma_t
+    return w0, w1, c, sigma
+
+
+def flow_sde_kl_weights(
+    num_steps: int,
+    noise_level: float,
+    dtype: torch.dtype = torch.float64,
+) -> torch.Tensor:
+    """Per-denoise-step weight of the local Flow-SDE analytic KL (Method 3).
+
+    Mirrors ``openpi_action_model.sample_mean_var_val``'s ``flow_sde`` branch. That
+    branch makes the transition mean affine in the velocity::
+
+        mu = x_t * (w0 + w1) + v * c(tau),
+        c(tau) = -tau * w0 + (1 - tau) * w1
+
+    Because ``w0``, ``w1`` and ``Sigma_tau = delta * sigma_tau^2`` depend only on the
+    timestep schedule, teacher and student share them, so ``mu_S - mu_T`` collapses onto
+    ``c(tau) * (v_S - v_T)`` and the shared-covariance Gaussian KL becomes a *weighted
+    velocity MSE*::
+
+        D_KL(p_S || p_T) = ||mu_S - mu_T||^2 / (2 Sigma_tau)
+                         = w(tau) * ||v_S - v_T||^2,
+        w(tau) = c(tau)^2 / (2 Sigma_tau)
+
+    The weight is always built from the ``flow_sde`` schedule, including for M3 whose
+    rollout is deterministic ODE: a pure ODE transition has ``Sigma_tau = 0`` and an
+    infinite KL, so the plan's "same covariance schedule for teacher and student" is
+    taken from the closed-form SDE schedule regardless of the rollout's noise_method.
+
+    Args:
+        num_steps: number of denoise steps (``actor.model.num_steps``).
+        noise_level: the model's flow noise level (``actor.model.openpi.noise_level``).
+
+    Returns:
+        Tensor of shape ``[num_steps]``, indexed by the denoise step ``k`` whose
+        timestep is ``timesteps[k]``.
+    """
+    _, _, c, sigma = flow_sde_transition_coeffs(num_steps, noise_level, dtype=dtype)
+    return c**2 / (2 * sigma**2)
+
+
+@register_policy_loss("analytic_local_kl")
+def compute_analytic_local_kl_loss(
+    student_velocity: torch.Tensor,
+    teacher_velocity: torch.Tensor,
+    kl_weight: torch.Tensor,
+    loss_mask: Optional[torch.Tensor] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, dict]:
+    """Local Flow-SDE analytic reverse KL (Method 3 / M3-Hybrid).
+
+    At the student-visited state ``(o_t, A_t^tau, tau)``, teacher and student velocities
+    define local Gaussian transitions with a shared covariance schedule, and
+
+    ``L = D_KL(p_S || p_T) = w(tau) * ||v_S - stop_grad(v_T)||^2``
+
+    with ``w(tau)`` from :func:`flow_sde_kl_weights`. This is exactly Method 1's velocity
+    MSE under a non-uniform timestep weighting -- the only mechanism M3 changes.
+
+    Args:
+        student_velocity: v_S, shape ``[flat, action_chunk, action_dim]`` (requires grad).
+        teacher_velocity: v_T, same shape (stop-gradient is applied here).
+        kl_weight: per-sample ``w(tau)``, shape ``[flat]``.
+        loss_mask: optional validity mask, broadcastable over the leading (sample) dims.
+    """
+    assert student_velocity.shape == teacher_velocity.shape, (
+        f"student_velocity {tuple(student_velocity.shape)} must match "
+        f"teacher_velocity {tuple(teacher_velocity.shape)}."
+    )
+    assert kl_weight.shape[0] == student_velocity.shape[0], (
+        f"kl_weight {tuple(kl_weight.shape)} must have one weight per sample "
+        f"({student_velocity.shape[0]})."
+    )
+    v_teacher = teacher_velocity.detach()
+    sq_err = (student_velocity.float() - v_teacher.float()).pow(2)
+
+    weight = kl_weight.float().to(sq_err.device)
+    while weight.dim() < sq_err.dim():
+        weight = weight.unsqueeze(-1)
+    weighted = sq_err * weight
+
+    if loss_mask is not None:
+        mask = loss_mask
+        while mask.dim() < sq_err.dim():
+            mask = mask.unsqueeze(-1)
+        mask = mask.expand_as(sq_err).to(sq_err.dtype)
+        denom = mask.sum().clamp_min(1.0)
+        loss = (weighted * mask).sum() / denom
+        unweighted_mse = (sq_err * mask).sum() / denom
+    else:
+        loss = weighted.mean()
+        unweighted_mse = sq_err.mean()
+
+    with torch.no_grad():
+        s_flat = student_velocity.float().flatten(start_dim=1)
+        t_flat = v_teacher.float().flatten(start_dim=1)
+        cosine = torch.nn.functional.cosine_similarity(
+            s_flat, t_flat, dim=-1, eps=1e-8
+        ).mean()
+        # Plain floats: this loss bypasses the dispatcher's postprocess_loss_metric and
+        # run_training aggregates via np.mean, which cannot read CUDA tensors.
+        metrics_data = {
+            "actor/analytic_kl": loss.detach().item(),
+            # logged alongside so M3 is directly comparable to M1's velocity_mse
+            "actor/velocity_mse": unweighted_mse.item(),
+            "actor/velocity_cosine": cosine.item(),
+            "actor/student_velocity_norm": s_flat.norm(dim=-1).mean().item(),
+            "actor/teacher_velocity_norm": t_flat.norm(dim=-1).mean().item(),
+            "actor/kl_weight_mean": kl_weight.float().mean().item(),
+        }
+    return loss, metrics_data
+
+
 @register_policy_loss("actor")
 def compute_grpo_actor_loss_fn(**kwargs) -> tuple[torch.Tensor, dict]:
     """

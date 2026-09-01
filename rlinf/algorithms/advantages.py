@@ -348,11 +348,24 @@ def compute_opd_advantages(
         "OPD advantage computation requires num_action_chunks."
     )
     advantages = teacher_logprobs.float() - prev_logprobs.float()
-    assert advantages.shape[-1] % num_action_chunks == 0, (
-        f"OPD token count {advantages.shape[-1]} must be divisible by "
-        f"num_action_chunks {num_action_chunks}."
-    )
-    advantages = advantages.reshape(*advantages.shape[:-1], num_action_chunks, -1)
+    if advantages.dim() == 3:
+        # Token-structured log-probs (e.g. OpenVLA): [T, B, num_tokens] -> split the token
+        # axis into action chunks.
+        assert advantages.shape[-1] % num_action_chunks == 0, (
+            f"OPD token count {advantages.shape[-1]} must be divisible by "
+            f"num_action_chunks {num_action_chunks}."
+        )
+        advantages = advantages.reshape(*advantages.shape[:-1], num_action_chunks, -1)
+    else:
+        # Already chunk-structured (e.g. openpi flow transitions): [T, B, chunk, dim].
+        assert advantages.dim() == 4, (
+            f"OPD log-probs must be [T, B, num_tokens] or [T, B, chunk, dim], got "
+            f"{tuple(advantages.shape)}."
+        )
+        assert advantages.shape[-2] == num_action_chunks, (
+            f"OPD chunk dimension {advantages.shape[-2]} must equal num_action_chunks "
+            f"{num_action_chunks}."
+        )
     if loss_mask is not None:
         target_steps = loss_mask.shape[0]
         assert advantages.shape[0] in {target_steps, target_steps + 1}, (

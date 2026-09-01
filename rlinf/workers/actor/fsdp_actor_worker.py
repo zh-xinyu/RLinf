@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import time
 from functools import partial
 from typing import Optional
@@ -25,7 +26,15 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 import rlinf.algorithms  # noqa: F401
 from rlinf.algorithms.expert import build_expert_model_config
-from rlinf.algorithms.registry import calculate_adv_and_returns, policy_loss
+from rlinf.algorithms.losses import (
+    flow_sde_kl_weights,
+    flow_sde_transition_coeffs,
+)
+from rlinf.algorithms.registry import (
+    calculate_adv_and_returns,
+    get_policy_loss,
+    policy_loss,
+)
 from rlinf.algorithms.utils import (
     kl_penalty,
 )
@@ -87,6 +96,13 @@ from rlinf.utils.utils import (
     retrieve_model_state_dict_in_cpu,
 )
 from rlinf.workers.rollout.utils import RankMapper
+
+# Losses of the flow-based OPD mechanism study that distill a frozen teacher's velocity
+# field at student-visited flow states. They share one data path: no reward / advantage /
+# critic, a post-rollout teacher velocity pass, and a supervised match against it.
+# "velocity_distill" (M1) weights timesteps uniformly; "analytic_local_kl" (M3 and
+# M3-Hybrid) weights them by the local Flow-SDE KL's w(tau).
+VELOCITY_DISTILL_LOSS_TYPES = ("velocity_distill", "analytic_local_kl")
 
 
 def process_nested_dict_for_adv(nested_dict, rollout_epoch):
@@ -1300,8 +1316,20 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         """
         Compute the advantages and returns.
         """
+        if self.cfg.algorithm.loss_type in VELOCITY_DISTILL_LOSS_TYPES:
+            # Velocity distillation (Method 1) and analytic local KL (Method 3 /
+            # M3-Hybrid) are supervised: no reward / advantage / GAE. Only the frozen
+            # teacher's velocities are needed, computed once post-rollout.
+            self.compute_teacher_velocities()
+            return {}
+
         if self.cfg.algorithm.adv_type == "opd":
-            self.compute_opd_teacher_logprobs()
+            if SupportedModel(self.cfg.actor.model.model_type) == SupportedModel.OPENPI:
+                # Method 4: the teacher scores the student's sampled flow transition. The
+                # OpenVLA path below scores action *tokens* and does not apply here.
+                self.compute_teacher_velocities()
+            else:
+                self.compute_opd_teacher_logprobs()
 
         kwargs = {
             "task_type": self.cfg.runner.task_type,
@@ -1416,6 +1444,198 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self._opd_teacher_model = teacher_model
         return self._opd_teacher_model
 
+    @Worker.timer("actor/compute_teacher_velocities")
+    def compute_teacher_velocities(self) -> None:
+        """Method 1 (velocity distillation): compute the frozen teacher velocity
+        ``v_T(A_t^tau, o_t, tau)`` at student-visited flow states, once after rollout.
+
+        One uniformly-random denoise step ``tau`` is selected per sample (uniform timestep
+        weighting). ``x_t`` is taken from the student's on-policy ODE trajectory ``chains``.
+        The same ``(x_t, tau)`` are cached so the student recomputes ``v_S`` at the identical
+        point during training. Teacher is offloaded afterwards (mirrors OPD).
+        """
+        assert self.rollout_batch.get("teacher_velocities", None) is None, (
+            "teacher_velocities must be computed once after rollout."
+        )
+        assert self.cfg.rollout.get("expert_model", None) is not None, (
+            "velocity distillation requires rollout.expert_model as the teacher config."
+        )
+        assert "forward_inputs" in self.rollout_batch, (
+            "velocity distillation requires rollout forward_inputs (chains + obs)."
+        )
+        assert SupportedModel(self.cfg.actor.model.model_type) in [
+            SupportedModel.OPENPI
+        ], "velocity distillation currently supports OpenPI models."
+
+        forward_inputs = self.rollout_batch["forward_inputs"]
+        # chains stores the initial noise plus one state per denoise step, so its step
+        # axis is num_steps + 1 (see openpi_action_model._sample_actions_with_prefix_cache).
+        chains = forward_inputs["chains"]  # [T, B, num_steps + 1, horizon, dim]
+        time_dim, batch_dim = chains.shape[0], chains.shape[1]
+        num_steps = self.cfg.actor.model.num_steps
+        assert chains.shape[2] == num_steps + 1, (
+            f"chains step axis {chains.shape[2]} must be num_steps + 1 "
+            f"({num_steps} + 1); the flow timestep convention depends on it."
+        )
+        flat_batch_size = time_dim * batch_dim
+
+        flat_forward_inputs = flatten_nested_tensor_time_batch(
+            forward_inputs, ("forward_inputs",)
+        )
+        flat_chains = flat_forward_inputs["chains"]  # [flat, num_steps + 1, horizon, dim]
+
+        # Which denoise step to supervise. Index k in [0, num_steps) pairs chains[k] with
+        # timesteps[k], matching the model's own NFT convention
+        # (openpi_action_model._init_nft_state / sample_mean_var_val): chains[k] is the
+        # state the model evaluates at t_input = timesteps[k]. The final entry
+        # chains[num_steps] is the emitted action x_0 (t = 0), which the rollout never
+        # evaluates a velocity at, so it is excluded.
+        #
+        # A Hybrid-SDE rollout (joint_logprob=False) injects noise at exactly one sampled
+        # step k, and that transition -- condition on x_k at tau_k, sample x_{k+1} ~
+        # N(mu_S, Sigma_k) -- is the one M4's sampled reverse-KL is defined on, and the one
+        # the rollout's prev_logprobs scores. Supervising there makes M3-Hybrid M4's
+        # control, differing only in analytic-vs-sampled. A pure ODE rollout has no
+        # distinguished step, so draw one uniformly per sample instead.
+        if self.cfg.actor.model.openpi.joint_logprob:
+            g = torch.Generator()
+            g.manual_seed(self.cfg.actor.seed + self._rank)
+            step_idx = torch.randint(0, num_steps, (flat_batch_size,), generator=g)
+        else:
+            step_idx = flat_forward_inputs["denoise_inds"][:, 0].cpu().long()
+            assert step_idx.shape[0] == flat_batch_size, (
+                f"denoise_inds gave {step_idx.shape[0]} steps for "
+                f"{flat_batch_size} samples."
+            )
+            assert int(step_idx.min()) >= 0 and int(step_idx.max()) < num_steps, (
+                f"denoise_inds out of range [0, {num_steps}): "
+                f"[{int(step_idx.min())}, {int(step_idx.max())}]. A rollout in eval mode "
+                "stores -1 and must not be used for teacher supervision."
+            )
+        arange = torch.arange(flat_batch_size)
+        x_t = flat_chains[arange, step_idx].contiguous()  # [flat, horizon, dim]
+        # timestep schedule matches model._get_timesteps (drop the appended 0.0).
+        timesteps = torch.linspace(1.0, 1.0 / num_steps, num_steps)
+        tau = timesteps[step_idx].contiguous()  # [flat]
+
+        # Carry x_t / tau through the same micro-batch split as the obs.
+        flat_forward_inputs["_nft_x_t"] = x_t
+        flat_forward_inputs["_nft_tau"] = tau
+
+        teacher_model = self._get_opd_teacher_model()
+        teacher_model.to(self.device)
+        num_chunks = (
+            flat_batch_size + self.cfg.actor.micro_batch_size - 1
+        ) // self.cfg.actor.micro_batch_size
+        teacher_velocities = []
+        with torch.no_grad():
+            for micro_batch in split_dict_to_chunk(flat_forward_inputs, num_chunks):
+                micro_batch = put_tensor_device(micro_batch, self.device)
+                nft_inputs = {
+                    "x_t": micro_batch["_nft_x_t"],
+                    "timesteps": micro_batch["_nft_tau"],
+                }
+                with self.amp_context:
+                    out = teacher_model(
+                        forward_type=ForwardType.NFT,
+                        forward_inputs=micro_batch,
+                        nft_inputs=nft_inputs,
+                        compute_values=False,
+                    )
+                teacher_velocities.append(out["v_theta"].detach().cpu())
+        teacher_velocities = torch.cat(teacher_velocities, dim=0)  # [flat, chunk, dim]
+
+        self.rollout_batch["teacher_velocities"] = teacher_velocities.reshape(
+            time_dim, batch_dim, *teacher_velocities.shape[1:]
+        )
+        self.rollout_batch["nft_x_t"] = x_t.reshape(time_dim, batch_dim, *x_t.shape[1:])
+        self.rollout_batch["nft_timesteps"] = tau.reshape(time_dim, batch_dim)
+
+        if self.cfg.algorithm.loss_type == "analytic_local_kl":
+            # w(tau) for the local Flow-SDE analytic KL (M3 / M3-Hybrid). Built from the
+            # closed-form flow_sde schedule even when the rollout is deterministic ODE --
+            # see flow_sde_kl_weights for why.
+            weights = flow_sde_kl_weights(
+                num_steps=num_steps,
+                noise_level=self.cfg.actor.model.openpi.noise_level,
+            )
+            kl_weight = weights[step_idx].to(torch.float32)
+            self.rollout_batch["nft_kl_weight"] = kl_weight.reshape(time_dim, batch_dim)
+
+        if self.cfg.algorithm.adv_type == "opd":
+            # M4: the teacher's log-probability of the transition the student actually
+            # sampled, l_T = log N(x_{k+1}; mu_T, Sigma_k). Reuses the teacher velocities
+            # computed above -- mu_T only differs from mu_S through v_T -- so M4 costs the
+            # same single teacher forward as M1/M3. Sigma_k comes from the student's
+            # schedule so teacher and student share it, as the reverse KL requires.
+            self.rollout_batch["teacher_logprobs"] = self._teacher_transition_logprobs(
+                flat_chains=flat_chains,
+                x_cur=x_t,
+                step_idx=step_idx,
+                teacher_velocities=teacher_velocities,
+                num_steps=num_steps,
+                time_dim=time_dim,
+                batch_dim=batch_dim,
+            )
+
+        teacher_model.to("cpu")
+        clear_memory()
+
+    def _teacher_transition_logprobs(
+        self,
+        flat_chains: torch.Tensor,
+        x_cur: torch.Tensor,
+        step_idx: torch.Tensor,
+        teacher_velocities: torch.Tensor,
+        num_steps: int,
+        time_dim: int,
+        batch_dim: int,
+    ) -> torch.Tensor:
+        """Method 4: teacher log-prob of the student's sampled Flow-SDE transition.
+
+        The student sampled ``x_{k+1} ~ N(mu_S(x_k), Sigma_k)`` at denoise step ``k`` and
+        the rollout stored ``l_S_old = log N(x_{k+1}; mu_S, Sigma_k)`` as ``prev_logprobs``.
+        Scoring the *same* sample under the teacher's transition gives
+
+            ``l_T = log N(x_{k+1}; mu_T(x_k), Sigma_k)``,  ``mu_T = x_k (w0 + w1) + v_T c``
+
+        so ``r_OPD = l_T - l_S_old`` is the per-element reverse-KL reward. Elements are
+        independent (diagonal Sigma), which is what makes the per-element score-function
+        estimator unbiased and lower-variance than a summed one.
+
+        Returns:
+            ``[T, B, action_chunk, action_env_dim]``, matching ``prev_logprobs``.
+        """
+        openpi_cfg = self.cfg.actor.model.openpi
+        chunk = int(openpi_cfg.action_chunk)
+        env_dim = int(openpi_cfg.action_env_dim)
+
+        w0, w1, c, sigma = flow_sde_transition_coeffs(
+            num_steps=num_steps, noise_level=openpi_cfg.noise_level
+        )
+        assert torch.all(sigma > 0), (
+            "Method 4 needs a stochastic transition; sigma == 0 means the rollout was "
+            "deterministic ODE and the sampled reverse-KL is undefined there."
+        )
+        scale = (w0 + w1)[step_idx].to(torch.float32)[:, None, None]
+        c_k = c[step_idx].to(torch.float32)[:, None, None]
+        sigma_k = sigma[step_idx].to(torch.float32)[:, None, None]
+
+        # x_{k+1}: the sample whose log-prob both models are scored on.
+        arange = torch.arange(flat_chains.shape[0])
+        x_next = flat_chains[arange, step_idx + 1].float()[:, :chunk]
+        # teacher_velocities is already sliced to action_chunk by nft_forward.
+        mu_teacher = x_cur.float()[:, :chunk] * scale + teacher_velocities.float() * c_k
+
+        # Same expression as openpi_action_model.get_logprob_norm.
+        log_probs = (
+            -torch.log(sigma_k)
+            - 0.5 * math.log(2 * math.pi)
+            - 0.5 * ((x_next - mu_teacher) / sigma_k) ** 2
+        )
+        log_probs = log_probs[:, :, :env_dim].contiguous()
+        return log_probs.reshape(time_dim, batch_dim, *log_probs.shape[1:])
+
     def _build_sft_data_loader(self):
         if SupportedModel(self.cfg.actor.model.model_type) in [SupportedModel.OPENPI]:
             repo_id = resolve_lerobot_repo_id(self.cfg.actor.get("sft_data_path"))
@@ -1514,6 +1734,30 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                     self.rollout_batch[key], target_steps, (key,)
                 )
 
+        if self.cfg.algorithm.loss_type in VELOCITY_DISTILL_LOSS_TYPES:
+            assert "loss_mask" in self.rollout_batch, (
+                "velocity distillation requires loss_mask."
+            )
+            target_steps = int(self.rollout_batch["loss_mask"].shape[0])
+            keys = [
+                "prev_logprobs",
+                "forward_inputs",
+                "nft_x_t",
+                "nft_timesteps",
+                "teacher_velocities",
+                "loss_mask",
+                "loss_mask_sum",
+            ]
+            if self.cfg.algorithm.loss_type == "analytic_local_kl":
+                keys.append("nft_kl_weight")
+            for key in keys:
+                assert key in self.rollout_batch, (
+                    f"velocity distillation requires {key}."
+                )
+                self.rollout_batch[key] = trim_nested_tensor_time_dim(
+                    self.rollout_batch[key], target_steps, (key,)
+                )
+
         self.model.train()
         rollout_size = (
             self.rollout_batch["prev_logprobs"].shape[0]
@@ -1608,13 +1852,46 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
     ) -> None:
         micro_batch = put_tensor_device(micro_batch, self.device)
         backward_ctx = self.before_micro_batch(self.model, is_last_micro_batch=is_last)
-        advantages = micro_batch["advantages"]
+        advantages = micro_batch.get("advantages", None)  # absent for velocity_distill
         prev_logprobs = micro_batch["prev_logprobs"]
         returns = micro_batch.get("returns", None)
         prev_values = micro_batch.get("prev_values", None)
         loss_mask = micro_batch.get("loss_mask", None)
         loss_mask_sum = micro_batch.get("loss_mask_sum", None)
         forward_inputs = micro_batch.get("forward_inputs", None)
+
+        if self.cfg.algorithm.loss_type in VELOCITY_DISTILL_LOSS_TYPES:
+            # Method 1 / 3: student velocity v_S at the SAME (x_t, tau, o_t) the frozen
+            # teacher was scored on; supervised match against the cached teacher velocity
+            # (uniform for velocity_distill, w(tau)-weighted for analytic_local_kl).
+            with self.amp_context:
+                student_out = self.model(
+                    forward_type=ForwardType.NFT,
+                    forward_inputs=forward_inputs,
+                    nft_inputs={
+                        "x_t": micro_batch["nft_x_t"],
+                        "timesteps": micro_batch["nft_timesteps"],
+                    },
+                    compute_values=False,
+                )
+            # Call the registered loss directly: these are pure supervised losses and must
+            # skip the PPO/OPD embodied preprocessing (logprobs/advantages).
+            loss_kwargs = {
+                "student_velocity": student_out["v_theta"],
+                "teacher_velocity": micro_batch["teacher_velocities"],
+                "loss_mask": loss_mask,
+            }
+            if self.cfg.algorithm.loss_type == "analytic_local_kl":
+                loss_kwargs["kl_weight"] = micro_batch["nft_kl_weight"]
+            loss, metrics_data = get_policy_loss(self.cfg.algorithm.loss_type)(
+                **loss_kwargs
+            )
+            loss = loss / self.gradient_accumulation
+            with backward_ctx:
+                self.grad_scaler.scale(loss).backward()
+            metrics_data["actor/total_loss"] = loss.detach().item()
+            append_to_dict(metrics, metrics_data)
+            return
 
         kwargs = {}
         if SupportedModel(self.cfg.actor.model.model_type) in [
