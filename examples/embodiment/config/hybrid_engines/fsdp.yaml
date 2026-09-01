@@ -24,6 +24,7 @@ mixed_precision:            # mixed precision settings for fsdp/fsdp2
   buffer_dtype: null
   # Needed by nested FSDP modules when their FP32 master weights are cast to a lower
   # param_dtype for compute. Root inputs are cast automatically; nested inputs are not.
+  # Custom containers such as Transformers BatchFeature still need a model-side cast.
   cast_forward_inputs: False
 
 amp_autocast:                       # Do not enable `amp_autocast` with FSDP `mixed_precision` enabled, using both will result in conflict.

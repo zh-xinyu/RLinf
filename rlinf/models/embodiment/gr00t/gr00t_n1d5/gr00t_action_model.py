@@ -82,6 +82,31 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
                 noise_scheduler_type="learn",
             )
 
+    @staticmethod
+    def _cast_batch_feature_floats(
+        feature: BatchFeature, dtype: torch.dtype
+    ) -> BatchFeature:
+        """Cast floating tensors at the nested FSDP action-head boundary.
+
+        FSDP's ``cast_forward_inputs`` recursively handles standard Python containers but
+        not Transformers' ``BatchFeature``. GR00T prepares inputs before entering the
+        nested action-head FSDP wrapper, when ``action_head.dtype`` still reports the FP32
+        master dtype. Once the wrapper unshards for compute, its parameters are BF16, so
+        leaving the nested state tensor in FP32 makes the first category-specific matrix
+        multiply fail. At this point the wrapper's parameter views already expose the
+        actual compute dtype, making it the authoritative target.
+        """
+        return BatchFeature(
+            data={
+                key: (
+                    value.to(dtype=dtype)
+                    if isinstance(value, torch.Tensor) and value.is_floating_point()
+                    else value
+                )
+                for key, value in feature.items()
+            }
+        )
+
     def get_logprob_norm(self, sample, mu, sigma):
         if self.rl_config.safe_get_logprob:
             dist = Normal(loc=mu, scale=sigma)
@@ -418,6 +443,22 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         compute_values=True,
         nft_inputs=None,
     ):
+        compute_dtype = self.state_encoder.layer1.W.dtype
+        backbone_output = self._cast_batch_feature_floats(
+            backbone_output, compute_dtype
+        )
+        action_input = self._cast_batch_feature_floats(action_input, compute_dtype)
+        if isinstance(chains, torch.Tensor) and chains.is_floating_point():
+            chains = chains.to(dtype=compute_dtype)
+        if nft_inputs is not None:
+            nft_inputs = {
+                key: (
+                    value.to(dtype=compute_dtype)
+                    if isinstance(value, torch.Tensor) and value.is_floating_point()
+                    else value
+                )
+                for key, value in nft_inputs.items()
+            }
         if nft_inputs is not None:
             # Velocity distillation. This must be reached through __call__ so that FSDP
             # all-gathers the head's parameters: calling get_velocity_from_backbone()
@@ -702,9 +743,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
             action_input=action_inputs,
             nft_inputs={"x_t": x_t, "timesteps": idx},
         )
-        v_theta = v_theta[
-            :, : self.action_head.action_chunk, : self.valid_action_dim
-        ]
+        v_theta = v_theta[:, : self.action_head.action_chunk, : self.valid_action_dim]
         return {"v_theta": v_theta, "x_t": x_t, "timesteps": idx}
 
     @torch.no_grad()
@@ -751,8 +790,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
                 normalized_input["eagle_input_ids"],
                 pad=(
                     0,
-                    self.padding_value
-                    - normalized_input["eagle_input_ids"].shape[-1],
+                    self.padding_value - normalized_input["eagle_input_ids"].shape[-1],
                 ),
                 mode="constant",
                 value=0,
