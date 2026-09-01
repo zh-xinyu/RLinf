@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import copy
+import json
 import time
 from functools import partial
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -30,10 +32,12 @@ from rlinf.algorithms.flow_opd import (
     build_flat_valid_transition_mask,
     count_flow_timesteps_by_suite,
     flow_teacher_transition_logprobs,
+    map_target_flow_state_to_source,
     sample_flow_timestep_indices,
     select_flow_opd_logprobs,
     select_opd_metric_rows,
     teacher_suite_presence,
+    transport_source_velocity_to_target,
 )
 from rlinf.algorithms.losses import flow_sde_kl_weights
 from rlinf.algorithms.registry import (
@@ -1111,6 +1115,8 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         self.enable_offload = self.cfg.actor.get("enable_offload", False)
         self._opd_teacher_model = None
         self._routed_teacher_models: dict[str, Any] = {}
+        self._opd_student_metadata = None
+        self._opd_coordinate_log_keys: set[str] = set()
         self.entropy_op_type = self.cfg.algorithm.get("entropy_op_type", "torch")
 
         self.enable_sft_co_train = cfg.actor.get("enable_sft_co_train", False)
@@ -1544,6 +1550,25 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self.log_info(f"Loaded routed OPD teacher {name!r}.")
         return self._routed_teacher_models[name]
 
+    def _get_opd_student_gr00t_metadata(self):
+        """Load the student's normalization metadata once on each actor rank."""
+        if self._opd_student_metadata is None:
+            from gr00t.data.schema import DatasetMetadata
+
+            path = (
+                Path(self.cfg.actor.model.model_path)
+                / "experiment_cfg"
+                / "metadata.json"
+            )
+            with open(path) as metadata_file:
+                all_metadata = json.load(metadata_file)
+            tag = str(self.cfg.actor.model.embodiment_tag)
+            assert tag in all_metadata, f"No {tag!r} metadata in {path}."
+            self._opd_student_metadata = DatasetMetadata.model_validate(
+                all_metadata[tag]
+            )
+        return self._opd_student_metadata
+
     def _suite_balanced_sample(
         self, flat_batch_size: int, time_dim: int, batch_dim: int
     ) -> Optional[torch.Tensor]:
@@ -1863,6 +1888,63 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             # split_dict_to_chunk returns fewer chunks than asked for when the size does
             # not divide, which then indexes past the end. Only latent while every
             # partition happened to be a multiple of the chunk count.
+            transport = None
+            if SupportedModel(self.cfg.actor.model.model_type) == SupportedModel.GR00T:
+                assert "opd_raw_states" in inputs, (
+                    "Cross-checkpoint GR00T OPD needs the raw RoboCasa state saved by "
+                    "the rollout model."
+                )
+                teacher_inputs = dict(inputs)
+                teacher_state, teacher_state_mask = model.opd_normalize_robocasa_state(
+                    inputs["opd_raw_states"]
+                )
+                teacher_inputs["state"] = teacher_state.to(dtype=inputs["state"].dtype)
+                teacher_inputs["state_mask"] = teacher_state_mask
+
+                endpoint_scale, endpoint_shift = model.opd_action_endpoint_affine_to(
+                    self._get_opd_student_gr00t_metadata()
+                )
+                differs = not (
+                    torch.equal(endpoint_scale, torch.ones_like(endpoint_scale))
+                    and torch.equal(endpoint_shift, torch.zeros_like(endpoint_shift))
+                )
+                if differs and (
+                    self.cfg.algorithm.loss_type == "analytic_local_kl"
+                    or self.cfg.algorithm.adv_type == "opd"
+                ):
+                    raise NotImplementedError(
+                        "Cross-metadata GR00T M3/M4 needs the transported teacher "
+                        "covariance/Jacobian, not only a transported velocity. Use M1 "
+                        "until that KL is implemented."
+                    )
+                source_x_t = map_target_flow_state_to_source(
+                    inputs["_nft_x_t"],
+                    inputs["_nft_tau"],
+                    int(self.cfg.actor.model.denoising_steps),
+                    endpoint_scale,
+                    endpoint_shift,
+                )
+                teacher_inputs["_nft_x_t"] = source_x_t
+                inputs = teacher_inputs
+                transport = (
+                    source_x_t,
+                    inputs["_nft_tau"],
+                    endpoint_scale,
+                    endpoint_shift,
+                )
+                log_key = str(model.model_path)
+                if log_key not in self._opd_coordinate_log_keys:
+                    self._opd_coordinate_log_keys.add(log_key)
+                    valid_dim = int(model.valid_action_dim)
+                    self.log_info(
+                        "GR00T OPD coordinate adapter active for "
+                        f"{log_key}: endpoint scale "
+                        f"[{float(endpoint_scale[:valid_dim].min()):.4g}, "
+                        f"{float(endpoint_scale[:valid_dim].max()):.4g}], "
+                        f"max |shift| "
+                        f"{float(endpoint_shift[:valid_dim].abs().max()):.4g}."
+                    )
+
             num_chunks = max(
                 1,
                 (size + self.cfg.actor.micro_batch_size - 1)
@@ -1884,7 +1966,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                             compute_values=False,
                         )
                     velocities.append(out["v_theta"].detach().cpu())
-            return torch.cat(velocities, dim=0)
+            velocities = torch.cat(velocities, dim=0)
+            if transport is not None:
+                source_x_t, step_idx, endpoint_scale, endpoint_shift = transport
+                velocities = transport_source_velocity_to_target(
+                    source_x_t,
+                    velocities,
+                    step_idx,
+                    int(self.cfg.actor.model.denoising_steps),
+                    endpoint_scale,
+                    endpoint_shift,
+                )
+            return velocities
 
         teacher_names = self._teacher_names()
         if not teacher_names:

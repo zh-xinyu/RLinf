@@ -140,6 +140,88 @@ def teacher_suite_presence(
     return present
 
 
+def map_target_flow_state_to_source(
+    target_x_t: torch.Tensor,
+    step_idx: torch.Tensor,
+    num_steps: int,
+    endpoint_scale: torch.Tensor,
+    endpoint_shift: torch.Tensor,
+) -> torch.Tensor:
+    """Map a target-coordinate flow state into a source policy's coordinates.
+
+    ``endpoint_scale`` and ``endpoint_shift`` define the affine endpoint map
+    ``x_target(1) = scale * x_source(1) + shift``.  Interpolating that map from
+    identity at flow time zero,
+
+    ``x_target(t) = (1 + t * (scale - 1)) * x_source(t) + t * shift``,
+
+    preserves the shared standard-normal prior while making the final physical action
+    identical.  A static endpoint conversion would incorrectly shift and rescale the
+    source policy's noise prior.
+    """
+    assert num_steps > 0, "A flow-coordinate map needs at least one denoise step."
+    assert target_x_t.dim() >= 2, "Flow states must have batch and action dimensions."
+    assert endpoint_scale.shape == endpoint_shift.shape
+    assert endpoint_scale.dim() == 1
+    assert target_x_t.shape[-1] == endpoint_scale.numel(), (
+        f"Flow state dim {target_x_t.shape[-1]} does not match endpoint affine dim "
+        f"{endpoint_scale.numel()}."
+    )
+    steps = step_idx.reshape(-1).to(device=target_x_t.device, dtype=torch.float32)
+    assert steps.numel() == target_x_t.shape[0]
+    assert int(steps.min()) >= 0 and int(steps.max()) < num_steps
+    broadcast = (steps.shape[0],) + (1,) * (target_x_t.dim() - 1)
+    t = (steps / float(num_steps)).reshape(broadcast)
+    vector_shape = (1,) * (target_x_t.dim() - 1) + (-1,)
+    scale = endpoint_scale.to(device=target_x_t.device, dtype=torch.float32).reshape(
+        vector_shape
+    )
+    shift = endpoint_shift.to(device=target_x_t.device, dtype=torch.float32).reshape(
+        vector_shape
+    )
+    scale_t = 1.0 + t * (scale - 1.0)
+    return (target_x_t.float() - t * shift) / scale_t
+
+
+def transport_source_velocity_to_target(
+    source_x_t: torch.Tensor,
+    source_velocity: torch.Tensor,
+    step_idx: torch.Tensor,
+    num_steps: int,
+    endpoint_scale: torch.Tensor,
+    endpoint_shift: torch.Tensor,
+) -> torch.Tensor:
+    """Push a source velocity through the time-dependent endpoint affine map."""
+    assert num_steps > 0
+    assert source_x_t.shape[0] == source_velocity.shape[0]
+    assert source_x_t.shape[:-1] == source_velocity.shape[:-1]
+    velocity_dim = source_velocity.shape[-1]
+    assert velocity_dim <= source_x_t.shape[-1]
+    assert endpoint_scale.shape == endpoint_shift.shape
+    assert source_x_t.shape[-1] == endpoint_scale.numel()
+
+    steps = step_idx.reshape(-1).to(device=source_velocity.device, dtype=torch.float32)
+    assert steps.numel() == source_velocity.shape[0]
+    broadcast = (steps.shape[0],) + (1,) * (source_velocity.dim() - 1)
+    t = (steps / float(num_steps)).reshape(broadcast)
+    vector_shape = (1,) * (source_velocity.dim() - 1) + (-1,)
+    scale = (
+        endpoint_scale[:velocity_dim]
+        .to(device=source_velocity.device, dtype=torch.float32)
+        .reshape(vector_shape)
+    )
+    shift = (
+        endpoint_shift[:velocity_dim]
+        .to(device=source_velocity.device, dtype=torch.float32)
+        .reshape(vector_shape)
+    )
+    scale_t = 1.0 + t * (scale - 1.0)
+    source_x = source_x_t[..., :velocity_dim].to(
+        device=source_velocity.device, dtype=torch.float32
+    )
+    return (scale - 1.0) * source_x + shift + scale_t * source_velocity.float()
+
+
 def select_flow_opd_logprobs(
     prev_logprobs: torch.Tensor,
     step_idx: torch.Tensor,

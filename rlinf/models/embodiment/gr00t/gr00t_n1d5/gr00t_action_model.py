@@ -23,6 +23,7 @@ from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
+from gr00t.data.transform.state_action import StateActionTransform
 from gr00t.model.action_head.flow_matching_action_head import (
     FlowmatchingActionHead,
     FlowmatchingActionHeadConfig,
@@ -35,6 +36,7 @@ from rlinf.models.embodiment.base_policy import BasePolicy, ForwardType
 from rlinf.models.embodiment.gr00t.simulation_io import (
     ACTION_CONVERSION_N1D5,
     OBS_CONVERSION,
+    ROBOCASA_STATE_SLICES,
 )
 from rlinf.models.embodiment.gr00t.utils import (
     squeeze_dict_values,
@@ -615,6 +617,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
 
         self.obs_convert_fn = OBS_CONVERSION[obs_converter_type]
         self.action_convert_fn = ACTION_CONVERSION_N1D5[obs_converter_type]
+        self._opd_state_adapter_validated = False
         self._load_metadata(self.model_path / "experiment_cfg")
 
         # The param loading is after construction in from_pretrained(), so it should be safe to to so.
@@ -758,6 +761,12 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         # force convert the state to bf16 then back to float32 to reproduce the info loss in training.
         env_obs["states"] = env_obs["states"].to(torch.bfloat16)
         env_obs["states"] = env_obs["states"].cpu().float()
+        opd_raw_states = None
+        if self.obs_convert_fn is OBS_CONVERSION["robocasa365"]:
+            # Keep the exact (BF16-round-tripped) raw state that the student transform
+            # sees.  A frozen suite teacher has different checkpoint statistics and must
+            # normalize this state itself during its later NFT pass.
+            opd_raw_states = env_obs["states"].detach().cpu().clone()
 
         observations = self.obs_convert_fn(env_obs)
         # Create a copy to avoid mutating input
@@ -773,6 +782,23 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
                 obs_copy[k] = np.array(v)
 
         normalized_input = self.apply_transforms(obs_copy)
+
+        if opd_raw_states is not None and not self._opd_state_adapter_validated:
+            adapted_state, adapted_mask = self.opd_normalize_robocasa_state(
+                opd_raw_states
+            )
+            torch.testing.assert_close(
+                adapted_state,
+                normalized_input["state"].float(),
+                rtol=0,
+                atol=1e-6,
+                msg=(
+                    "The lightweight OPD state adapter does not reproduce GR00T's full "
+                    "student transform."
+                ),
+            )
+            assert torch.equal(adapted_mask, normalized_input["state_mask"].bool())
+            self._opd_state_adapter_validated = True
 
         for key in normalized_input:
             if normalized_input[key].dtype == torch.float32:
@@ -807,6 +833,8 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
             )
 
         normalized_action, result = self._get_rl_action(normalized_input, mode=mode)
+        if opd_raw_states is not None:
+            result["forward_inputs"]["opd_raw_states"] = opd_raw_states
         unnormalized_action = self._get_unnormalized_action(normalized_action)
 
         if not is_batch:
@@ -888,6 +916,127 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         self, normalized_action: torch.Tensor
     ) -> dict[str, Any]:
         return self.unapply_transforms({"action": normalized_action.cpu()})
+
+    def opd_normalize_robocasa_state(
+        self, raw_states: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Normalize raw RoboCasa state with this checkpoint's own metadata.
+
+        This is the state-only subset of the full modality pipeline.  Reusing already
+        tokenized images and language is safe across these checkpoints, but reusing the
+        student's normalized state is not because every suite checkpoint carries its own
+        state statistics.
+        """
+        assert self.obs_convert_fn is OBS_CONVERSION["robocasa365"]
+        assert raw_states.shape[-1] == 16, (
+            f"RoboCasa OPD expects a 16-d raw state, got {raw_states.shape[-1]}."
+        )
+        states = raw_states.detach().cpu().float().unsqueeze(-2)
+        state_data = {
+            key: states[..., start:stop].clone()
+            for key, start, stop in ROBOCASA_STATE_SLICES
+        }
+        state_transform = next(
+            (
+                transform
+                for transform in self._modality_transform.transforms
+                if isinstance(transform, StateActionTransform)
+                and any(key.startswith("state.") for key in transform.apply_to)
+            ),
+            None,
+        )
+        assert state_transform is not None, (
+            "GR00T modality pipeline has no state transform."
+        )
+        state_data = state_transform(state_data)
+        state_keys = self._modality_config["state"].modality_keys
+        state = torch.cat([state_data[key] for key in state_keys], dim=-1)
+        max_state_dim = int(self.config.action_head_cfg["max_state_dim"])
+        assert state.shape[-1] <= max_state_dim
+        state_mask = torch.zeros(
+            *state.shape[:-1], max_state_dim, dtype=torch.bool, device=state.device
+        )
+        state_mask[..., : state.shape[-1]] = True
+        state = torch.nn.functional.pad(
+            state, (0, max_state_dim - state.shape[-1]), value=0
+        )
+        return state, state_mask
+
+    def opd_action_endpoint_affine_to(
+        self, target_metadata: DatasetMetadata
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the teacher-endpoint to target-normalized affine action map.
+
+        The returned vectors cover GR00T's padded action dimension.  Continuous RoboCasa
+        actions use checkpoint-specific ``min_max`` statistics; binary and padded
+        dimensions have an identity map.
+        """
+        action_dim = int(self.config.action_head_cfg["action_dim"])
+        scale = torch.ones(action_dim, dtype=torch.float32)
+        shift = torch.zeros(action_dim, dtype=torch.float32)
+        action_transform = next(
+            (
+                transform
+                for transform in self._modality_transform.transforms
+                if isinstance(transform, StateActionTransform)
+                and any(key.startswith("action.") for key in transform.apply_to)
+            ),
+            None,
+        )
+        assert action_transform is not None, (
+            "GR00T modality pipeline has no action normalization transform."
+        )
+
+        offset = 0
+        for key in self._modality_config["action"].modality_keys:
+            name = key.split(".", 1)[1]
+            source_modality = self.metadata.modalities.action[name]
+            target_modality = target_metadata.modalities.action[name]
+            assert source_modality.shape == target_modality.shape
+            dim = int(source_modality.shape[0])
+            mode = action_transform.normalization_modes[key]
+            if mode == "binary":
+                # The released RoboCasa metadata marks these fields as continuous even
+                # though the actual training transform is binary.  The transform is the
+                # executable contract: both checkpoints map these dimensions to {0, 1},
+                # so their endpoint-coordinate map is identity.
+                pass
+            else:
+                assert mode == "min_max", (
+                    f"Cross-checkpoint GR00T OPD supports min_max/binary actions, got "
+                    f"{mode!r} for {key}."
+                )
+                source_stats = self.metadata.statistics.action[name]
+                target_stats = target_metadata.statistics.action[name]
+                source_min = torch.as_tensor(source_stats.min, dtype=torch.float32)
+                source_max = torch.as_tensor(source_stats.max, dtype=torch.float32)
+                target_min = torch.as_tensor(target_stats.min, dtype=torch.float32)
+                target_max = torch.as_tensor(target_stats.max, dtype=torch.float32)
+                source_range = source_max - source_min
+                target_range = target_max - target_min
+                source_degenerate = source_range == 0
+                target_degenerate = target_range == 0
+                assert torch.equal(source_degenerate, target_degenerate), (
+                    f"Source and target disagree on degenerate min_max dimensions for {key}."
+                )
+                assert torch.all(
+                    source_min[source_degenerate] == target_min[target_degenerate]
+                ), f"Source and target use different constants for {key}."
+                active = ~source_degenerate
+                key_scale = torch.ones(dim, dtype=torch.float32)
+                key_shift = torch.zeros(dim, dtype=torch.float32)
+                key_scale[active] = source_range[active] / target_range[active]
+                key_shift[active] = (
+                    source_min[active]
+                    + source_max[active]
+                    - target_min[active]
+                    - target_max[active]
+                ) / target_range[active]
+                scale[offset : offset + dim] = key_scale
+                shift[offset : offset + dim] = key_shift
+            offset += dim
+        assert offset == self.valid_action_dim
+        return scale, shift
 
     def _load_metadata(self, exp_cfg_dir: Path):
         """Load the transforms for the model."""
