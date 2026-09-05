@@ -22,10 +22,6 @@ from hydra import compose, initialize_config_dir
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_CHECKPOINT_ROOT = Path(
-    "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/"
-    "foundation_model_learning"
-)
 
 
 def parse_args() -> argparse.Namespace:
@@ -165,11 +161,9 @@ def main() -> None:
     torch.cuda.reset_peak_memory_stats(device)
 
     cfg = compose_mopd_config(args.config_name)
-    checkpoint_root = Path(
-        os.environ.get("ROBOCASA365_CHECKPOINT_ROOT", DEFAULT_CHECKPOINT_ROOT)
-    )
     checkpoint = args.checkpoint
     if checkpoint is None and "ROBOCASA365_CHECKPOINT_ROOT" in os.environ:
+        checkpoint_root = Path(os.environ["ROBOCASA365_CHECKPOINT_ROOT"])
         checkpoint = checkpoint_root / "pretraining/checkpoint-80000"
     if checkpoint is not None:
         with open_dict(cfg.actor.model):

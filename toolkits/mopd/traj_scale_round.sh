@@ -59,10 +59,12 @@
 # training ~120 s per step, about 32 min, so ~5.5 h per run.
 set -o pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO=${REPO:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}
-OUT=$REPO/outputs/mopd
-LOG=$OUT/traj_scale_round.log
-STATE=$OUT/traj_scale_round.state
+source "$SCRIPT_DIR/local_env.sh" || exit 1
+opd_prepare_run smoke "traj_scale_round.$(date +%Y%m%d-%H%M%S)" || exit 1
+[[ ${OPD_DRY_RUN:-0} == 1 ]] && exit 0
+OUT=$OPD_OUTPUTS_ROOT/train
+LOG=$OPD_RUN_DIR/batch.log
+STATE=$OPD_RUN_DIR/status
 PROJECT=robocasa_opd_verify
 cd "$REPO" || exit 1
 say() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
@@ -87,12 +89,14 @@ progress_watchdog() {
 
 run_one() {   # tag cfg lr
     local tag=$1 cfg=$2 lr=${3:-2.0e-5}
-    local st=$OUT/$cfg.$tag.status out=$OUT/$cfg.$tag.out
+    local st out run_id
     for a in 1 2 3; do
+        run_id=$cfg.$tag.$(date +%Y%m%d-%H%M%S).attempt$a
+        st=$OUT/$run_id/status
+        out=$OUT/$run_id/train.log
         say "RUN $tag (128 envs x 6 rollout epochs = 768 trajectories) attempt $a"
-        rm -f "$st"
         progress_watchdog "$out" 7200 & local wd=$!
-        bash "$SCRIPT_DIR/run_mopd.sh" "$cfg" "$tag" \
+        OPD_RUN_ID=$run_id bash "$SCRIPT_DIR/run_mopd.sh" "$cfg" "$tag" \
             "runner.max_steps=10" "runner.val_check_interval=5" \
             "runner.save_interval=1000" \
             "runner.logger.project_name=$PROJECT" \
@@ -122,7 +126,7 @@ run_one() {   # tag cfg lr
         fi
         # Each of the 8 ranks logs this line once per step, so divide.
         local lines; lines=$(grep -c 'Routed teacher velocities over' "$out" 2>/dev/null || echo 0)
-        cp -f "$out" "$out.attempt$a" 2>/dev/null   # $out is overwritten by the next attempt
+        say "  retained attempt log: $out"
         say "  steps done: $((lines / 8))  err: $(grep -E 'Error|Traceback' "$out" 2>/dev/null | tail -1 | cut -c1-150)"
         sleep 120
     done

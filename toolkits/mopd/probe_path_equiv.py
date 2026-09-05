@@ -26,6 +26,7 @@ any remaining difference is the code, not the sampling.
 Also checks the branch the A/B never touched: get_rl_action(mode="train"), which adds SDE
 noise on one random denoise step and is what MOPD rollout actually runs.
 """
+
 import copy
 import os
 from pathlib import Path
@@ -36,11 +37,7 @@ from omegaconf import OmegaConf
 
 REPO = Path(__file__).resolve().parents[2]
 CHECKPOINT_ROOT = Path(
-    os.environ.get(
-        "ROBOCASA365_CHECKPOINT_ROOT",
-        "/localscratch2/liyifa11/models/robocasa365/gr00t_n1-5/"
-        "foundation_model_learning",
-    )
+    os.environ.get("ROBOCASA365_CHECKPOINT_ROOT") or os.environ["OPD_MODEL_ROOT"]
 )
 CKPT = CHECKPOINT_ROOT / "target_posttraining/atomic_seen/checkpoint-60000"
 SEED = 1234
@@ -61,12 +58,15 @@ cfg.task_filter = ["TurnOnMicrowave", "CloseToasterOvenDoor"]
 
 from rlinf.envs.robocasa365.robocasa365_env import Robocasa365Env  # noqa: E402
 
-env = Robocasa365Env(cfg, num_envs=NENV, seed_offset=0, total_num_processes=1, worker_info=None)
+env = Robocasa365Env(
+    cfg, num_envs=NENV, seed_offset=0, total_num_processes=1, worker_info=None
+)
 obs, _ = env.reset()
 print(f"env ready: {NENV} envs, states {tuple(obs['states'].shape)}", flush=True)
 
 mcfg = OmegaConf.merge(
-    OmegaConf.load(f"{REPO}/examples/embodiment/config/model/gr00t.yaml"), run.rollout.model
+    OmegaConf.load(f"{REPO}/examples/embodiment/config/model/gr00t.yaml"),
+    run.rollout.model,
 )
 OmegaConf.resolve(mcfg)
 mcfg.model_path = str(CKPT)
@@ -92,7 +92,11 @@ def rms(x):
 with torch.no_grad():
     os.environ["MOPD_DISABLE_REF_INFER"] = "1"
     a_ref = seeded(model.predict_action_reference, copy.deepcopy(obs)).float().numpy()
-    a_rl = seeded(model.predict_action_batch, copy.deepcopy(obs), mode="eval")[0].float().numpy()
+    a_rl = (
+        seeded(model.predict_action_batch, copy.deepcopy(obs), mode="eval")[0]
+        .float()
+        .numpy()
+    )
 
 print("\n=== eval: reference delegation vs RLinf _get_rl_action ===", flush=True)
 print(f"shape           {a_ref.shape}", flush=True)
@@ -112,7 +116,10 @@ with torch.no_grad():
     a_ref2 = model.predict_action_reference(copy.deepcopy(obs)).float().numpy()
 print("\n--- scale check: same path, different noise draw ---", flush=True)
 print(f"max |diff| ref vs ref'   {np.abs(a_ref - a_ref2).max():.6f}", flush=True)
-print(f"rel rms diff             {rms(a_ref - a_ref2) / max(rms(a_ref), 1e-12):.6f}", flush=True)
+print(
+    f"rel rms diff             {rms(a_ref - a_ref2) / max(rms(a_ref), 1e-12):.6f}",
+    flush=True,
+)
 
 # The branch the six-cell A/B never exercised: MOPD rollout runs mode="train".
 print("\n=== train mode (flow_sde, one stochastic step) vs eval ===", flush=True)
@@ -120,9 +127,16 @@ with torch.no_grad():
     for k in range(3):
         torch.manual_seed(SEED + 100 + k)
         torch.cuda.manual_seed_all(SEED + 100 + k)
-        a_tr = model.predict_action_batch(copy.deepcopy(obs), mode="train")[0].float().numpy()
-        print(f"  draw {k}: rms={rms(a_tr):.6f}  "
-              f"max|a_train - a_eval|={np.abs(a_tr - a_rl).max():.6f}  "
-              f"rel={rms(a_tr - a_rl) / max(rms(a_rl), 1e-12):.6f}", flush=True)
+        a_tr = (
+            model.predict_action_batch(copy.deepcopy(obs), mode="train")[0]
+            .float()
+            .numpy()
+        )
+        print(
+            f"  draw {k}: rms={rms(a_tr):.6f}  "
+            f"max|a_train - a_eval|={np.abs(a_tr - a_rl).max():.6f}  "
+            f"rel={rms(a_tr - a_rl) / max(rms(a_rl), 1e-12):.6f}",
+            flush=True,
+        )
 
 print("\nPATH_EQUIV_DONE", flush=True)

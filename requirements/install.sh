@@ -871,7 +871,7 @@ EOF
 
             # Create new venv
             install_uv
-            uv venv "$VENV_DIR" --python "$PYTHON_VERSION"
+            uv venv "$VENV_DIR" --python "${RLINF_PYTHON_EXECUTABLE:-$PYTHON_VERSION}"
             # shellcheck disable=SC1090
             source "$VENV_DIR/bin/activate"
         else
@@ -881,7 +881,8 @@ EOF
     else
         # Create new venv
         install_uv
-        uv venv "$VENV_DIR" --python "$PYTHON_VERSION"
+        # An optional local interpreter keeps project runtimes self-contained.
+        uv venv "$VENV_DIR" --python "${RLINF_PYTHON_EXECUTABLE:-$PYTHON_VERSION}"
         # shellcheck disable=SC1090
         source "$VENV_DIR/bin/activate"
     fi
@@ -1983,7 +1984,8 @@ install_robocasa365_env() {
 
     uv pip install -e "$robocasa_dir"
     uv pip install --no-deps "lerobot @ git+${GITHUB_PREFIX}https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5"
-    uv pip install --no-deps "robosuite @ git+${GITHUB_PREFIX}https://github.com/ARISE-Initiative/robosuite.git@master"
+    # The project setup wrapper supplies a verified commit; keep the general default.
+    uv pip install --no-deps "robosuite @ git+${GITHUB_PREFIX}https://github.com/ARISE-Initiative/robosuite.git@${ROBOCASA365_ROBOSUITE_REV:-master}"
     uv pip install --no-deps mujoco==3.3.1
     uv pip install protobuf==6.33.0
 
@@ -2387,4 +2389,7 @@ main() {
     install_platform_extras
 }
 
-main "$@"
+# Project provisioning wrappers may reuse utilities without starting an install.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

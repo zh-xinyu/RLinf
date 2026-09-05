@@ -4,28 +4,30 @@
 # validation numbers against.
 #
 # Usage: bash toolkits/mopd/run_eval_mopd.sh <tag> [wait_status_file] [hydra overrides...]
+# Pass an empty wait_status_file ("") when supplying overrides without a wait.
 # If wait_status_file is given, block until that run writes a terminal status.
 set -o pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO=${REPO:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}
-# Local NVMe venv: cold imports are ~10s here vs ~38s on the NFS copy, which is what
-# Ray's 30s startup budgets require. The original NFS venv was deleted 2026-08-24 --
-# a venv on that mount cannot meet Ray's startup deadlines, so it was not runnable
-# here. To rebuild on a new node see .project_results/mopd/RUNBOOK.md section 2.
-VENV=${VENV:-/localscratch2/liyifa11/venvs/gr00t_robocasa365}
-WANDB_ENV_FILE=${WANDB_ENV_FILE:-/egr/research-actionlab/liyifa11/XyCode/.wandb_env}
-OUT_DIR=$REPO/outputs/mopd
+source "$SCRIPT_DIR/local_env.sh" || exit 1
 TAG=${1:?tag required}
 WAIT_FILE=${2:-}
 shift 2 2>/dev/null || shift 1
 EXTRA=("$@")
 
-LOG=$OUT_DIR/eval.${TAG}.out
-STATUS=$OUT_DIR/eval.${TAG}.status
+opd_prepare_run eval "${OPD_RUN_ID:-eval.$TAG}" || exit 1
+OUT_DIR=$OPD_RUN_DIR
+LOG=$OUT_DIR/eval.log
+STATUS=$OUT_DIR/status
+COMMAND=("$VENV/bin/python" -u "$REPO/evaluations/eval_embodied_agent.py"
+    --config-path "$REPO/evaluations/robocasa365"
+    --config-name robocasa365_mopd_gr00t_eval
+    "runner.logger.experiment_name=$TAG" "${EXTRA[@]}")
+printf 'command:'; printf ' %q' "${COMMAND[@]}"; printf '\n'
+[[ ${OPD_DRY_RUN:-0} == 1 ]] && exit 0
+printf '%q ' "${COMMAND[@]}" > "$OUT_DIR/command.txt"
 
-export PYTHONPATH="$REPO:${PYTHONPATH:-}"
-source "$VENV/bin/activate"
+source "$VENV/bin/activate" || exit 1
 source "$SCRIPT_DIR/ray_utils.sh"
 
 # Wait on a status FILE, never on `pgrep -f <name>`: that matches the shell that created
@@ -49,24 +51,19 @@ echo "RUNNING" > "$STATUS"
 restart_ray || { echo "RAY_FAILED" > "$STATUS"; exit 1; }
 
 cd "$REPO" || exit 1
-setsid nohup bash -c "
-    cd $REPO
-    export PYTHONPATH=\"$REPO:\${PYTHONPATH:-}\"
-    source $VENV/bin/activate
-    source $WANDB_ENV_FILE
+setsid nohup bash -c '
+    if [[ -n "$WANDB_ENV_FILE" && -f "$WANDB_ENV_FILE" ]]; then
+        source "$WANDB_ENV_FILE" || exit 1
+    else
+        export WANDB_MODE=${WANDB_MODE:-offline}
+    fi
     export NCCL_P2P_DISABLE=1
     export NCCL_IB_DISABLE=1
     export MUJOCO_GL=egl
-    export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}
     export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=${RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES:-1}
-    export EMBODIED_PATH=$REPO/examples/embodiment
-    export EVALUATIONS_PATH=$REPO/evaluations
-    export REPO_PATH=$REPO
     export HYDRA_FULL_ERROR=1
-    python -u evaluations/eval_embodied_agent.py \
-        --config-path $REPO/evaluations/robocasa365 \
-        --config-name robocasa365_mopd_gr00t_eval ${EXTRA[*]}
-" > "$LOG" 2>&1 < /dev/null &
+    exec "$@"
+' opd-eval "${COMMAND[@]}" > "$LOG" 2>&1 < /dev/null &
 RUN_PID=$!
 log "  eval launched pid $RUN_PID -> $LOG"
 

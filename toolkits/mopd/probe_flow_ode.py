@@ -23,6 +23,7 @@ Three claims to check, on the real model and real observations:
   3. flow_sde still behaves as before: stochastic, and NOT equal to eval.
 Plus the guard: flow_ode + joint_logprob=False must raise, not silently misbehave.
 """
+
 import copy
 import os
 from pathlib import Path
@@ -33,11 +34,7 @@ from omegaconf import OmegaConf, open_dict
 
 REPO = Path(__file__).resolve().parents[2]
 CHECKPOINT_ROOT = Path(
-    os.environ.get(
-        "ROBOCASA365_CHECKPOINT_ROOT",
-        "/localscratch2/liyifa11/models/robocasa365/gr00t_n1-5/"
-        "foundation_model_learning",
-    )
+    os.environ.get("ROBOCASA365_CHECKPOINT_ROOT") or os.environ["OPD_MODEL_ROOT"]
 )
 CKPT = CHECKPOINT_ROOT / "target_posttraining/atomic_seen/checkpoint-60000"
 SEED, NENV = 1234, 2
@@ -56,11 +53,14 @@ cfg.task_filter = ["TurnOnMicrowave"]
 
 from rlinf.envs.robocasa365.robocasa365_env import Robocasa365Env  # noqa: E402
 
-env = Robocasa365Env(cfg, num_envs=NENV, seed_offset=0, total_num_processes=1, worker_info=None)
+env = Robocasa365Env(
+    cfg, num_envs=NENV, seed_offset=0, total_num_processes=1, worker_info=None
+)
 obs, _ = env.reset()
 
 mcfg = OmegaConf.merge(
-    OmegaConf.load(f"{REPO}/examples/embodiment/config/model/gr00t.yaml"), run.rollout.model
+    OmegaConf.load(f"{REPO}/examples/embodiment/config/model/gr00t.yaml"),
+    run.rollout.model,
 )
 OmegaConf.resolve(mcfg)
 mcfg.model_path = str(CKPT)
@@ -96,13 +96,19 @@ a_eval, _ = act(m, "eval")
 a_train, res = act(m, "train")
 print(f"max |a_train - a_eval| : {np.abs(a_train - a_eval).max():.3e}")
 print(f"rel rms diff           : {rel(a_eval, a_train):.3e}")
-print(f"CLAIM 1 deterministic  : {'PASS' if np.abs(a_train - a_eval).max() == 0 else 'FAIL'}")
+print(
+    f"CLAIM 1 deterministic  : {'PASS' if np.abs(a_train - a_eval).max() == 0 else 'FAIL'}"
+)
 
 di = res["forward_inputs"]["denoise_inds"]
 lp = res["prev_logprobs"].float().cpu().numpy()
 print(f"denoise_inds[0]        : {di[0].tolist()}  (expect arange)")
-print(f"log_prob entries       : {lp.shape[1]}  (expect num_steps + 1 under joint_logprob)")
-print(f"max |entry 0| (x_T)    : {np.abs(lp[:, 0]).max():.3e}  (nonzero by construction)")
+print(
+    f"log_prob entries       : {lp.shape[1]}  (expect num_steps + 1 under joint_logprob)"
+)
+print(
+    f"max |entry 0| (x_T)    : {np.abs(lp[:, 0]).max():.3e}  (nonzero by construction)"
+)
 print(f"max |entries 1..n|     : {np.abs(lp[:, 1:]).max():.3e}")
 print(f"CLAIM 2 zero transitions: {'PASS' if np.abs(lp[:, 1:]).max() == 0 else 'FAIL'}")
 
@@ -110,9 +116,13 @@ print(f"CLAIM 2 zero transitions: {'PASS' if np.abs(lp[:, 1:]).max() == 0 else '
 torch.manual_seed(SEED + 7)
 torch.cuda.manual_seed_all(SEED + 7)
 with torch.no_grad():
-    a_train2 = m.predict_action_batch(copy.deepcopy(obs), mode="train")[0].float().numpy()
-print(f"rel diff across seeds  : {rel(a_train, a_train2):.3e}  "
-      f"(nonzero is expected: the INITIAL x_T noise still differs)")
+    a_train2 = (
+        m.predict_action_batch(copy.deepcopy(obs), mode="train")[0].float().numpy()
+    )
+print(
+    f"rel diff across seeds  : {rel(a_train, a_train2):.3e}  "
+    f"(nonzero is expected: the INITIAL x_T noise still differs)"
+)
 del m
 torch.cuda.empty_cache()
 
@@ -120,10 +130,16 @@ print("\n########## flow_sde + joint_logprob=False (regression) ##########", flu
 m = build("flow_sde", False)
 a_eval_s, _ = act(m, "eval")
 a_train_s, res_s = act(m, "train")
-print(f"rel |a_train - a_eval| : {rel(a_eval_s, a_train_s):.4f}  (expect clearly nonzero)")
-print(f"denoise_inds[0]        : {res_s['forward_inputs']['denoise_inds'][0].tolist()}"
-      f"  (expect one repeated index)")
-print(f"CLAIM 3 still stochastic: {'PASS' if rel(a_eval_s, a_train_s) > 1e-3 else 'FAIL'}")
+print(
+    f"rel |a_train - a_eval| : {rel(a_eval_s, a_train_s):.4f}  (expect clearly nonzero)"
+)
+print(
+    f"denoise_inds[0]        : {res_s['forward_inputs']['denoise_inds'][0].tolist()}"
+    f"  (expect one repeated index)"
+)
+print(
+    f"CLAIM 3 still stochastic: {'PASS' if rel(a_eval_s, a_train_s) > 1e-3 else 'FAIL'}"
+)
 del m
 torch.cuda.empty_cache()
 

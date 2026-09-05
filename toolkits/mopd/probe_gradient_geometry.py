@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Optional JSON output path (normally under ignored outputs/mopd/).",
+        help="Optional JSON output path (normally within outputs/smoke/<run>/).",
     )
     return parser.parse_args()
 

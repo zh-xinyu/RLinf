@@ -28,6 +28,7 @@ Three numbers, on real observations:
 If the action gap is small, there is nothing to learn and the loss is chasing noise.
 If it is large, the objective has real headroom and the problem is optimisation.
 """
+
 import copy
 import os
 from pathlib import Path
@@ -38,11 +39,7 @@ from omegaconf import OmegaConf
 
 REPO = Path(__file__).resolve().parents[2]
 CHECKPOINT_ROOT = Path(
-    os.environ.get(
-        "ROBOCASA365_CHECKPOINT_ROOT",
-        "/localscratch2/liyifa11/models/robocasa365/gr00t_n1-5/"
-        "foundation_model_learning",
-    )
+    os.environ.get("ROBOCASA365_CHECKPOINT_ROOT") or os.environ["OPD_MODEL_ROOT"]
 )
 STUDENT = CHECKPOINT_ROOT / "pretraining/checkpoint-80000"
 TEACHER = CHECKPOINT_ROOT / "target_posttraining/atomic_seen/checkpoint-60000"
@@ -62,12 +59,15 @@ cfg.task_filter = ["TurnOnMicrowave"]
 
 from rlinf.envs.robocasa365.robocasa365_env import Robocasa365Env  # noqa: E402
 
-env = Robocasa365Env(cfg, num_envs=NENV, seed_offset=0, total_num_processes=1, worker_info=None)
+env = Robocasa365Env(
+    cfg, num_envs=NENV, seed_offset=0, total_num_processes=1, worker_info=None
+)
 obs, _ = env.reset()
 print(f"env ready: {NENV} envs on TurnOnMicrowave", flush=True)
 
 mcfg = OmegaConf.merge(
-    OmegaConf.load(f"{REPO}/examples/embodiment/config/model/gr00t.yaml"), run.rollout.model
+    OmegaConf.load(f"{REPO}/examples/embodiment/config/model/gr00t.yaml"),
+    run.rollout.model,
 )
 OmegaConf.resolve(mcfg)
 
@@ -89,12 +89,16 @@ def rms(x):
 
 student, teacher = load(str(STUDENT)), load(str(TEACHER))
 
+
 # --- 1. emitted actions, same seed so the initial flow noise matches ---
 def act(m):
     torch.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
     with torch.no_grad():
-        return m.predict_action_batch(copy.deepcopy(obs), mode="eval")[0].float().numpy()
+        return (
+            m.predict_action_batch(copy.deepcopy(obs), mode="eval")[0].float().numpy()
+        )
+
 
 a_s, a_t = act(student), act(teacher)
 print("\n=== 1. emitted action gap (what decides success) ===", flush=True)
@@ -107,17 +111,24 @@ print(f"relative gap          {rms(a_s - a_t) / max(rms(a_t), 1e-9):.1%}")
 torch.manual_seed(SEED + 1)
 torch.cuda.manual_seed_all(SEED + 1)
 with torch.no_grad():
-    a_s2 = student.predict_action_batch(copy.deepcopy(obs), mode="eval")[0].float().numpy()
-print(f"same model, new noise {rms(a_s - a_s2) / max(rms(a_s), 1e-9):.1%}  <- the noise floor")
+    a_s2 = (
+        student.predict_action_batch(copy.deepcopy(obs), mode="eval")[0].float().numpy()
+    )
+print(
+    f"same model, new noise {rms(a_s - a_s2) / max(rms(a_s), 1e-9):.1%}  <- the noise floor"
+)
 
 # --- 2. velocity gap at the student's own flow states ---
-print("\n=== 2. velocity gap at the student's flow states (what the loss sees) ===", flush=True)
+print(
+    "\n=== 2. velocity gap at the student's flow states (what the loss sees) ===",
+    flush=True,
+)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 with torch.no_grad():
     _, res = student.predict_action_batch(copy.deepcopy(obs), mode="train")
 fi = res["forward_inputs"]
-chains = fi["chains"]                      # [B, num_steps+1, horizon, dim]
+chains = fi["chains"]  # [B, num_steps+1, horizon, dim]
 nsteps = student.action_head.num_inference_timesteps
 for k in range(nsteps):
     x_t = chains[:, k]
@@ -125,13 +136,26 @@ for k in range(nsteps):
     vs, vt = [], []
     for m, out in ((student, vs), (teacher, vt)):
         with torch.no_grad():
-            o = m(forward_type=ForwardType.NFT, forward_inputs=fi,
-                  nft_inputs={"x_t": x_t, "timesteps": idx}, compute_values=False)
+            o = m(
+                forward_type=ForwardType.NFT,
+                forward_inputs=fi,
+                nft_inputs={"x_t": x_t, "timesteps": idx},
+                compute_values=False,
+            )
         out.append(o["v_theta"].float().cpu().numpy())
     v_s, v_t = vs[0], vt[0]
-    cos = float(np.mean(np.sum(v_s * v_t, axis=(1, 2)) /
-                (np.linalg.norm(v_s, axis=(1, 2)) * np.linalg.norm(v_t, axis=(1, 2)) + 1e-9)))
-    print(f"  step {k}:  mse {np.mean((v_s-v_t)**2):.4f}   cosine {cos:.4f}   "
-          f"|v_s| {rms(v_s):.3f}  |v_t| {rms(v_t):.3f}")
+    cos = float(
+        np.mean(
+            np.sum(v_s * v_t, axis=(1, 2))
+            / (
+                np.linalg.norm(v_s, axis=(1, 2)) * np.linalg.norm(v_t, axis=(1, 2))
+                + 1e-9
+            )
+        )
+    )
+    print(
+        f"  step {k}:  mse {np.mean((v_s - v_t) ** 2):.4f}   cosine {cos:.4f}   "
+        f"|v_s| {rms(v_s):.3f}  |v_t| {rms(v_t):.3f}"
+    )
 
 print("\nPROBE_DONE", flush=True)

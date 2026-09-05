@@ -27,3 +27,4 @@ PKG-INFO
 #custom
 .project_plan/
 outputs/
+/.opd.local.env

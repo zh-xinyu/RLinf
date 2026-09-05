@@ -34,7 +34,7 @@ cluster:
 runner:
   task_type: embodied
   logger:
-    log_path: "../results"
+    log_path: ${oc.env:OPD_RUN_DIR}
     project_name: rlinf_mopd_robocasa
     experiment_name: "robocasa365_mopd_gr00t"
     logger_backends: ["tensorboard", "wandb"]
@@ -196,7 +196,7 @@ rollout:
   pipeline_stage_num: 1
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/pretraining/checkpoint-80000"   # student init
+    model_path: "${oc.env:OPD_MODEL_ROOT}/pretraining/checkpoint-80000"   # student init
     precision: ${actor.model.precision}
     # Inference receives synchronized FP32 actor weights cast to BF16. Keeping this
     # explicit prevents the actor-only master-weight override below from leaking through
@@ -208,15 +208,15 @@ rollout:
   # teacher forward passes by it.
   expert_models:
     atomic_seen:
-      model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/atomic_seen/checkpoint-60000"
+      model_path: "${oc.env:OPD_MODEL_ROOT}/target_posttraining/atomic_seen/checkpoint-60000"
       precision: ${actor.model.precision}
       action_head_precision: bf16
     composite_seen:
-      model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_seen/checkpoint-60000"
+      model_path: "${oc.env:OPD_MODEL_ROOT}/target_posttraining/composite_seen/checkpoint-60000"
       precision: ${actor.model.precision}
       action_head_precision: bf16
     composite_unseen:
-      model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/target_posttraining/composite_unseen/checkpoint-60000"
+      model_path: "${oc.env:OPD_MODEL_ROOT}/target_posttraining/composite_unseen/checkpoint-60000"
       precision: ${actor.model.precision}
       action_head_precision: bf16
 
@@ -229,7 +229,7 @@ actor:
   enable_offload: True
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/robocasa365/gr00t_n1-5/foundation_model_learning/pretraining/checkpoint-80000"   # student init
+    model_path: "${oc.env:OPD_MODEL_ROOT}/pretraining/checkpoint-80000"   # student init
     model_type: "gr00t"
     action_dim: 12
     # The official evaluation executes the model's full 16-step action horizon
