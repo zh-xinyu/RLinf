@@ -1,5 +1,7 @@
+# Set OPD_PI05_STUDENT_CHECKPOINT to a checkpoint with SFT config/norm metadata.
+# Set OPD_PI05_TEACHER_CHECKPOINT to the compatible teacher checkpoint.
 # Method 3 (M3): Local Flow-SDE Analytic KL, for the Flow-Based OPD Mechanism Study.
-# See .project_plan/Flow-Based OPD Mechanism Study.md. Derived from
+# Derived from
 # maniskill_veldistill_openpi_pi05.yaml (M1) -- everything except algorithm.loss_type and
 # the experiment name is unchanged, per the plan's "keep identical: action normalization,
 # action chunk length, flow timestep convention, denoising steps, training budget, rollout
@@ -14,19 +16,15 @@
 # closed-form schedule, shared between student and teacher per the plan), and train with
 #   L_M3 = D_KL(p_S || p_T) = 0.5 * (mu_S - mu_T)^T Sigma_tau^-1 (mu_S - mu_T)
 #
-# STATUS: config scaffold only. loss_type: analytic_local_kl is NOT YET IMPLEMENTED --
-# needs compute_analytic_local_kl_loss in rlinf/algorithms/losses.py, registered via
-# @register_policy_loss("analytic_local_kl") in rlinf/algorithms/registry.py (see
-# CLAUDE.md's "New algorithms" extension pattern). Required validations before real
-# training (see plan): teacher/student SDE means constructed correctly; analytic KL
-# finite; analytic KL matches Monte-Carlo estimate; analytic KL gradient matches expected
-# timestep-weighted velocity-MSE gradient. Do not launch training until those pass.
+# The actor dispatches analytic_local_kl through rlinf/algorithms/flow_opd.py.
+# Numerical objective checks are in tests/unit_tests/test_flow_opd.py.
 defaults:
   - env/maniskill_put_on_plate_in_scene_25_main@env.train
   - env/maniskill_put_on_plate_in_scene_25_main@env.eval
   - model/pi0_5@actor.model
   - hybrid_engines/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
+  - _self_
   - override hydra/job_logging: stdout
 
 hydra:
@@ -44,7 +42,7 @@ cluster:
 runner:
   task_type: embodied
   logger:
-    log_path: "../results"
+    log_path: ${oc.env:OPD_RUN_DIR,./outputs}
     project_name: rlinf_pi_opd
     experiment_name: "maniskill_m3_openpi_pi05"
     logger_backends: ["tensorboard", "wandb"]
@@ -73,7 +71,7 @@ algorithm:
   update_epoch: 1               # supervised KL; teacher velocities/means are cached
 
   adv_type: gae                 # placeholder; compute_advantages returns early for this loss_type
-  loss_type: analytic_local_kl  # TODO: not yet implemented -- see compute_analytic_local_kl_loss
+  loss_type: analytic_local_kl
   loss_agg_func: "token-mean"
 
   bootstrap_type: always
@@ -130,12 +128,12 @@ rollout:
   pipeline_stage_num: 1
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     precision: ${actor.model.precision}
 
   # Frozen teacher whose velocity/local-Gaussian is distilled into the student.
   expert_model:
-    model_path: "/egr/research-actionlab/liyifa11/models/veldistill_teacher_RL-FlowSDE"  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
+    model_path: ${oc.env:OPD_PI05_TEACHER_CHECKPOINT}  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
     precision: ${actor.model.precision}
 
 actor:
@@ -146,7 +144,7 @@ actor:
   seed: 0
   enable_offload: True
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     model_type: "openpi"
     add_value_head: False       # no critic / value head for this mechanism study
     num_action_chunks: 5

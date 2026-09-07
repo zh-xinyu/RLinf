@@ -1,5 +1,7 @@
+# Set OPD_PI05_STUDENT_CHECKPOINT to a checkpoint with SFT config/norm metadata.
+# Set OPD_PI05_TEACHER_CHECKPOINT to the compatible teacher checkpoint.
 # Method 4 (M4): Hybrid Flow-SDE rollout + Sampled Reverse-KL OPD, for the Flow-Based
-# OPD Mechanism Study. See .project_plan/Flow-Based OPD Mechanism Study.md. Derived from
+# OPD Mechanism Study. Derived from
 # maniskill_m3_hybrid_openpi_pi05.yaml (M3-Hybrid) -- same Hybrid-SDE rollout, only the
 # loss changes (analytic KL -> sampled reverse-KL score-function objective). This isolates
 # whether sampled OPD provides additional benefit beyond Hybrid-SDE coverage alone.
@@ -38,6 +40,7 @@ defaults:
   - model/pi0_5@actor.model
   - hybrid_engines/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
+  - _self_
   - override hydra/job_logging: stdout
 
 hydra:
@@ -55,7 +58,7 @@ cluster:
 runner:
   task_type: embodied
   logger:
-    log_path: "../results"
+    log_path: ${oc.env:OPD_RUN_DIR,./outputs}
     project_name: rlinf_pi_opd
     experiment_name: "maniskill_m4_openpi_pi05"
     logger_backends: ["tensorboard", "wandb"]
@@ -92,8 +95,7 @@ algorithm:
   # M4 IS the sampled reverse-KL objective: compute_opd_advantages gives
   # r_OPD = l_T - l_S_old and compute_opd_actor_loss gives L = -l_S_new * stopgrad(r_OPD),
   # which is exactly the score-function estimator of D_KL(p_S || p_T). Reusing "opd"
-  # rather than adding a duplicate loss is a deliberate engineering-light choice
-  # (.project_plan/OPTIONAL_OPTIMIZATIONS.md). Only the teacher log-probability is
+  # avoids a duplicate loss implementation. Only the teacher log-probability is
   # pi0.5-specific: the OpenVLA path scores action tokens, while here the teacher scores
   # the student's sampled flow transition (see _teacher_transition_logprobs).
   adv_type: opd
@@ -157,12 +159,12 @@ rollout:
   pipeline_stage_num: 1
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     precision: ${actor.model.precision}
 
   # Frozen teacher, queried for log p_T(A'|.) at the student-sampled transition.
   expert_model:
-    model_path: "/egr/research-actionlab/liyifa11/models/veldistill_teacher_RL-FlowSDE"  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
+    model_path: ${oc.env:OPD_PI05_TEACHER_CHECKPOINT}  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
     precision: ${actor.model.precision}
 
 actor:
@@ -173,7 +175,7 @@ actor:
   seed: 0
   enable_offload: True
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     model_type: "openpi"
     add_value_head: False       # no critic / value head for this mechanism study
     num_action_chunks: 5

@@ -1,5 +1,7 @@
+# Set OPD_PI05_STUDENT_CHECKPOINT to a checkpoint with SFT config/norm metadata.
+# Set OPD_PI05_TEACHER_CHECKPOINT to the compatible teacher checkpoint.
 # Method 3-Hybrid (M3-Hybrid): Hybrid Flow-SDE rollout + Analytic Local KL, for the
-# Flow-Based OPD Mechanism Study. See .project_plan/Flow-Based OPD Mechanism Study.md.
+# Flow-Based OPD Mechanism Study.
 # Derived from maniskill_m3_openpi_pi05.yaml (M3) -- the ONLY intended difference vs M3
 # is the rollout mechanism (Hybrid SDE instead of pure ODE); the loss stays analytic KL.
 # This isolates whether stochastic state/action coverage itself helps (M3-Hybrid vs M3),
@@ -19,24 +21,16 @@
 #   L_M3H = D_KL(p_S || p_T) = 0.5 * (mu_S - mu_T)^T Sigma_tau^-1 (mu_S - mu_T)
 # evaluated at the sampled Hybrid-SDE transition state.
 #
-# STATUS: config scaffold. Depends on:
-#   (a) loss_type: analytic_local_kl (same TODO as M3 -- compute_analytic_local_kl_loss)
-#   (b) Hybrid-SDE rollout -- ALREADY IMPLEMENTED, no new rollout logic needed. The loop
-#       in openpi_action_model._sample_actions_with_prefix_cache picks
-#       sample_method = noise_method when idx == denoise_inds[0][idx] and "flow_ode"
-#       otherwise; with joint_logprob=False a single k is drawn per rollout call
-#       (denoise_inds = [k] * num_steps), giving exactly ODE -> one SDE transition at k
-#       -> ODE. Set joint_logprob: False below (True would make every step stochastic).
-#       Note k is shared across the batch within one rollout call, not per-sample.
-# Per the plan's experiment order, do not implement M3-Hybrid until M3's analytic-KL loss
-# and its required validations (finite KL, matches Monte-Carlo, gradient-equivalence to
-# weighted velocity-MSE) are confirmed correct on the pure-ODE M3 config.
+# The actor uses the same analytic_local_kl implementation as M3.
+# joint_logprob: False selects one stochastic transition per rollout call;
+# tests/unit_tests/test_flow_opd.py covers the shared objective's numerical contract.
 defaults:
   - env/maniskill_put_on_plate_in_scene_25_main@env.train
   - env/maniskill_put_on_plate_in_scene_25_main@env.eval
   - model/pi0_5@actor.model
   - hybrid_engines/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
+  - _self_
   - override hydra/job_logging: stdout
 
 hydra:
@@ -54,7 +48,7 @@ cluster:
 runner:
   task_type: embodied
   logger:
-    log_path: "../results"
+    log_path: ${oc.env:OPD_RUN_DIR,./outputs}
     project_name: rlinf_pi_opd
     experiment_name: "maniskill_m3_hybrid_openpi_pi05"
     logger_backends: ["tensorboard", "wandb"]
@@ -83,7 +77,7 @@ algorithm:
   update_epoch: 1               # supervised KL; teacher velocities/means are cached
 
   adv_type: gae                 # placeholder; compute_advantages returns early for this loss_type
-  loss_type: analytic_local_kl  # TODO: not yet implemented -- see compute_analytic_local_kl_loss
+  loss_type: analytic_local_kl
   loss_agg_func: "token-mean"
 
   bootstrap_type: always
@@ -140,12 +134,12 @@ rollout:
   pipeline_stage_num: 1
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     precision: ${actor.model.precision}
 
   # Frozen teacher whose velocity/local-Gaussian is distilled into the student.
   expert_model:
-    model_path: "/egr/research-actionlab/liyifa11/models/veldistill_teacher_RL-FlowSDE"  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
+    model_path: ${oc.env:OPD_PI05_TEACHER_CHECKPOINT}  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
     precision: ${actor.model.precision}
 
 actor:
@@ -156,7 +150,7 @@ actor:
   seed: 0
   enable_offload: True
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     model_type: "openpi"
     add_value_head: False       # no critic / value head for this mechanism study
     num_action_chunks: 5

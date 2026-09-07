@@ -1,3 +1,4 @@
+# Set OPD_PI05_STUDENT_CHECKPOINT to a checkpoint with SFT config/norm metadata.
 # Eval config for Method 1 (velocity distillation) checkpoints on ManiSkill (pi0.5).
 # Same env.eval + model spec as maniskill_veldistill_openpi_pi05.yaml training config.
 # Baseline (SFT): runner.ckpt_path=null.  Trained ckpt: set runner.ckpt_path to
@@ -6,6 +7,7 @@
 defaults:
   - env/maniskill_put_on_plate_in_scene_25_main@env.eval
   - model/pi0_5@rollout.model
+  - _self_
   - override hydra/job_logging: stdout
 
 hydra:
@@ -23,7 +25,7 @@ cluster:
 runner:
   task_type: embodied_eval
   logger:
-    log_path: "../results"
+    log_path: ${oc.env:OPD_RUN_DIR,./outputs}
     project_name: rlinf_pi_opd
     experiment_name: "maniskill_veldistill_openpi_pi05_eval"
     logger_backends: ["tensorboard"]
@@ -64,7 +66,7 @@ rollout:
   unnorm_key: libero_10
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student SFT (base + norm stats)
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student SFT (base + norm stats)
     model_type: "openpi"
     add_value_head: False
     num_action_chunks: 5

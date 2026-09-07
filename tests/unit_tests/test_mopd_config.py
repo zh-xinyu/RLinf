@@ -13,11 +13,22 @@
 # limitations under the License.
 """Configuration tests for GR00T RoboCasa365 MOPD pilots."""
 
+from pathlib import Path
+
 import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-from toolkits.mopd.probe_precision_init import REPO, compose_mopd_config
+REPO = Path(__file__).resolve().parents[2]
+
+
+def compose_mopd_config(config_name, overrides=None):
+    with initialize_config_dir(
+        config_dir=str(REPO / "examples/embodiment/config"), version_base=None
+    ):
+        cfg = compose(config_name=config_name, overrides=overrides or [])
+    OmegaConf.resolve(cfg)
+    return cfg
 
 
 @pytest.fixture(autouse=True)

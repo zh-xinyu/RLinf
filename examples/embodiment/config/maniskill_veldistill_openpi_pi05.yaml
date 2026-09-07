@@ -1,12 +1,11 @@
+# Set OPD_PI05_STUDENT_CHECKPOINT to a checkpoint with SFT config/norm metadata.
+# Set OPD_PI05_TEACHER_CHECKPOINT to the compatible teacher checkpoint.
 # Method 1: On-Policy Velocity Distillation for pi0.5 on ManiSkill.
 # Derived from maniskill_ppo_openpi_pi05.yaml. Student ODE rollout stores flow states
 # (chains); a frozen teacher's velocity is distilled into the student via MSE:
 #   L_vel = mean || v_S(A_t^tau, o_t, tau) - stop_grad(v_T(...)) ||_2^2
 # No reward / advantage / critic / PPO.
-# NOTE: expert_model.model_path = STUDENT (SFT) for the FIRST plumbing smoke (velocity MSE ~= 0).
-#       Switch to the RL-FlowSDE teacher for the real run.
-# NOTE: this is the Flow-Based OPD Mechanism Study's M1 baseline (see
-#       .project_plan/Flow-Based OPD Mechanism Study.md). Rollout uses flow_ode (deterministic
+# NOTE: this is the Flow-Based OPD Mechanism Study's M1 baseline. Rollout uses flow_ode (deterministic
 #       ODE) rather than flow_noise: (a) matches the plan's M1 definition (ODE rollout), (b)
 #       keeps M1 comparable to M3 (also ODE), isolating the M3-Hybrid/M4 Hybrid-SDE change as
 #       the only rollout-mechanism difference in the study, and (c) flow_noise's ExploreNoiseNet
@@ -20,6 +19,7 @@ defaults:
   - model/pi0_5@actor.model
   - hybrid_engines/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
+  - _self_
   - override hydra/job_logging: stdout
 
 hydra:
@@ -37,7 +37,7 @@ cluster:
 runner:
   task_type: embodied
   logger:
-    log_path: "../results"
+    log_path: ${oc.env:OPD_RUN_DIR,./outputs}
     project_name: rlinf_pi_opd
     experiment_name: "maniskill_veldistill_openpi_pi05"
     logger_backends: ["tensorboard", "wandb"]
@@ -125,13 +125,13 @@ rollout:
   pipeline_stage_num: 1
 
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     precision: ${actor.model.precision}
 
   # Frozen teacher whose velocity field is distilled. DRY-RUN = student SFT (MSE ~= 0);
   # REAL = /egr/.../models/RLinf-Pi05-ManiSkill-25Main-RL-FlowSDE/actor
   expert_model:
-    model_path: "/egr/research-actionlab/liyifa11/models/veldistill_teacher_RL-FlowSDE"  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
+    model_path: ${oc.env:OPD_PI05_TEACHER_CHECKPOINT}  # RL-FlowSDE weights + SFT norm/config (composed via symlinks)
     precision: ${actor.model.precision}
 
 actor:
@@ -142,7 +142,7 @@ actor:
   seed: 0
   enable_offload: True
   model:
-    model_path: "/egr/research-actionlab/liyifa11/models/RLinf-Pi05-ManiSkill-25Main-SFT"  # student
+    model_path: ${oc.env:OPD_PI05_STUDENT_CHECKPOINT}  # student
     model_type: "openpi"
     add_value_head: False       # no critic / value head for velocity distillation
     num_action_chunks: 5

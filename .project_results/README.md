@@ -1,16 +1,21 @@
-# Research records
+# OPD Research Records
 
-This directory is the versioned lab notebook for the OPD work. Code and reusable launch
-tools live in the normal source tree; large logs, checkpoints, TensorBoard files, and
-retry artefacts stay under ignored output directories.
+Keep the established OPD method studies, findings and experiment tables under
+version control. These are research evidence, not disposable session notes.
+Read historical results with their recorded protocol and caveats; they do not
+define the current training settings.
 
-| directory | scope |
-|---|---|
-| `mechanism_study/` | single-teacher ManiSkill mechanism study inherited by this branch |
-| `method1_velocity_distillation/` | Method 1 records |
-| `method2_teacher_chunk_fm/` | Method 2 records |
-| `mopd/` | routed multi-teacher GR00T / RoboCasa365 work |
+| Record | Retained Evidence |
+| --- | --- |
+| [Mechanism Study](mechanism_study/README.md) | ManiSkill M1 / M3 / M3-Hybrid / M4 comparisons, findings and complete tables |
+| [Method 1](method1_velocity_distillation/README.md) | Earlier velocity-distillation results and CSV |
+| [Method 2](method2_teacher_chunk_fm/README.md) | Teacher-chunk flow-matching study |
+| [Method Comparison](COMPARISON.md) | Historical training-budget comparisons |
 
-For the routed MOPD overview and current caveats, start with [`mopd/README.md`](mopd/README.md)
-and [`mopd/RESULTS.md`](mopd/RESULTS.md). Session handoffs, machine-specific notes, weekly
-updates, and generated reports are intentionally excluded from the versioned record.
+Preserve the original values and interpretations, including negative results and
+explicitly withdrawn conclusions. An old date or a "temporary" filename is not a
+reason to discard useful evidence.
+
+The `mopd/` working notes remain local and Git-ignored until their publication
+scope is decided. Their useful results are retained on disk. Machine profiles,
+run outputs and personal launch tools stay separate from these versioned studies.
