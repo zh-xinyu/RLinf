@@ -116,6 +116,10 @@ class Robocasa365Env(gym.Env):
                 "ordered" if bool(cfg.get("is_eval", False)) else "random",
             )
         )
+        if self.task_sampling_strategy not in {"random", "ordered", "suite_balanced"}:
+            raise ValueError(
+                f"Unknown task sampling strategy: {self.task_sampling_strategy}"
+            )
         self.rotate_tasks_on_auto_reset = bool(
             cfg.get("rotate_tasks_on_auto_reset", True)
         )
@@ -130,6 +134,8 @@ class Robocasa365Env(gym.Env):
         )
         self.task_specs = self._load_task_specs()
         self.num_tasks = len(self.task_specs)
+        if self.task_sampling_strategy == "suite_balanced":
+            self._init_suite_balanced_sampling()
         self.episode_horizon_source = str(
             self.cfg.get("episode_horizon_source", "max_episode_steps")
         )
@@ -198,7 +204,26 @@ class Robocasa365Env(gym.Env):
     def update_reset_state_ids(self):
         self._set_next_task_ids()
 
-    def _sample_task_ids(self, num_groups: int) -> np.ndarray:
+    def _init_suite_balanced_sampling(self) -> None:
+        """Assign fixed suite slots locally, with task cursors offset across workers."""
+        pools: dict[str, list[int]] = {}
+        for task_id, spec in enumerate(self.task_specs):
+            suite = spec["metadata_view"].get("task_soup")
+            if not suite:
+                raise ValueError("suite_balanced sampling requires task_soup metadata.")
+            pools.setdefault(suite, []).append(task_id)
+        self._suite_task_pools = list(pools.values())
+        num_suites = len(self._suite_task_pools)
+        if not num_suites or self.num_group % num_suites or self.num_group < num_suites:
+            raise ValueError(
+                "suite_balanced sampling requires groups per env worker to be a "
+                f"positive multiple of the suite count ({num_suites}); got {self.num_group}."
+            )
+        self._suite_reset_counts = np.zeros(self.num_group, dtype=np.int64)
+
+    def _sample_task_ids(
+        self, num_groups: int, group_ids: Optional[np.ndarray] = None
+    ) -> np.ndarray:
         use_ordered = (
             self.task_sampling_strategy == "ordered"
             or bool(self.cfg.get("is_eval", False))
@@ -216,6 +241,24 @@ class Robocasa365Env(gym.Env):
                 self._ordered_task_cursor + num_groups * self.total_num_processes
             ) % self.num_tasks
             return group_task_ids.astype(np.int32, copy=False)
+
+        if self.task_sampling_strategy == "suite_balanced":
+            # Each local group keeps its suite even across partial auto-resets. Tasks
+            # rotate within that suite; the global slot offset covers all tasks across
+            # workers/epochs without requiring one worker to host the entire task set.
+            if group_ids is None:
+                group_ids = np.arange(num_groups)
+            num_suites = len(self._suite_task_pools)
+            local_slots = self.num_group // num_suites
+            global_slots = local_slots * self.total_num_processes
+            selected = []
+            for group_id in group_ids:
+                pool = self._suite_task_pools[int(group_id) % num_suites]
+                slot = self.seed_offset * local_slots + int(group_id) // num_suites
+                cursor = slot + int(self._suite_reset_counts[group_id]) * global_slots
+                selected.append(pool[cursor % len(pool)])
+                self._suite_reset_counts[group_id] += 1
+            return np.asarray(selected, dtype=np.int32)
 
         return self._generator.integers(
             low=0,
@@ -241,7 +284,7 @@ class Robocasa365Env(gym.Env):
             return np.empty(0, dtype=np.int32)
 
         group_ids = np.unique(env_idx // self.group_size)
-        group_task_ids = self._sample_task_ids(len(group_ids))
+        group_task_ids = self._sample_task_ids(len(group_ids), group_ids)
         affected_env_ids = []
         new_task_ids = getattr(
             self,
@@ -391,6 +434,8 @@ class Robocasa365Env(gym.Env):
         self.success_once = np.zeros(self.num_envs, dtype=bool)
         self.fail_once = np.zeros(self.num_envs, dtype=bool)
         self.returns = np.zeros(self.num_envs)
+        self._episode_terminated = np.zeros(self.num_envs, dtype=bool)
+        self._episode_truncated = np.zeros(self.num_envs, dtype=bool)
 
     def _reset_metrics(self, env_idx=None):
         if env_idx is not None:
@@ -401,12 +446,16 @@ class Robocasa365Env(gym.Env):
             self.fail_once[mask] = False
             self.returns[mask] = 0
             self._elapsed_steps[env_idx] = 0
+            self._episode_terminated[mask] = False
+            self._episode_truncated[mask] = False
         else:
             self.prev_step_reward[:] = 0
             self.success_once[:] = False
             self.fail_once[:] = False
             self.returns[:] = 0.0
             self._elapsed_steps[:] = 0
+            self._episode_terminated[:] = False
+            self._episode_truncated[:] = False
 
     def _record_metrics(self, step_reward, terminations, infos):
         episode_info = {}
@@ -557,9 +606,7 @@ class Robocasa365Env(gym.Env):
             # dropped by EnvOutput.prepare_observations, which normalises observations to
             # a fixed key set; `task_groups` is part of that contract. Routed
             # multi-teacher distillation needs this label on the rollout side.
-            "task_groups": [
-                meta.get("task_soup") for meta in self.task_metadata
-            ],
+            "task_groups": [meta.get("task_soup") for meta in self.task_metadata],
         }
         if extracted["extra_view_images"] is not None:
             obs["extra_view_images"] = torch.from_numpy(extracted["extra_view_images"])
@@ -600,6 +647,7 @@ class Robocasa365Env(gym.Env):
             self.current_info_list[int(target_env_id)] = info_list[raw_obs_id]
 
         obs = self._wrap_obs(self.current_raw_obs, self.current_info_list)
+        self._last_obs = obs
         self._reset_metrics(env_idx)
         infos = {}
         return obs, infos
@@ -641,26 +689,37 @@ class Robocasa365Env(gym.Env):
         if isinstance(actions, torch.Tensor):
             actions = actions.detach().cpu().numpy()
 
-        self._elapsed_steps += 1
+        # The runner keeps a fixed-size rollout tensor, but terminal padding must not
+        # advance physics, render images, earn rewards, or turn a timeout into success.
+        active = ~(self._episode_terminated | self._episode_truncated)
+        active_ids = np.flatnonzero(active)
+        if active_ids.size:
+            raw_obs, _, _, info_lists = self.env.step(
+                actions[active_ids], id=active_ids
+            )
+            self._elapsed_steps[active_ids] += 1
+            for offset, env_id in enumerate(active_ids):
+                self.current_raw_obs[env_id] = raw_obs[offset]
+                self.current_info_list[env_id] = info_lists[offset]
+            self._last_obs = self._wrap_obs(
+                self.current_raw_obs, self.current_info_list
+            )
+        obs = self._last_obs
+        successes = np.asarray(
+            [info.get("success", False) for info in self.current_info_list], dtype=bool
+        )
+        step_reward = np.where(active, self._calc_step_reward(successes), 0.0)
+        self._episode_truncated |= active & (self._elapsed_steps >= self.task_horizons)
+        if not self.ignore_terminations:
+            self._episode_terminated |= active & successes
 
-        raw_obs, rewards, dones, info_lists = self.env.step(actions)
-        del rewards, dones
-        self.current_raw_obs = raw_obs
-        self.current_info_list = info_lists
-
-        terminations = np.array(
-            [info.get("success", False) for info in info_lists]
-        ).astype(bool)
-        truncations = self._elapsed_steps >= self.task_horizons
-        obs = self._wrap_obs(raw_obs, info_lists)
-
-        step_reward = self._calc_step_reward(terminations)
-
-        infos = list_of_dict_to_dict_of_list(info_lists)
-        infos = self._record_metrics(step_reward, terminations, infos)
+        infos = list_of_dict_to_dict_of_list(self.current_info_list)
+        infos = self._record_metrics(step_reward, successes, infos)
         if self.ignore_terminations:
-            infos["episode"]["success_at_end"] = to_tensor(terminations)
-            terminations[:] = False
+            infos["episode"]["success_at_end"] = to_tensor(successes.copy())
+
+        terminations = self._episode_terminated.copy()
+        truncations = self._episode_truncated.copy()
 
         done_mask = terminations | truncations
         _auto_reset = auto_reset and self.auto_reset

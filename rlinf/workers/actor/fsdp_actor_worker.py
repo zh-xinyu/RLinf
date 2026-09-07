@@ -1630,6 +1630,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             "ranks do produce. The quota is drawn per rank, so an unbalanced split makes "
             "the global weighting the mean of the per-rank ones while every local log "
             "line still reads as balanced. Raise total_num_envs, change task placement, "
+            "use env.train.task_sampling_strategy=suite_balanced for RoboCasa365, "
             "or turn algorithm.suite_balanced_sampling off and accept natural horizon "
             "weighting."
         )
@@ -1649,9 +1650,8 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             assert pool.numel() > 0, (
                 f"suite {self._teacher_names()[suite]!r} produced no valid transitions on "
                 f"rank {self._rank}. The quota is drawn per rank, so every rank's envs must "
-                "cover every suite: with `ordered` task sampling each env worker takes "
-                "env.train.total_num_envs / num_env_workers consecutive tasks, so that "
-                "count must be a multiple of the task filter's length."
+                "cover every suite. Use RoboCasa365 suite_balanced task sampling with "
+                "groups per worker divisible by the number of suites."
             )
             if pool.numel() >= quota:
                 take = pool[torch.randperm(pool.numel(), generator=g)[:quota]]

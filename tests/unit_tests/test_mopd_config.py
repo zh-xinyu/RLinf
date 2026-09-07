@@ -37,6 +37,7 @@ def isolated_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("OPD_MODEL_ROOT", str(tmp_path / "models"))
     monkeypatch.setenv("OPD_RUN_DIR", str(tmp_path / "run"))
     monkeypatch.setenv("EMBODIED_PATH", str(REPO / "examples/embodiment"))
+    monkeypatch.delenv("OPD_STUDENT_CHECKPOINT", raising=False)
 
 
 @pytest.mark.parametrize(
@@ -80,3 +81,29 @@ def test_standalone_eval_paths_resolve_from_local_runtime(tmp_path):
         tmp_path / "models/pretraining/checkpoint-80000"
     )
     assert cfg.runner.logger.log_path == str(tmp_path / "run")
+
+
+def test_full_mopd_requires_explicit_student_and_uses_full_suite_recipe():
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_gr00t_full", ["actor.model.model_path=/cold-start/checkpoint"]
+    )
+    assert (
+        cfg.actor.model.model_path
+        == cfg.rollout.model.model_path
+        == "/cold-start/checkpoint"
+    )
+    assert cfg.env.train.task_filter is None
+    assert len(cfg.env.train.task_soup) == 3
+    assert cfg.env.train.task_sampling_strategy == "suite_balanced"
+    assert cfg.env.train.total_num_envs * cfg.env.train.rollout_epoch == 96
+    assert cfg.actor.global_batch_size == 8192 and cfg.actor.micro_batch_size == 32
+    assert cfg.actor.optim.lr_scheduler == "constant"
+    assert cfg.runner.val_check_interval == -1 and cfg.runner.save_interval == 25
+    assert cfg.runner.resume_dir is None and cfg.runner.ckpt_path is None
+
+
+def test_full_mopd_has_no_silent_foundation_checkpoint_fallback():
+    from omegaconf.errors import InterpolationResolutionError
+
+    with pytest.raises(InterpolationResolutionError, match="OPD_STUDENT_CHECKPOINT"):
+        compose_mopd_config("robocasa365_mopd_gr00t_full")

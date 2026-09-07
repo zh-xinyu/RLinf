@@ -16,13 +16,12 @@ defaults:
   - hybrid_engines/fsdp@actor.fsdp_config
   - weight_syncer/patch_syncer@weight_syncer
   - override hydra/job_logging: stdout
+  - _self_
 
 hydra:
   run:
     dir: .
   output_subdir: null
-  searchpath:
-    - file://${oc.env:EMBODIED_PATH}/config/
 
 cluster:
   num_nodes: 1
@@ -103,16 +102,8 @@ env:
 
   train:
     rollout_epoch: 1
-    # 48 envs x ~1050 mean horizon = ~50,400 env-steps per epoch (~63 s of pure CPU
-    # simulation at the measured ~800 env-steps/s).
-    #
-    # The value is not free to change. Suite-balanced sampling draws its quota per rank, so
-    # every rank's envs must cover all three suites. With 8 env workers, `ordered` gives
-    # each worker `total_num_envs / 8` consecutive tasks from the 6-task filter: at 48 that
-    # is all six (two per suite), at 24 it would be three consecutive tasks and half the
-    # workers would hold no atomic_seen and half no composite_unseen.
-    #
-    # Rule: total_num_envs / num_env_workers must be a multiple of the task count.
+    # Each worker receives equal suite slots, then rotates tasks within each suite.
+    # Groups per worker must be a multiple of 3, not of the full task count.
     total_num_envs: 48
     split: target
     task_soup: [atomic_seen, composite_seen, composite_unseen]
@@ -124,12 +115,8 @@ env:
       - RinseSinkBasin          # composite_seen, 1350
       - CuttingToolSelection    # composite_unseen, 1200
       - CategorizeCondiments    # composite_unseen, 1650
-    # Deterministic round-robin over the task list, cursor persisting across epochs and
-    # offset per worker. `random` draws each env's task i.i.d., which at this scale swings
-    # the per-suite mix ~18% epoch to epoch and, at the full 50-task set, leaves 27% of
-    # tasks with no env at all. This does not make the run deterministic: which *instance*
-    # of a task is rolled out is still random (use_fixed_reset_state_ids is False here).
-    task_sampling_strategy: ordered
+    # Task assignment is deterministic; reset instances and flow noise still vary.
+    task_sampling_strategy: suite_balanced
     auto_reset: False           # required so preprocess_embodied_batch builds loss_mask
     ignore_terminations: False
     # Each task runs its own horizon rather than a shared cap. At the previous 320 steps

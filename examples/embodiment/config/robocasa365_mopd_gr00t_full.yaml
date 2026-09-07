@@ -1,0 +1,48 @@
+# Full 50-task M3 MOPD starting from an explicitly supplied cold-start student.
+# Set actor.model.model_path=/absolute/checkpoint; rollout uses the same metadata.
+# This is a preparation recipe, not a validated cold-start hyperparameter optimum.
+defaults:
+  - robocasa365_mopd_gr00t
+  - _self_
+
+runner:
+  max_steps: 100
+  val_check_interval: -1
+  save_interval: 25
+  logger:
+    project_name: mopd-groot-robocasa365
+
+env:
+  train:
+    total_num_envs: 48
+    rollout_epoch: 2
+    task_filter: null
+    task_sampling_strategy: suite_balanced
+    max_episode_steps: 4352
+    max_steps_per_rollout_epoch: 4352
+  eval:
+    task_filter: null
+    episode_horizon_source: task_horizon
+    max_episode_steps: 4352
+    max_steps_per_rollout_epoch: 4352
+
+algorithm:
+  loss_type: analytic_local_kl
+
+actor:
+  micro_batch_size: 32
+  global_batch_size: 8192
+  model:
+    model_path: ${oc.env:OPD_STUDENT_CHECKPOINT}
+    rl_head_config:
+      noise_level: 0.5
+  optim:
+    lr: 3.0e-5
+    value_lr: 3.0e-5
+    lr_warmup_steps: 3
+  fsdp_config:
+    gradient_checkpointing: True
+
+rollout:
+  model:
+    model_path: ${actor.model.model_path}

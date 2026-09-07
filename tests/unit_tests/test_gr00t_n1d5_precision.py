@@ -15,6 +15,7 @@
 
 import json
 
+import pytest
 import torch
 from safetensors.torch import save_file
 from torch import nn
@@ -74,3 +75,22 @@ def test_restore_action_head_fp32_from_sharded_checkpoint(tmp_path):
         model.action_head.projection.bias, expected_bias, rtol=0, atol=0
     )
     torch.testing.assert_close(model.action_head.scale, expected_scale, rtol=0, atol=0)
+
+
+def test_bf16_saved_head_is_rejected_instead_of_silently_upcast(tmp_path):
+    model = _ToyModel()
+    save_file(
+        {
+            "action_head." + key: value.to(torch.bfloat16)
+            for key, value in model.action_head.state_dict().items()
+        },
+        tmp_path / "model.safetensors",
+    )
+    with pytest.raises(TypeError, match="to be FP32"):
+        _restore_action_head_fp32(model, tmp_path)
+
+
+def test_incomplete_checkpoint_head_is_rejected(tmp_path):
+    save_file({"action_head.scale": torch.ones(2)}, tmp_path / "model.safetensors")
+    with pytest.raises(KeyError, match="missing"):
+        _restore_action_head_fp32(_ToyModel(), tmp_path)
