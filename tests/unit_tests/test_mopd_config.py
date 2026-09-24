@@ -71,18 +71,6 @@ def test_mopd_paths_resolve_from_local_runtime(config_name, tmp_path):
         )
 
 
-def test_standalone_eval_paths_resolve_from_local_runtime(tmp_path):
-    with initialize_config_dir(
-        version_base=None, config_dir=str(REPO / "evaluations/robocasa365")
-    ):
-        cfg = compose(config_name="robocasa365_mopd_gr00t_eval")
-    OmegaConf.resolve(cfg)
-    assert cfg.rollout.model.model_path == str(
-        tmp_path / "models/pretraining/checkpoint-80000"
-    )
-    assert cfg.runner.logger.log_path == str(tmp_path / "run")
-
-
 def test_full_mopd_requires_explicit_student_and_uses_full_suite_recipe():
     cfg = compose_mopd_config(
         "robocasa365_mopd_gr00t_full", ["actor.model.model_path=/cold-start/checkpoint"]

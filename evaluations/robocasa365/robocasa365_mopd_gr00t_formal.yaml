@@ -1,0 +1,92 @@
+# Frozen task-native RoboCasa365 evaluation. Run through formal_eval.py only:
+# the dispatcher supplies exactly one task, checkpoint, GPU, and rollout budget.
+defaults:
+  - env/robocasa365@env.eval
+  - model/gr00t@rollout.model
+  - _self_
+  - override hydra/job_logging: stdout
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  searchpath:
+    - file://${oc.env:EMBODIED_PATH}/config/
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    env,rollout: ${oc.env:MOPD_PLACEMENT,all}
+
+runner:
+  task_type: embodied_eval
+  logger:
+    log_path: ${oc.env:OPD_RUN_DIR}
+    project_name: robocasa365_formal_eval
+    experiment_name: task_set_by_dispatcher
+    logger_backends: [tensorboard]
+  max_epochs: 1
+  max_steps: -1
+  val_check_interval: -1
+  save_interval: -1
+  resume_dir: null
+  ckpt_path: null
+
+env:
+  group_name: EnvGroup
+  eval:
+    rollout_epoch: 10
+    total_num_envs: 5
+    seed: 7
+    split: target
+    task_soup: [atomic_seen, composite_seen, composite_unseen]
+    task_mode: null
+    task_filter: [__FORMAL_DISPATCH_REQUIRED__]
+    task_sampling_strategy: ordered
+    auto_reset: false
+    ignore_terminations: true
+    use_fixed_reset_state_ids: true
+    episode_horizon_source: task_horizon
+    # The driver sets this shared tensor budget to ceil(task_horizon / 16) * 16.
+    # Physics still stops at the unrounded task horizon.
+    max_episode_steps: 4352
+    max_steps_per_rollout_epoch: 4352
+    group_size: 1
+    is_eval: true
+    video_cfg:
+      save_video: false
+      info_on_video: false
+      video_base_dir: ${runner.logger.log_path}/video
+    init_params:
+      camera_heights: 256
+      camera_widths: 256
+    observation:
+      state_layout:
+        - base_pos
+        - base_quat
+        - base_to_eef_pos
+        - base_to_eef_quat
+        - gripper_qpos
+
+rollout:
+  group_name: RolloutGroup
+  generation_backend: huggingface
+  recompute_logprobs: false
+  enable_offload: false
+  pipeline_stage_num: 1
+  model:
+    model_type: gr00t
+    model_path: __FORMAL_CHECKPOINT_REQUIRED__
+    precision: bf16
+    action_dim: 12
+    num_action_chunks: 16
+    denoising_steps: 4
+    add_value_head: false
+    obs_converter_type: robocasa365
+    embodiment_tag: new_embodiment
+    policy_setup: robocasa_panda_omron
+    rl_head_config:
+      joint_logprob: false
+      noise_method: flow_sde
+      add_value_head: ${..add_value_head}
+      padding_value: 1024
