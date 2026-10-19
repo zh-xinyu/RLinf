@@ -3,6 +3,10 @@
 2026-10-19：`opd-project-main` 整合现有、已运行过实验的 Base MOPD 与
 Refresh 实现，作为后续方法开发的起点。
 
+当前根目录已切换到 `opd-project-main`。本页是版本化的代码使用说明；共享工作区
+的研究文档、实验记录与汇报材料统一从 [文档导航](docs/opd/README.md) 进入。
+`docs/opd/` 为本地研究资料，单独clone时可能不存在；训练与评测不依赖该目录。
+
 ## 来源与保留范围
 
 - 快进纳入 `dev/mopd-groot-robocasa365` 截至 `a3761fd5` 的9个提交：

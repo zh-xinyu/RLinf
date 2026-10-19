@@ -25,13 +25,13 @@ PKG-INFO
 
 
 #custom
-.project_plan/
+/.project_plan
 outputs/
 /.opd.local.env
 
 # Single-host operations and still-private MOPD working notes.
 # Keep established OPD research/results (especially mechanism_study) tracked.
-/.project_results/mopd/
+/.project_results/mopd
 /docs/opd/
 /shs/
 /toolkits/mopd/
