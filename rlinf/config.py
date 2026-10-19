@@ -822,6 +822,61 @@ def validate_megatron_cfg(cfg: DictConfig) -> DictConfig:
     return cfg
 
 
+def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
+    """Reject unsupported combinations for the initial GR00T ODE refresh path."""
+    repeats = cfg.algorithm.get("flow_refresh_updates", 1)
+    if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
+        raise ValueError("algorithm.flow_refresh_updates must be a positive integer.")
+    step_unit = cfg.runner.get("step_unit", "rollout")
+    if cfg.algorithm.get("flow_reuse_mode", "refresh") != "refresh":
+        raise ValueError("Mainline flow reuse supports refresh only, not cached.")
+    if cfg.algorithm.get("flow_observation_sampling", "full_pool") != "full_pool":
+        raise ValueError("Mainline flow refresh requires full_pool observations.")
+    if cfg.algorithm.get("flow_probe", {}).get("enabled", False):
+        raise ValueError("Experimental flow_probe is not included in mainline.")
+    if step_unit not in ("rollout", "optimizer_update"):
+        raise ValueError("runner.step_unit must be rollout or optimizer_update.")
+    if step_unit == "optimizer_update":
+        if cfg.runner.get("use_training_pipeline", False):
+            raise ValueError("Optimizer-update steps require the synchronous runner.")
+        if cfg.runner.get("resume_dir"):
+            raise ValueError(
+                "The initial optimizer-update recipe requires a fresh run; exact "
+                "environment and sampling-state resume is not implemented."
+            )
+        for key in ("max_steps", "save_interval", "val_check_interval"):
+            value = cfg.runner.get(key, -1)
+            if value > 0 and value % repeats:
+                raise ValueError(f"runner.{key} must be divisible by refresh R.")
+        if cfg.runner.get("max_steps", -1) <= 0:
+            raise ValueError("Optimizer-update steps require explicit max_steps > 0.")
+    if repeats == 1 and step_unit == "rollout":
+        return
+    requirements = {
+        "GR00T N1.5": cfg.actor.model.model_type == "gr00t",
+        "analytic_local_kl": cfg.algorithm.loss_type == "analytic_local_kl",
+        "update_epoch=1": cfg.algorithm.get("update_epoch", 1) == 1,
+        "suite_balanced_sampling=true": cfg.algorithm.get(
+            "suite_balanced_sampling", False
+        ),
+        "routed expert_models": bool(cfg.rollout.get("expert_models")),
+        "flow_ode": cfg.actor.model.rl_head_config.noise_method == "flow_ode",
+        "joint_logprob=true": cfg.actor.model.rl_head_config.joint_logprob,
+        "constant LR with explicit warmup steps": (
+            cfg.actor.optim.lr_scheduler == "constant"
+            and cfg.actor.optim.get("lr_warmup_steps", -1) >= 0
+        ),
+        "auto_reset=false": not cfg.env.train.auto_reset,
+        "ignore_terminations=false": not cfg.env.train.ignore_terminations,
+        "filter_rewards=false": not cfg.algorithm.get("filter_rewards", False),
+        "FSDP training": cfg.actor.training_backend == "fsdp",
+        "weight_sync_interval=1": cfg.runner.get("weight_sync_interval", 1) == 1,
+    }
+    missing = [name for name, valid in requirements.items() if not valid]
+    if missing:
+        raise ValueError("Flow refresh requires " + ", ".join(missing) + ".")
+
+
 def validate_embodied_cfg(cfg):
     only_eval = (
         cfg.runner.get("only_eval", False)
@@ -829,6 +884,8 @@ def validate_embodied_cfg(cfg):
     )
     model_cfg = cfg.rollout.model if only_eval else cfg.actor.model
     algorithm_cfg = cfg.get("algorithm", {}) or {}
+    if not only_eval:
+        validate_flow_refresh_cfg(cfg)
     model_type = SupportedModel(model_cfg.model_type)
     assert model_type in EMBODIED_MODEL, (
         f"Model type: '{model_cfg.model_type}' is not an embodied model. "

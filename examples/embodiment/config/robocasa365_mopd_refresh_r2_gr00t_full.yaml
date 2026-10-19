@@ -1,0 +1,28 @@
+# Controlled Refresh-R2 pilot: 100 physical rounds, 200 student updates.
+defaults:
+  - robocasa365_mopd_gr00t_full
+  - _self_
+
+algorithm:
+  flow_refresh_updates: 2
+
+runner:
+  step_unit: optimizer_update
+  max_steps: 200
+  save_interval: 20
+  val_check_interval: -1
+  logger:
+    project_name: Formal_Robocasa_Groot_MOPD
+
+env:
+  train:
+    total_num_envs: 48
+    rollout_epoch: 1
+
+actor:
+  global_batch_size: 2048
+  micro_batch_size: 32
+  optim:
+    lr: 3.0e-5
+    value_lr: 3.0e-5
+    lr_warmup_steps: 10

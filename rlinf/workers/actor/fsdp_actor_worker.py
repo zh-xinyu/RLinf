@@ -15,6 +15,7 @@
 import copy
 import json
 import time
+from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
 from typing import Any, Optional
@@ -1674,7 +1675,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         return idx
 
     @Worker.timer("actor/compute_teacher_velocities")
-    def compute_teacher_velocities(self) -> None:
+    def compute_teacher_velocities(self, already_sampled: bool = False) -> None:
         """Method 1 (velocity distillation): compute the frozen teacher velocity
         ``v_T(A_t^tau, o_t, tau)`` at student-visited flow states, once after rollout.
 
@@ -1769,7 +1770,11 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # Held on the worker, not in rollout_batch: that dict is walked by several
         # helpers that assume every entry is a [T, B, ...] tensor, and a 1-D index would
         # be reshaped along with them.
-        sample_idx = self._suite_balanced_sample(flat_batch_size, time_dim, batch_dim)
+        sample_idx = (
+            torch.arange(flat_batch_size)
+            if already_sampled
+            else self._suite_balanced_sample(flat_batch_size, time_dim, batch_dim)
+        )
         self._sample_idx = sample_idx
 
         teacher_ids = flat_forward_inputs.get("teacher_ids", None)
@@ -2204,7 +2209,153 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         return loss
 
     @Worker.timer("run_training")
-    def run_training(self) -> None:
+    def run_training(self) -> dict[str, float]:
+        """Train once, or refresh flow between updates on the latest observation pool."""
+        repeats = int(self.cfg.algorithm.get("flow_refresh_updates", 1))
+        update_steps = self.cfg.get("runner", {}).get("step_unit") == "optimizer_update"
+        if repeats == 1 and not update_steps:
+            return self._run_training_once()
+
+        # _run_training_once replaces self.rollout_batch with a sampled, flat batch.
+        # Keep the full CPU rollout alive only until the last inner update finishes.
+        observation_pool = self.rollout_batch
+        # Count executed controls before collapsing to chunk-level training masks.
+        control_mask, _ = compute_loss_mask(observation_pool["dones"])
+        interaction_metrics = all_reduce_dict(
+            {"refresh/real_env_steps_this_rollout": float(control_mask.sum())},
+            op=torch.distributed.ReduceOp.SUM,
+        )
+        del control_mask
+        results = []
+        metrics = dict(interaction_metrics)
+        for inner in range(repeats):
+            self.log_info(
+                f"Flow refresh: rollout {self.version + 1}, update {inner + 1}/{repeats}, "
+                f"source={'rollout' if inner == 0 else 'current_student'}."
+            )
+            if inner:
+                self.rollout_batch = observation_pool
+                refresh_start = time.perf_counter()
+                self._prepare_flow_refresh_batch()
+                metrics[f"refresh/update_{inner + 1}/prepare_seconds"] = (
+                    time.perf_counter() - refresh_start
+                )
+            update_start = time.perf_counter()
+            previous_updates = getattr(self, "optimizer_steps", 0)
+            result = self._run_training_once()
+            if update_steps and self.optimizer_steps != previous_updates + 1:
+                raise RuntimeError(
+                    "Each controlled inner update must call optimizer once."
+                )
+            metrics[f"refresh/update_{inner + 1}/train_seconds"] = (
+                time.perf_counter() - update_start
+            )
+            results.append(result)
+            metrics.update(
+                {
+                    f"refresh/update_{inner + 1}/{key}": value
+                    for key, value in result.items()
+                }
+            )
+            self.log_info(
+                f"Flow refresh update {inner + 1}/{repeats} complete: "
+                f"optimizer_updates={self.lr_scheduler.last_epoch}, metrics={result}."
+            )
+        metrics.update(
+            {key: float(np.mean([r[key] for r in results])) for key in results[0]}
+        )
+        metrics["refresh/updates_per_rollout"] = repeats
+        metrics["refresh/optimizer_updates"] = self.lr_scheduler.last_epoch
+        metrics["refresh/physical_rollouts"] = self.version + 1
+        return metrics
+
+    @torch.no_grad()
+    def _prepare_flow_refresh_batch(self) -> None:
+        """Resample observations, generate current flow, and query routed teachers.
+
+        Duplicated observations get independent flow draws. Keep them as distinct
+        rows throughout generation and supervision, rather than scattering fresh
+        flow states back to a possibly repeated observation index.
+        """
+        time_dim, batch_dim = self.rollout_batch["loss_mask"].shape[:2]
+        sample_idx = self._suite_balanced_sample(
+            time_dim * batch_dim, time_dim, batch_dim
+        )
+        assert sample_idx is not None, "Flow refresh requires suite-balanced sampling."
+        keys = ("forward_inputs", "prev_logprobs", "loss_mask", "loss_mask_sum")
+        selected = process_nested_dict_for_train(
+            {key: self.rollout_batch[key] for key in keys}, sample_idx
+        )
+        inputs = selected["forward_inputs"]
+        if self.enable_offload and not self.is_optimizer_offloaded:
+            self.offload_optimizer()
+        if self.is_weight_offloaded:
+            self.load_param_and_grad(self.device)
+        self.model.eval()
+        refresh_start = time.perf_counter()
+        chains = []
+        size = int(sample_idx.numel())
+        assert size % self.cfg.actor.micro_batch_size == 0
+        isolated_rng = self.cfg.get("runner", {}).get("step_unit") == "optimizer_update"
+        devices = []
+        if isolated_rng:
+            # Worker CUDA platforms return an integer; CPU tests use torch.device.
+            device = (
+                torch.device("cuda", self.device)
+                if isinstance(self.device, int)
+                else torch.device(self.device)
+            )
+            if device.type == "cuda":
+                devices = [
+                    device.index
+                    if device.index is not None
+                    else torch.cuda.current_device()
+                ]
+        rng_context = (
+            torch.random.fork_rng(devices=devices) if isolated_rng else nullcontext()
+        )
+        with rng_context:
+            if isolated_rng:
+                seed = (
+                    self.cfg.actor.seed + self._rank + self._sample_draw_count * 104729
+                )
+                torch.random.default_generator.manual_seed(seed)
+                for device_index in devices:
+                    torch.cuda.default_generators[device_index].manual_seed(seed)
+            for micro in split_dict_to_chunk(
+                inputs, size // self.cfg.actor.micro_batch_size
+            ):
+                micro = put_tensor_device(micro, self.device)
+                with self.amp_context:
+                    output = self.model(
+                        forward_type=ForwardType.FLOW_REFRESH,
+                        forward_inputs=micro,
+                    )
+                chains.append(output["chains"].detach().cpu())
+        inputs["chains"] = torch.cat(chains, dim=0)
+        self.log_info(
+            f"Refreshed {size} sampled flows in "
+            f"{time.perf_counter() - refresh_start:.2f}s on rank {self._rank}."
+        )
+        del micro, output, chains
+        if self.enable_offload:
+            self.offload_param_and_grad()
+        clear_memory()
+
+        # Reuse the original teacher-coordinate adapter, timestep sampler and loss
+        # preparation. The singleton time axis represents independent sampled rows;
+        # it does not describe new physical transitions or a new environment rollout.
+        self.rollout_batch = {
+            key: (
+                {name: value.unsqueeze(0) for name, value in item.items()}
+                if isinstance(item, dict)
+                else item.unsqueeze(0)
+            )
+            for key, item in selected.items()
+        }
+        self.compute_teacher_velocities(already_sampled=True)
+
+    def _run_training_once(self) -> dict[str, float]:
         """
         Run the training process using the received rollout batch.
         """
@@ -2318,6 +2469,15 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 self.torch_platform.empty_cache()
 
                 grad_norm, lr_list = self.optimizer_step()
+                if self.cfg.runner.get(
+                    "step_unit"
+                ) == "optimizer_update" and not torch.isfinite(
+                    torch.as_tensor(grad_norm)
+                ):
+                    raise RuntimeError(
+                        "Non-finite gradient skipped an optimizer update; stopping "
+                        "instead of advancing the controlled experiment's step."
+                    )
                 data = {
                     "actor/grad_norm": grad_norm,
                     "actor/lr": lr_list[0],

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import os
 import queue
@@ -105,6 +106,15 @@ class EmbodiedRunner:
         self.consumed_samples = 0
         # the step here is GRPO step
         self.global_step = 0
+        self.optimizer_update_steps = (
+            cfg.runner.get("step_unit", "rollout") == "optimizer_update"
+        )
+        self.updates_per_rollout = (
+            int(cfg.algorithm.get("flow_refresh_updates", 1))
+            if self.optimizer_update_steps
+            else 1
+        )
+        self.cumulative_env_steps = 0.0
 
         # compute `max_steps`
         self.set_max_steps()
@@ -343,6 +353,11 @@ class EmbodiedRunner:
     ) -> None:
         time_metrics = self.timer.consume_durations()
         time_metrics = {f"time/{k}": v for k, v in time_metrics.items()}
+        if self.optimizer_update_steps and "time/step" in time_metrics:
+            time_metrics["time/rollout_round"] = time_metrics["time/step"]
+            time_metrics["time/amortized_update"] = (
+                time_metrics["time/step"] / self.updates_per_rollout
+            )
         env_time_metrics, env_time_metrics_per_rank = env_handle.consume_durations(
             return_per_rank=True
         )
@@ -393,7 +408,31 @@ class EmbodiedRunner:
         self.metric_logger.log(env_metrics, step)
         self.metric_logger.log(rollout_metrics, step)
         self.metric_logger.log(time_metrics, step)
-        self.metric_logger.log(training_metrics, step)
+        if not self.optimizer_update_steps:
+            self.metric_logger.log(training_metrics, step)
+        else:
+            # Do not overwrite the last individual update with a round average.
+            training_metrics = {
+                f"round/{key.removeprefix('train/')}": value
+                for key, value in training_metrics.items()
+                if "/update_" not in key
+            }
+            self.metric_logger.log(training_metrics, step)
+            self.metric_logger.log(
+                {
+                    "rollout_count": self.global_step // self.updates_per_rollout,
+                    "rollout/policy_update_step": (
+                        self.global_step - self.updates_per_rollout
+                    ),
+                    "interaction/env_steps": self.cumulative_env_steps,
+                    **{
+                        f"rollout_success/{key.removeprefix('env/')}": value
+                        for key, value in env_metrics.items()
+                        if "success" in key
+                    },
+                },
+                step,
+            )
         self._log_ranked_metrics(
             metrics_list=actor_rollout_metrics,
             step=step,
@@ -481,9 +520,13 @@ class EmbodiedRunner:
 
         start_step = self.global_step
         start_time = time.time()
-        for _step in range(start_step, self.max_steps):
+        for _step in range(start_step, self.max_steps, self.updates_per_rollout):
             # set global step
-            self.actor.set_global_step(self.global_step)
+            self.actor.set_global_step(
+                self.global_step // self.updates_per_rollout
+                if self.optimizer_update_steps
+                else self.global_step
+            )
             self.rollout.set_global_step(self.global_step)
 
             profiled_step = (
@@ -532,7 +575,10 @@ class EmbodiedRunner:
                 with self.timer("actor_training"):
                     actor_training_handle: Handle = self.actor.run_training()
                     env_bootstrap_handle: Handle | None = None
-                    if self.overlap_env_bootstrap and _step + 1 < self.max_steps:
+                    if (
+                        self.overlap_env_bootstrap
+                        and _step + self.updates_per_rollout < self.max_steps
+                    ):
                         env_bootstrap_handle = self.env.prefetch_train_bootstrap(
                             rollout_channel=self.rollout_channel
                         )
@@ -541,14 +587,17 @@ class EmbodiedRunner:
                     if env_bootstrap_handle is not None:
                         env_bootstrap_handle.wait()
 
-                self.global_step += 1
-                eval_metrics = self._maybe_eval_and_checkpoint(_step)
+                if self.optimizer_update_steps:
+                    self._log_optimizer_updates(actor_training_metrics)
+                self.global_step += self.updates_per_rollout
+                log_step = self.global_step if self.optimizer_update_steps else _step
+                eval_metrics = self._maybe_eval_and_checkpoint(log_step)
 
             if profiled_step is not None:
                 self._close_profiling_window(profiled_step)
 
             self._log_step_metrics(
-                step=_step,
+                step=log_step,
                 start_time=start_time,
                 start_step=start_step,
                 env_handle=env_handle,
@@ -561,6 +610,42 @@ class EmbodiedRunner:
             )
 
         self._finish_run()
+
+    def _log_optimizer_updates(self, actor_metrics: list[dict]) -> None:
+        """Log each completed update without averaging over the reused pool."""
+        metrics = self._aggregate_numeric_metrics(actor_metrics)
+        repeats = self.updates_per_rollout
+        expected = self.global_step + repeats
+        if int(metrics["refresh/optimizer_updates"]) != expected:
+            raise RuntimeError(
+                f"Expected {expected} optimizer updates, got "
+                f"{metrics['refresh/optimizer_updates']}."
+            )
+        self.cumulative_env_steps += metrics["refresh/real_env_steps_this_rollout"]
+        for inner in range(1, repeats + 1):
+            prefix = f"refresh/update_{inner}/"
+            row = {
+                f"train/{key.removeprefix(prefix)}": value
+                for key, value in metrics.items()
+                if key.startswith(prefix)
+            }
+            row.update(
+                {
+                    "update_step": self.global_step + inner,
+                    "rollout_count": self.global_step // repeats + 1,
+                    "train/refresh/pool_update": inner,
+                    "train/refresh/is_refreshed": int(inner > 1),
+                    "interaction/env_steps": self.cumulative_env_steps,
+                }
+            )
+            if inner == 1:
+                row["train/new_rollout_velocity_mse"] = row["train/actor/velocity_mse"]
+            self.metric_logger.log(row, self.global_step + inner)
+            with open(
+                os.path.join(self.metric_logger.log_path, "optimizer_updates.jsonl"),
+                "a",
+            ) as stream:
+                stream.write(json.dumps(row) + "\n")
 
     def run_pipeline(self):
         start_step = self.global_step
@@ -651,6 +736,20 @@ class EmbodiedRunner:
         actor_save_path = os.path.join(base_output_dir, "actor")
         os.makedirs(actor_save_path, exist_ok=True)
         self.actor.save_checkpoint(actor_save_path, self.global_step).wait()
+        if self.optimizer_update_steps:
+            with open(
+                os.path.join(base_output_dir, "runner_state.json"), "w"
+            ) as stream:
+                json.dump(
+                    {
+                        "step_unit": "optimizer_update",
+                        "optimizer_updates": self.global_step,
+                        "rollout_count": self.global_step // self.updates_per_rollout,
+                        "env_steps": self.cumulative_env_steps,
+                    },
+                    stream,
+                    indent=2,
+                )
 
     def set_max_steps(self):
         self.num_steps_per_epoch = 1

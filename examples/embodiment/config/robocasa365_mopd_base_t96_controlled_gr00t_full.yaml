@@ -1,0 +1,7 @@
+# Same T96 recipe as Refresh-R2, with a new physical rollout before every update.
+defaults:
+  - robocasa365_mopd_refresh_r2_t96_gr00t_full
+  - _self_
+
+algorithm:
+  flow_refresh_updates: 1

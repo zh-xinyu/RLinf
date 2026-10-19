@@ -90,8 +90,128 @@ def test_full_mopd_requires_explicit_student_and_uses_full_suite_recipe():
     assert cfg.runner.resume_dir is None and cfg.runner.ckpt_path is None
 
 
+def test_controlled_r2_recipe_uses_update_budget():
+    from rlinf.config import validate_flow_refresh_cfg
+
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_refresh_r2_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint"],
+    )
+    validate_flow_refresh_cfg(cfg)
+    assert cfg.runner.step_unit == "optimizer_update"
+    assert cfg.runner.max_steps == 200
+    assert cfg.algorithm.flow_refresh_updates == 2
+    assert cfg.env.train.total_num_envs * cfg.env.train.rollout_epoch == 48
+    assert cfg.actor.global_batch_size == 2048
+    assert cfg.actor.optim.lr_warmup_steps == 10
+    assert cfg.actor.optim.lr == 3e-5
+    cfg.runner.max_steps = 199
+    with pytest.raises(ValueError, match="divisible"):
+        validate_flow_refresh_cfg(cfg)
+    cfg.runner.max_steps = 200
+    cfg.runner.resume_dir = "/legacy/global_step_25"
+    with pytest.raises(ValueError, match="fresh run"):
+        validate_flow_refresh_cfg(cfg)
+
+
+def test_controlled_base_matches_refresh_except_r():
+    from rlinf.config import validate_flow_refresh_cfg
+
+    overrides = ["actor.model.model_path=/cold-start/checkpoint"]
+    base = compose_mopd_config("robocasa365_mopd_base_controlled_gr00t_full", overrides)
+    refresh = compose_mopd_config("robocasa365_mopd_refresh_r2_gr00t_full", overrides)
+    validate_flow_refresh_cfg(base)
+    assert base.algorithm.flow_refresh_updates == 1
+    base.algorithm.flow_refresh_updates = refresh.algorithm.flow_refresh_updates
+    assert OmegaConf.to_container(base) == OmegaConf.to_container(refresh)
+
+
 def test_full_mopd_has_no_silent_foundation_checkpoint_fallback():
     from omegaconf.errors import InterpolationResolutionError
 
     with pytest.raises(InterpolationResolutionError, match="OPD_STUDENT_CHECKPOINT"):
         compose_mopd_config("robocasa365_mopd_gr00t_full")
+
+
+def test_refresh_recipe_keeps_base_optimization_and_counts_physical_rounds():
+    from rlinf.config import validate_flow_refresh_cfg
+
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_refresh_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint"],
+    )
+    validate_flow_refresh_cfg(cfg)
+    assert cfg.algorithm.flow_refresh_updates == 4
+    assert cfg.algorithm.update_epoch == 1
+    assert cfg.runner.max_steps == 50 and cfg.runner.save_interval == 10
+    assert cfg.actor.global_batch_size == 8192 and cfg.actor.micro_batch_size == 32
+    assert cfg.actor.optim.lr_warmup_steps == 3
+    assert cfg.actor.optim.lr == pytest.approx(3e-5)
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        "algorithm.flow_refresh_updates=0",
+        "algorithm.flow_refresh_updates=1.5",
+        "algorithm.update_epoch=4",
+        "algorithm.suite_balanced_sampling=false",
+        "actor.model.rl_head_config.noise_method=flow_sde",
+        "actor.model.rl_head_config.joint_logprob=false",
+        "env.train.auto_reset=true",
+        "+runner.weight_sync_interval=2",
+    ],
+)
+def test_refresh_rejects_unsupported_combinations(override):
+    from rlinf.config import validate_flow_refresh_cfg
+
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_refresh_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint", override],
+    )
+    with pytest.raises(ValueError, match="flow_refresh_updates|Flow refresh requires"):
+        validate_flow_refresh_cfg(cfg)
+
+
+@pytest.mark.parametrize("repeats", [1, 2, 4, 8])
+def test_t96_mainline_recipes_share_optimization(repeats):
+    from rlinf.config import validate_flow_refresh_cfg
+
+    overrides = ["actor.model.model_path=/cold-start/checkpoint"]
+    base = compose_mopd_config(
+        "robocasa365_mopd_base_t96_controlled_gr00t_full", overrides
+    )
+    refresh = compose_mopd_config(
+        "robocasa365_mopd_refresh_r2_t96_gr00t_full", overrides
+    )
+    assert base.algorithm.flow_refresh_updates == 1
+    assert refresh.algorithm.flow_refresh_updates == 2
+    base.algorithm.flow_refresh_updates = refresh.algorithm.flow_refresh_updates
+    assert OmegaConf.to_container(base) == OmegaConf.to_container(refresh)
+    refresh.algorithm.flow_refresh_updates = repeats
+    validate_flow_refresh_cfg(refresh)
+    assert refresh.env.train.total_num_envs * refresh.env.train.rollout_epoch == 96
+    assert refresh.actor.global_batch_size == 2048
+    assert refresh.runner.max_steps == 200 and refresh.runner.save_interval == 40
+    assert refresh.actor.optim.lr_warmup_steps == 10
+    assert refresh.algorithm.flow_observation_sampling == "full_pool"
+
+
+@pytest.mark.parametrize(
+    "override, message",
+    [
+        ("algorithm.flow_reuse_mode=cached", "refresh only"),
+        ("algorithm.flow_observation_sampling=fixed_batch", "full_pool"),
+        ("+algorithm.flow_probe.enabled=true", "flow_probe"),
+        ("+runner.use_training_pipeline=true", "synchronous runner"),
+    ],
+)
+def test_mainline_rejects_experimental_modes(override, message):
+    from rlinf.config import validate_flow_refresh_cfg
+
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_refresh_r2_t96_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint", override],
+    )
+    with pytest.raises(ValueError, match=message):
+        validate_flow_refresh_cfg(cfg)

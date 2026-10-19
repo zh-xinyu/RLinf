@@ -1,0 +1,15 @@
+# DeRe-MOPD Refresh-R4: 50 physical rounds, 200 optimizer updates.
+# Every update draws B=8192 from the entire latest valid rollout, suite-balanced.
+# Update 1 uses rollout flow; updates 2-4 regenerate current-student ODE flow.
+defaults:
+  - robocasa365_mopd_gr00t_full
+  - _self_
+
+algorithm:
+  flow_refresh_updates: 4
+
+runner:
+  max_steps: 50
+  save_interval: 10
+  logger:
+    project_name: Formal_Robocasa_Groot_MOPD

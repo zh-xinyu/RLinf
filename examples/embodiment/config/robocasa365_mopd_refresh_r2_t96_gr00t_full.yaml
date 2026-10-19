@@ -1,0 +1,16 @@
+# T96 Refresh-R2: 200 student updates, 100 physical rounds; full observation pool.
+defaults:
+  - robocasa365_mopd_refresh_r2_gr00t_full
+  - _self_
+
+algorithm:
+  flow_reuse_mode: refresh
+  flow_observation_sampling: full_pool
+
+runner:
+  save_interval: 40
+
+env:
+  train:
+    total_num_envs: 48
+    rollout_epoch: 2

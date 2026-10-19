@@ -84,6 +84,9 @@ class MetricLogger:
             settings = None
             if self.wandb_proxy:
                 settings = wandb.Settings(https_proxy=self.wandb_proxy)
+            group_kwargs = {}
+            if self.cfg.runner.logger.get("wandb_group"):
+                group_kwargs["group"] = self.cfg.runner.logger.wandb_group
             wandb.init(
                 entity=self.wandb_entity,
                 project=self.project_name,
@@ -92,8 +95,12 @@ class MetricLogger:
                 settings=settings,
                 dir=wandb_log_path,
                 reinit=True,
+                **group_kwargs,
             )
             logger["wandb"] = wandb
+            if self.cfg.runner.get("step_unit") == "optimizer_update":
+                wandb.define_metric("rollout_count")
+                wandb.define_metric("rollout_success/*", step_metric="rollout_count")
 
         if "swanlab" in self.logger_backends:
             import swanlab
@@ -159,7 +166,14 @@ class MetricLogger:
             )
         for default_backend, logger_instance in target_logger.items():
             if backend is None or default_backend in backend:
-                logger_instance.log(data=data, step=step)
+                if (
+                    default_backend == "wandb"
+                    and self.cfg.runner.get("step_unit") == "optimizer_update"
+                ):
+                    # Multiple namespaces share one completed-update step.
+                    logger_instance.log(data=data, step=step, commit=False)
+                else:
+                    logger_instance.log(data=data, step=step)
 
     def log_table(self, df_data, name, step):
         if "wandb" in self.logger_backends:

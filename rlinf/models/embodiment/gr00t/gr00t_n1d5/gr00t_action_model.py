@@ -444,12 +444,19 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         denoise_inds=None,
         compute_values=True,
         nft_inputs=None,
+        refresh_flow: bool = False,
     ):
         compute_dtype = self.state_encoder.layer1.W.dtype
         backbone_output = self._cast_batch_feature_floats(
             backbone_output, compute_dtype
         )
         action_input = self._cast_batch_feature_floats(action_input, compute_dtype)
+        if refresh_flow:
+            # Enter through __call__ so the nested FSDP head is unsharded.
+            _, outputs = self.get_rl_action(
+                backbone_output, action_input, mode="train", compute_values=False
+            )
+            return outputs["chains"]
         if isinstance(chains, torch.Tensor) and chains.is_floating_point():
             chains = chains.to(dtype=compute_dtype)
         if nft_inputs is not None:
@@ -641,6 +648,8 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
             return self.default_forward(**kwargs)
         elif forward_type == ForwardType.NFT:
             return self.nft_forward(**kwargs)
+        elif forward_type == ForwardType.FLOW_REFRESH:
+            return self.nft_forward(refresh_flow=True, **kwargs)
         else:
             raise NotImplementedError
 
@@ -711,6 +720,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
     def nft_forward(
         self,
         forward_inputs: dict[str, torch.Tensor],
+        refresh_flow: bool = False,
         **kwargs,
     ) -> dict[str, Any]:
         """Compute velocity v_theta at an explicit (x_t, denoise index) for NFT losses.
@@ -735,6 +745,15 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         }
         backbone_inputs, action_inputs = self.prepare_input(normalized_input)
         backbone_outputs = self.backbone(backbone_inputs)
+
+        if refresh_flow:
+            chains = self.action_head(
+                backbone_output=backbone_outputs,
+                action_input=action_inputs,
+                refresh_flow=True,
+                compute_values=False,
+            )
+            return {"chains": chains}
 
         nft_inputs = kwargs["nft_inputs"]
         device = next(self.parameters()).device

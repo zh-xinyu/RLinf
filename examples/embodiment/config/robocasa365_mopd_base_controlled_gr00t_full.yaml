@@ -1,0 +1,7 @@
+# Controlled Base: same optimization and logging as Refresh-R2; one update per rollout.
+defaults:
+  - robocasa365_mopd_refresh_r2_gr00t_full
+  - _self_
+
+algorithm:
+  flow_refresh_updates: 1
