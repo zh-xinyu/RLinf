@@ -3,7 +3,8 @@
 2026-10-19：`opd-project-main` 整合现有、已运行过实验的 Base MOPD 与
 Refresh 实现，作为后续方法开发的起点。
 
-当前根目录已切换到 `opd-project-main`。本页是版本化的代码使用说明；共享工作区
+Base/Refresh 整合保留在 `opd-project-main`；2026-10-20 的 adaptive 开发位于
+`dev/mopd-adaptive-rollout-allocation`。本页是版本化的代码使用说明；共享工作区
 的研究文档、实验记录与汇报材料统一从 [文档导航](docs/opd/README.md) 进入。
 `docs/opd/` 为本地研究资料，单独clone时可能不存在；训练与评测不依赖该目录。
 
@@ -109,7 +110,7 @@ Base 使用表中的 Base config 名称。W&B 默认 project 为
 本地 `toolkits/mopd/` launcher、凭据和研究文档仍按既有规则 Git ignored，
 不会随新 checkout 自动出现；上述入口直接使用版本化的训练脚本。
 
-## 验证范围
+## 主线整合验证范围（2026-10-19）
 
 CPU regression tests 覆盖：有效观测池采样、重复样本的独立 flow 与 teacher
 labels、当前 student 参数、新 noise、RNG 隔离、Base 单次更新、R2/R4
@@ -133,3 +134,65 @@ PYTHONPATH="$PWD" python -m pytest -q \
   tests/unit_tests/test_robocasa365_lifecycle.py \
   tests/unit_tests/test_robocasa365_formal_eval.py
 ```
+
+## Adaptive rollout allocation pilot（2026-10-20）
+
+入口：`robocasa365_mopd_adaptive_r2_gr00t_full`。T96、B2304、Refresh-R2、
+200 student updates = 100 physical rounds = 9,600 trajectories；LR3e-5、constant、
+warmup10 updates、save40。W&B project 为 `RoboCasa_MultiTeacher_Diagnostics`，
+group 为 `adaptive_rollout_pilot`。`T` 是一轮 episode 槽位总数，不是固定仿真步预算。
+
+- 前20轮均匀分配；此后每10轮，用最近20轮的 **task-macro** 成功率计算各 suite
+  到对应 teacher 的非负能力差距。每任务至少5条，否则保留旧配额。
+- `gap_s = max(teacher_success_s - student_success_s, 0)`；
+  `p_s = (1-rho)/3 + rho*(gap_s+epsilon)/sum_j(gap_j+epsilon)`，
+  `rho=0.5, epsilon=0.01`。整数配额和为96，每次每 suite 最多变化8。
+- 8 workers × 2 epochs 的每个本地池至少保留各 suite 一条，因此每 suite 最低16条。
+  suite 内按 task round robin；用 task occurrence 构造 reset seed，匹配不同分配的
+  同任务初始状态序列。不同并行布局下不承诺相同 action noise。
+- 仅改变新物理经验的分配；optimizer 的 suite-balanced B768/768/768、M3 loss、
+  hard router、完整观测池和 flow 刷新均保持原逻辑。Signed progress 只记录，不参与调度。
+- 首版禁用 bootstrap overlap，使用单 rollout stage、group_size=1、原生 task horizons。
+  对照用同一入口设置 `runner.rollout_allocation.mode=uniform`，需要 R1 时再设置
+  `algorithm.flow_refresh_updates=1`，避免新旧采集器差异混入 allocation 对比。
+
+### Teacher reference 与启动
+
+先按上面的运行环境设置 checkpoints、资源和 Python 路径。校准使用相同模型推理、
+观测/动作转换和原生 horizon；每 task 20 episodes，独立的 reset-seed 序列：
+
+```bash
+python evaluations/robocasa365/calibrate_teachers.py \
+  --output /absolute/path/to/new-calibration-directory \
+  --gpus 0,1,2,3,4,5,6,7 --episodes 20 --parallel-envs 5
+
+export OPD_TEACHER_REFERENCE=/absolute/path/to/new-calibration-directory/reference.json
+export OPD_RUN_DIR=/absolute/path/to/new-training-directory
+python examples/embodiment/train_embodied_agent.py \
+  --config-name robocasa365_mopd_adaptive_r2_gr00t_full \
+  runner.logger.experiment_name=adaptive-r2-T96-B2304-pilot
+```
+
+校准和训练顺序执行；校准 JSON 必须 COMPLETE、task set/horizons、checkpoint 路径与
+有效 rollout 模型配置一致。校准成本单列，并在报告总交互成本时加回；这些轨迹不训练
+student，也不作为最终独立评测。低样本 teacher reference 本身存在估计误差。
+
+### 交互计数与追溯
+
+| 字段 / 文件 | 含义 |
+| --- | --- |
+| `update_step` | student optimizer update；warmup 和 checkpoint 同此单位 |
+| `interaction/rollout_rounds` | 完成的物理 rollout rounds |
+| `interaction/rollout_trajectories` | 实际完成的 episodes；当前配置每轮96条 |
+| `interaction/simulation_steps` / `interaction/control_steps` | 真正执行的环境控制步；不含终止后的填充、reset settling 或 MuJoCo 内部积分子步 |
+| `interaction/env_steps` | 同上，保留已有曲线兼容性 |
+| `interaction/total_simulation_steps` / `total_trajectories` | 训练累计数加上 teacher 校准；uniform/static 为纯训练成本 |
+| `calibration/*` / `teacher_reference.json` | 校准轨迹数、实际步数、wall time 与参考快照 |
+| `rollout_episodes.jsonl` | 每条轨迹的 task、suite、round、worker/slot、seed、policy version、success、实际步数 |
+| `rollout_allocation.jsonl` | 每轮配额、决策依据与累计预算 |
+| `rollout_allocation_state.json` | checkpoint 中的窗口、task cursors、计数；用于追溯，不支持精确 resume |
+
+每轮环境实际步数必须与 actor 的有效 control mask 总数一致，否则报错。
+第二次 flow 更新不增加交互计数。动态配额会改变 episode 长度，所以 **相同 T 和轮数
+不代表相同 simulation steps**；需分别绘制效果对 student updates、实际环境步、wall time。
+训练窗口成功率是自适应策略的输入，不能代替固定协议独立评测。

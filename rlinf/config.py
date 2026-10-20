@@ -822,6 +822,35 @@ def validate_megatron_cfg(cfg: DictConfig) -> DictConfig:
     return cfg
 
 
+def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
+    """Restrict the initial adaptive collector to its verified synchronous layout."""
+    allocation = cfg.runner.get("rollout_allocation", {})
+    if not allocation.get("enabled", False):
+        if cfg.env.train.get("task_sampling_strategy") == "suite_quota":
+            raise ValueError("suite_quota requires runner.rollout_allocation.enabled.")
+        return
+    conditions = {
+        "RoboCasa365": cfg.env.train.env_type == "robocasa365",
+        "suite_quota": cfg.env.train.task_sampling_strategy == "suite_quota",
+        "group_size=1": cfg.env.train.group_size == 1,
+        "optimizer_update steps": cfg.runner.get("step_unit") == "optimizer_update",
+        "no bootstrap prefetch": not cfg.runner.get("overlap_env_bootstrap", False),
+        "one rollout stage": cfg.rollout.get("pipeline_stage_num", 1) == 1,
+        "no reward worker": not cfg.get("reward", {}).get("use_reward_model", False),
+        "native horizons": cfg.env.train.episode_horizon_source == "task_horizon",
+    }
+    missing = [name for name, valid in conditions.items() if not valid]
+    if missing:
+        raise ValueError("Rollout allocation requires " + ", ".join(missing))
+    mode = allocation.get("mode", "adaptive")
+    if mode not in {"uniform", "static", "adaptive"}:
+        raise ValueError("Unknown rollout allocation mode.")
+    if mode == "adaptive" and not allocation.get("teacher_reference_file"):
+        raise ValueError(
+            "Adaptive allocation requires a calibrated teacher_reference_file."
+        )
+
+
 def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
     """Reject unsupported combinations for the initial GR00T ODE refresh path."""
     repeats = cfg.algorithm.get("flow_refresh_updates", 1)
@@ -886,6 +915,7 @@ def validate_embodied_cfg(cfg):
     algorithm_cfg = cfg.get("algorithm", {}) or {}
     if not only_eval:
         validate_flow_refresh_cfg(cfg)
+        validate_rollout_allocation_cfg(cfg)
     model_type = SupportedModel(model_cfg.model_type)
     assert model_type in EMBODIED_MODEL, (
         f"Model type: '{model_cfg.model_type}' is not an embodied model. "

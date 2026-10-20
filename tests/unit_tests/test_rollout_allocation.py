@@ -1,0 +1,324 @@
+# Copyright 2026 The RLinf Authors.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy at http://www.apache.org/licenses/LICENSE-2.0
+"""Check allocation, task coverage and physical accounting without a simulator."""
+
+import json
+from collections import Counter
+
+import pytest
+from omegaconf import OmegaConf
+
+from rlinf.utils.rollout_allocation import RolloutAllocator, bounded_quotas
+
+
+def allocator(mode="adaptive", **overrides):
+    tasks = [
+        {"task_id": i, "task": f"task{i}", "suite": s, "horizon": 17}
+        for i, s in enumerate(["a", "a", "b", "b", "c", "c"])
+    ]
+    config = {
+        "mode": mode,
+        "warmup_rounds": 2,
+        "window_rounds": 2,
+        "interval_rounds": 1,
+        "min_task_episodes": 2,
+        "max_quota_change": 8,
+        "rho": 0.5,
+        "epsilon": 0.01,
+        "seed": 0,
+        "static_quotas": {"a": 16, "b": 40, "c": 40},
+    }
+    config.update(overrides)
+    return RolloutAllocator(
+        tasks, 8, 6, 2, OmegaConf.create(config), {"a": 0.9, "b": 0.9, "c": 0.9}
+    )
+
+
+def outcomes(plan):
+    return [
+        dict(
+            row,
+            success_once=row["suite"] == "a",
+            simulation_steps=3 if row["suite"] == "a" else row["horizon"],
+        )
+        for row in plan
+    ]
+
+
+def test_adaptive_changes_acquisition_but_preserves_all_local_suites():
+    a = allocator()
+    seen = Counter()
+    for round_index in range(5):
+        plan = a.plan()
+        assert len(plan) == 96
+        counts = Counter(r["suite"] for r in plan)
+        assert list(counts.values()) == a.quotas
+        for worker in range(8):
+            for epoch in range(2):
+                cell = [
+                    r for r in plan if r["worker"] == worker and r["epoch"] == epoch
+                ]
+                assert len(cell) == 6
+                assert {r["suite"] for r in cell} == {"a", "b", "c"}
+        if round_index < 2:
+            assert a.quotas == [32, 32, 32]
+        else:
+            assert a.quotas[0] < a.quotas[1]
+        for row in plan:
+            seen[row["task"]] += 1
+        a.observe(outcomes(plan))
+    assert a.rounds == 5 and a.trajectories == 480
+    for suite in a.suites:
+        n = [seen[t["task"]] for t in a.pools[suite]]
+        assert max(n) - min(n) <= 1
+    json.dumps(a.state_dict())  # Nested DictConfig must not leak into checkpoints.
+
+
+def test_zero_gaps_returns_uniform():
+    a = allocator()
+    for _ in range(2):
+        a.observe(
+            [dict(row, success_once=True, simulation_steps=1) for row in a.plan()]
+        )
+    a.plan()
+    assert a.quotas == [32, 32, 32]
+
+
+def test_coverage_failure_holds_quota_instead_of_dropping_tasks():
+    a = allocator(min_task_episodes=10000)
+    for _ in range(2):
+        a.observe(outcomes(a.plan()))
+    a.plan()
+    assert a.quotas == [32, 32, 32]
+    assert a.last_diagnostics["reason"] == "insufficient_task_coverage"
+
+
+def test_static_and_adaptive_share_task_local_reset_sequence():
+    uniform, static = allocator("uniform"), allocator("static")
+    maps = []
+    for a in (uniform, static):
+        seeds = {}
+        for _ in range(4):
+            plan = a.plan()
+            for row in plan:
+                seeds[(row["task"], row["occurrence"])] = row["reset_seed"]
+            a.observe(outcomes(plan))
+        maps.append(seeds)
+    for key in maps[0].keys() & maps[1].keys():
+        assert maps[0][key] == maps[1][key]
+    assert static.quotas == [16, 40, 40]
+
+
+def test_task_macro_not_episode_micro_estimate():
+    a = allocator()
+    # Deliberately uneven episode counts: task0=1/10, task1=10/10.
+    a.rounds = 2
+    rows = []
+    for task in a.tasks:
+        n = 20 if task["task"] == "task0" else 10
+        wins = 2 if task["task"] == "task0" else 10
+        rows += [{"task": task["task"], "success_once": i < wins} for i in range(n)]
+    a.history.append(rows)
+    a.plan()
+    assert a.last_diagnostics["success"]["a"] == pytest.approx(0.55)
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "identity", "premature", "zero_steps"])
+def test_bad_physical_records_fail_closed(fault):
+    a = allocator()
+    records = outcomes(a.plan())
+    if fault == "duplicate":
+        records[-1] = records[0]
+    elif fault == "identity":
+        records[0]["reset_seed"] += 1
+    elif fault == "premature":
+        records[0].update(success_once=False, simulation_steps=1)
+    else:
+        records[0]["simulation_steps"] = 0
+    with pytest.raises(ValueError):
+        a.observe(records)
+    assert a.rounds == 0
+
+
+def test_round_is_counted_once_and_steps_are_not_multiplied_by_reuse():
+    a = allocator()
+    plan = a.plan()
+    with pytest.raises(RuntimeError):
+        a.plan()
+    records = outcomes(plan)
+    expected = sum(r["simulation_steps"] for r in records)
+    a.observe(records)
+    assert a.simulation_steps == expected
+    assert a.trajectories == 96
+    with pytest.raises(ValueError):
+        a.observe(records)
+    assert a.simulation_steps == expected
+
+
+def test_bounded_projection_handles_extreme_and_fractional_targets():
+    counts = bounded_quotas([0, 1, 0], 96, [32, 32, 32], 16, 8)
+    assert sum(counts) == 96 and counts[1] == 40
+    assert all(24 <= n <= 40 for n in counts)
+    with pytest.raises(ValueError):
+        bounded_quotas([0.5, 0.5], 10, [5, 5], 6, 2)
+
+
+def test_real_wrapper_records_do_not_count_frozen_padding():
+    import numpy as np
+    from test_robocasa365_lifecycle import episode_env
+
+    env = episode_env(horizons=(2, 5), success_steps=(99, 1))
+    env._allocation_episode_plan = [{"task": "a"}, {"task": "b"}]
+    env.chunk_step(np.zeros((2, 8, 1)))
+    records = env.rollout_episode_records()
+    assert [r["simulation_steps"] for r in records] == [2, 1]
+    assert [r["success_once"] for r in records] == [False, True]
+
+
+def test_window_discards_old_outcomes_and_logs_signed_progress():
+    a = allocator()
+    for index in range(4):
+        plan = a.plan()
+        a.observe(
+            [
+                dict(
+                    row,
+                    success_once=index < 2,
+                    simulation_steps=1 if index < 2 else row["horizon"],
+                )
+                for row in plan
+            ]
+        )
+    a.plan()
+    assert a.last_diagnostics["success"] == dict.fromkeys(a.suites, 0.0)
+    assert a.last_diagnostics["signed_progress"] == dict.fromkeys(a.suites, -1.0)
+
+
+def reference_fixture(tmp_path):
+    from rlinf.utils.rollout_allocation import training_signature
+
+    cfg = OmegaConf.create(
+        {
+            "env": {"train": {"env_type": "robocasa365", "ignore_terminations": False}},
+            "actor": {
+                "model": {
+                    "model_type": "gr00t",
+                    "precision": "bf16",
+                    "denoising_steps": 4,
+                    "action_dim": 7,
+                }
+            },
+            "rollout": {
+                "model": {"precision": "bf16"},
+                "expert_models": {
+                    "a": {
+                        "model_path": str(tmp_path / "teacher"),
+                        "action_head_precision": "fp32",
+                    }
+                },
+            },
+        }
+    )
+    tasks = [
+        {"task": "one", "suite": "a", "horizon": 100},
+        {"task": "two", "suite": "a", "horizon": 200},
+    ]
+    data = {
+        "schema_version": 1,
+        "status": "COMPLETE",
+        "training_signature": training_signature(cfg),
+        "teacher_checkpoints": {"a": str(tmp_path / "teacher")},
+        "tasks": [
+            dict(tasks[0], episodes=20, successes=10),
+            dict(tasks[1], episodes=10, successes=10),
+        ],
+    }
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(data))
+    return cfg, tasks, path, data
+
+
+def test_teacher_reference_uses_task_macro_and_effective_rollout_model(tmp_path):
+    from rlinf.utils.rollout_allocation import (
+        load_teacher_reference,
+        training_signature,
+    )
+
+    cfg, tasks, path, _ = reference_fixture(tmp_path)
+    assert training_signature(cfg)["model"]["denoising_steps"] == 4
+    assert load_teacher_reference(str(path), cfg, tasks) == {"a": 0.75}
+    cfg.actor.model.denoising_steps = 8
+    with pytest.raises(ValueError, match="protocol"):
+        load_teacher_reference(str(path), cfg, tasks)
+
+
+@pytest.mark.parametrize(
+    "fault", ["incomplete", "horizon", "checkpoint", "counts", "precision"]
+)
+def test_teacher_reference_rejects_protocol_mismatch(tmp_path, fault):
+    from rlinf.utils.rollout_allocation import load_teacher_reference
+
+    cfg, tasks, path, data = reference_fixture(tmp_path)
+    if fault == "incomplete":
+        data["status"] = "SMOKE"
+    elif fault == "horizon":
+        data["tasks"][0]["horizon"] += 1
+    elif fault == "checkpoint":
+        data["teacher_checkpoints"]["a"] += "-other"
+    elif fault == "counts":
+        data["tasks"][0]["successes"] = 100
+    else:
+        cfg.rollout.expert_models.a.action_head_precision = "bf16"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError):
+        load_teacher_reference(str(path), cfg, tasks)
+
+
+def test_runner_reconciles_physical_counts_and_logs_monotonic_updates(tmp_path):
+    from types import SimpleNamespace
+
+    from rlinf.runners.embodied_runner import EmbodiedRunner
+
+    a = allocator("uniform")
+    records = outcomes(a.plan())
+    runner = EmbodiedRunner.__new__(EmbodiedRunner)
+    runner.rollout_allocator = a
+    runner.env = SimpleNamespace(
+        get_rollout_allocation_records=lambda: SimpleNamespace(wait=lambda: [records])
+    )
+    logged = []
+    runner.metric_logger = SimpleNamespace(
+        log_path=str(tmp_path), log=lambda row, step: logged.append((step, row))
+    )
+    runner.global_step = 0
+    runner.updates_per_rollout = 2
+    runner.cumulative_env_steps = 0
+    runner.teacher_calibration_budget = {
+        "trajectories": 1000,
+        "simulation_steps": 12345,
+        "wall_seconds": 10,
+    }
+    runner._record_allocation_round()
+    assert not logged  # Physical metrics must not advance W&B before update 1.
+    metrics = {
+        "refresh/optimizer_updates": 2,
+        "refresh/real_env_steps_this_rollout": a.simulation_steps,
+        "refresh/update_1/actor/velocity_mse": 1.0,
+        "refresh/update_2/actor/velocity_mse": 0.9,
+    }
+    runner._log_optimizer_updates([metrics])
+    assert [step for step, _ in logged] == [1, 2]
+    for _, row in logged:
+        assert row["interaction/rollout_trajectories"] == 96
+        assert row["interaction/rollout_rounds"] == 1
+        assert row["interaction/simulation_steps"] == a.simulation_steps
+        assert row["interaction/total_simulation_steps"] == a.simulation_steps + 12345
+        assert row["interaction/total_trajectories"] == 1096
+    assert "allocation/quota/a" not in logged[0][1]
+    assert logged[1][1]["allocation/quota/a"] == 32
+    assert logged[1][1]["calibration/trajectories"] == 1000
+    metrics["refresh/real_env_steps_this_rollout"] += 1
+    with pytest.raises(RuntimeError, match="accounting mismatch"):
+        runner._log_optimizer_updates([metrics])

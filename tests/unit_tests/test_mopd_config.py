@@ -215,3 +215,31 @@ def test_mainline_rejects_experimental_modes(override, message):
     )
     with pytest.raises(ValueError, match=message):
         validate_flow_refresh_cfg(cfg)
+
+
+def test_adaptive_r2_recipe_and_required_collection_contract(monkeypatch):
+    from rlinf.config import validate_flow_refresh_cfg, validate_rollout_allocation_cfg
+
+    monkeypatch.setenv("OPD_TEACHER_REFERENCE", "/calibration/reference.json")
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_adaptive_r2_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint"],
+    )
+    validate_flow_refresh_cfg(cfg)
+    validate_rollout_allocation_cfg(cfg)
+    assert cfg.actor.global_batch_size == 2304
+    assert cfg.env.train.total_num_envs * cfg.env.train.rollout_epoch == 96
+    assert cfg.algorithm.flow_refresh_updates == 2
+    assert cfg.runner.max_steps == 200 and cfg.runner.save_interval == 40
+    assert cfg.actor.optim.lr == pytest.approx(3e-5)
+    assert cfg.actor.optim.lr_warmup_steps == 10
+    assert cfg.runner.logger.project_name == "RoboCasa_MultiTeacher_Diagnostics"
+    cfg.runner.overlap_env_bootstrap = True
+    with pytest.raises(ValueError, match="no bootstrap prefetch"):
+        validate_rollout_allocation_cfg(cfg)
+    cfg.runner.overlap_env_bootstrap = False
+    cfg.runner.rollout_allocation.teacher_reference_file = None
+    with pytest.raises(ValueError, match="calibrated"):
+        validate_rollout_allocation_cfg(cfg)
+    cfg.runner.rollout_allocation.mode = "uniform"
+    validate_rollout_allocation_cfg(cfg)

@@ -29,6 +29,7 @@ from rlinf.utils.distributed import ScopedTimer
 from rlinf.utils.logging import get_logger
 from rlinf.utils.metric_logger import MetricLogger
 from rlinf.utils.metric_utils import compute_evaluate_metrics, print_metrics_table
+from rlinf.utils.rollout_allocation import RolloutAllocator, load_teacher_reference
 from rlinf.utils.runner_utils import check_progress
 from rlinf.utils.timers import Timer
 
@@ -115,6 +116,8 @@ class EmbodiedRunner:
             else 1
         )
         self.cumulative_env_steps = 0.0
+        self.rollout_allocator = None
+        self.teacher_calibration_budget = {}
 
         # compute `max_steps`
         self.set_max_steps()
@@ -181,6 +184,45 @@ class EmbodiedRunner:
         rollout_handle.wait()
         env_handle.wait()
         self.actor.init_worker().wait()
+        allocation = self.cfg.runner.get("rollout_allocation", {})
+        if allocation.get("enabled", False):
+            layouts = self.env.describe_rollout_allocation().wait()
+            first = layouts[0]
+            if any(
+                {k: v for k, v in x.items() if k != "worker"}
+                != {k: v for k, v in first.items() if k != "worker"}
+                for x in layouts
+            ):
+                raise ValueError(
+                    "Rollout allocation needs homogeneous workers/task catalogs."
+                )
+            reference = None
+            if allocation.get("mode", "adaptive") == "adaptive":
+                reference = load_teacher_reference(
+                    allocation.teacher_reference_file, self.cfg, first["tasks"]
+                )
+                with open(allocation.teacher_reference_file) as stream:
+                    calibration = json.load(stream)
+                self.teacher_calibration_budget = {
+                    "trajectories": sum(t["episodes"] for t in calibration["tasks"]),
+                    "simulation_steps": sum(
+                        t["simulation_steps"] for t in calibration["tasks"]
+                    ),
+                    "wall_seconds": calibration["wall_seconds"],
+                }
+                with open(
+                    os.path.join(self.metric_logger.log_path, "teacher_reference.json"),
+                    "w",
+                ) as stream:
+                    json.dump(calibration, stream, indent=2)
+            self.rollout_allocator = RolloutAllocator(
+                first["tasks"],
+                len(layouts),
+                first["envs"],
+                first["epochs"],
+                allocation,
+                reference,
+            )
 
         resume_dir = self.cfg.runner.get("resume_dir", None)
         if resume_dir is None:
@@ -542,6 +584,9 @@ class EmbodiedRunner:
                     if _step % self.weight_sync_interval == 0:
                         self.update_rollout_weights()
                 with self.timer("generate_rollouts"):
+                    if getattr(self, "rollout_allocator", None) is not None:
+                        plan = self.rollout_allocator.plan()
+                        self.env.set_rollout_allocation(plan, self.global_step).wait()
                     env_handle: Handle = self.env.interact(
                         input_channel=self.env_channel,
                         rollout_channel=self.rollout_channel,
@@ -564,6 +609,10 @@ class EmbodiedRunner:
                     rollout_handle.wait()
                     if self.reward is not None:
                         reward_handle.wait()
+
+                if getattr(self, "rollout_allocator", None) is not None:
+                    env_handle.wait()
+                    self._record_allocation_round()
 
                 # compute advantages and returns.
                 with self.timer("cal_adv_and_returns"):
@@ -621,7 +670,18 @@ class EmbodiedRunner:
                 f"Expected {expected} optimizer updates, got "
                 f"{metrics['refresh/optimizer_updates']}."
             )
-        self.cumulative_env_steps += metrics["refresh/real_env_steps_this_rollout"]
+        mask_steps = metrics["refresh/real_env_steps_this_rollout"]
+        if getattr(self, "rollout_allocator", None) is not None:
+            recorded_steps = sum(
+                r["simulation_steps"] for r in self.rollout_allocator.history[-1]
+            )
+            if recorded_steps != int(mask_steps):
+                raise RuntimeError(
+                    f"Environment/mask step accounting mismatch: {recorded_steps} != {mask_steps}"
+                )
+            self.cumulative_env_steps = self.rollout_allocator.simulation_steps
+        else:
+            self.cumulative_env_steps += mask_steps
         for inner in range(1, repeats + 1):
             prefix = f"refresh/update_{inner}/"
             row = {
@@ -638,6 +698,10 @@ class EmbodiedRunner:
                     "interaction/env_steps": self.cumulative_env_steps,
                 }
             )
+            if getattr(self, "rollout_allocator", None) is not None:
+                row.update(self._allocation_interaction_metrics())
+                if inner == repeats:
+                    row.update(self._last_allocation_metrics)
             if inner == 1:
                 row["train/new_rollout_velocity_mse"] = row["train/actor/velocity_mse"]
             self.metric_logger.log(row, self.global_step + inner)
@@ -646,6 +710,64 @@ class EmbodiedRunner:
                 "a",
             ) as stream:
                 stream.write(json.dumps(row) + "\n")
+
+    def _allocation_interaction_metrics(self) -> dict:
+        allocator = self.rollout_allocator
+        calibration = getattr(self, "teacher_calibration_budget", {})
+        return {
+            "interaction/total_simulation_steps": allocator.simulation_steps
+            + calibration.get("simulation_steps", 0),
+            "interaction/total_trajectories": allocator.trajectories
+            + calibration.get("trajectories", 0),
+            "interaction/rollout_rounds": allocator.rounds,
+            "interaction/rollout_trajectories": allocator.trajectories,
+            "interaction/simulation_steps": allocator.simulation_steps,
+            "interaction/control_steps": allocator.simulation_steps,
+        }
+
+    def _record_allocation_round(self) -> None:
+        """Persist physical outcomes before they can be reused by actor updates."""
+        records = [
+            r
+            for worker in self.env.get_rollout_allocation_records().wait()
+            for r in worker
+        ]
+        self.rollout_allocator.observe(records)
+        path = self.metric_logger.log_path
+        with open(os.path.join(path, "rollout_episodes.jsonl"), "a") as stream:
+            for record in records:
+                stream.write(json.dumps(record) + "\n")
+        state = self.rollout_allocator.state_dict()
+        with open(os.path.join(path, "rollout_allocation.jsonl"), "a") as stream:
+            stream.write(
+                json.dumps({k: v for k, v in state.items() if k != "history"}) + "\n"
+            )
+        metrics = self._allocation_interaction_metrics()
+        if self.rollout_allocator.rounds == 1:
+            metrics.update(
+                {
+                    f"calibration/{key}": value
+                    for key, value in getattr(
+                        self, "teacher_calibration_budget", {}
+                    ).items()
+                }
+            )
+        metrics["rollout_count"] = self.rollout_allocator.rounds
+        for suite, quota in state["quotas"].items():
+            selected = [r for r in records if r["suite"] == suite]
+            metrics[f"allocation/quota/{suite}"] = quota
+            metrics[f"allocation/collected/{suite}"] = len(selected)
+            metrics[f"allocation/simulation_steps/{suite}"] = sum(
+                r["simulation_steps"] for r in selected
+            )
+            metrics[f"allocation/success_once/{suite}"] = sum(
+                r["success_once"] for r in selected
+            ) / len(selected)
+        for name in ("gap", "success", "probabilities", "signed_progress"):
+            for suite, value in state["diagnostics"].get(name, {}).items():
+                metrics[f"allocation/{name}/{suite}"] = value
+        # Emit only after the inner updates, keeping W&B steps monotonic.
+        self._last_allocation_metrics = metrics
 
     def run_pipeline(self):
         start_step = self.global_step
@@ -750,6 +872,12 @@ class EmbodiedRunner:
                     stream,
                     indent=2,
                 )
+
+        if getattr(self, "rollout_allocator", None) is not None:
+            with open(
+                os.path.join(base_output_dir, "rollout_allocation_state.json"), "w"
+            ) as stream:
+                json.dump(self.rollout_allocator.state_dict(), stream, indent=2)
 
     def set_max_steps(self):
         self.num_steps_per_epoch = 1

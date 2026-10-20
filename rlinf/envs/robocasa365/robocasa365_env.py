@@ -116,7 +116,12 @@ class Robocasa365Env(gym.Env):
                 "ordered" if bool(cfg.get("is_eval", False)) else "random",
             )
         )
-        if self.task_sampling_strategy not in {"random", "ordered", "suite_balanced"}:
+        if self.task_sampling_strategy not in {
+            "random",
+            "ordered",
+            "suite_balanced",
+            "suite_quota",
+        }:
             raise ValueError(
                 f"Unknown task sampling strategy: {self.task_sampling_strategy}"
             )
@@ -134,7 +139,7 @@ class Robocasa365Env(gym.Env):
         )
         self.task_specs = self._load_task_specs()
         self.num_tasks = len(self.task_specs)
-        if self.task_sampling_strategy == "suite_balanced":
+        if self.task_sampling_strategy in {"suite_balanced", "suite_quota"}:
             self._init_suite_balanced_sampling()
         self.episode_horizon_source = str(
             self.cfg.get("episode_horizon_source", "max_episode_steps")
@@ -202,7 +207,49 @@ class Robocasa365Env(gym.Env):
             )
 
     def update_reset_state_ids(self):
+        # Explicit plans are applied by EnvWorker before each epoch, never by a
+        # speculative reset after the preceding rollout.
+        if self.task_sampling_strategy == "suite_quota" and hasattr(self, "task_ids"):
+            return
         self._set_next_task_ids()
+
+    def set_rollout_tasks(self, rows: list[dict]) -> None:
+        """Apply an explicit episode plan before reset, preserving vector shape."""
+        if self.task_sampling_strategy != "suite_quota" or self.group_size != 1:
+            raise ValueError("Explicit rollout plans require suite_quota/group_size=1.")
+        if len(rows) != self.num_envs:
+            raise ValueError("Episode plan has the wrong number of env slots.")
+        rows = sorted(rows, key=lambda row: row["slot"])
+        if [r["slot"] for r in rows] != list(range(self.num_envs)):
+            raise ValueError("Duplicate or missing episode slots.")
+        for row in rows:
+            spec = self.task_specs[row["task_id"]]
+            if (
+                spec["task_name"] != row["task"]
+                or spec["metadata_view"]["task_soup"] != row["suite"]
+            ):
+                raise ValueError("Rollout plan does not match the local task registry.")
+        self.task_ids = np.asarray([r["task_id"] for r in rows], dtype=np.int32)
+        self.env_seeds = [r["reset_seed"] for r in rows]
+        self._refresh_task_context()
+        # New task-local seeds also require reconstruction for unchanged task IDs.
+        self.env.reconfigure_env_fns(self.get_env_fns(), np.arange(self.num_envs))
+        self._allocation_episode_plan = rows
+
+    def rollout_episode_records(self) -> list[dict]:
+        """Return one outcome per slot; elapsed_steps excludes frozen padding.
+
+        simulation_steps counts actual environment control steps, not MuJoCo's
+        internal integration substeps or reset/settling operations.
+        """
+        return [
+            dict(
+                row,
+                success_once=bool(self.success_once[i]),
+                simulation_steps=int(self._elapsed_steps[i]),
+            )
+            for i, row in enumerate(self._allocation_episode_plan)
+        ]
 
     def _init_suite_balanced_sampling(self) -> None:
         """Assign fixed suite slots locally, with task cursors offset across workers."""
@@ -242,7 +289,7 @@ class Robocasa365Env(gym.Env):
             ) % self.num_tasks
             return group_task_ids.astype(np.int32, copy=False)
 
-        if self.task_sampling_strategy == "suite_balanced":
+        if self.task_sampling_strategy in {"suite_balanced", "suite_quota"}:
             # Each local group keeps its suite even across partial auto-resets. Tasks
             # rotate within that suite; the global slot offset covers all tasks across
             # workers/epochs without requiring one worker to host the entire task set.

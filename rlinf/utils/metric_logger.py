@@ -101,6 +101,10 @@ class MetricLogger:
             if self.cfg.runner.get("step_unit") == "optimizer_update":
                 wandb.define_metric("rollout_count")
                 wandb.define_metric("rollout_success/*", step_metric="rollout_count")
+                wandb.define_metric("allocation/*", step_metric="rollout_count")
+                wandb.define_metric("interaction/rollout_rounds")
+                wandb.define_metric("interaction/rollout_trajectories")
+                wandb.define_metric("interaction/simulation_steps")
 
         if "swanlab" in self.logger_backends:
             import swanlab

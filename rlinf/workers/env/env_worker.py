@@ -962,6 +962,51 @@ class EnvWorker(Worker):
             rollout_channel
         )
 
+    def describe_rollout_allocation(self) -> dict:
+        """Expose the real worker layout and task catalog to the runner."""
+        if self.stage_num != 1 or self.actor_split_num != 1:
+            raise ValueError(
+                "Allocation currently requires one stage and unsplit actor batches."
+            )
+        specs = get_env_attr(self.env_list[0], "task_specs")
+        horizons = get_env_attr(self.env_list[0], "episode_horizon_source")
+        if horizons != "task_horizon":
+            raise ValueError("Allocation requires native task horizons.")
+        return {
+            "worker": self._rank,
+            "envs": self.train_num_envs_per_stage,
+            "epochs": self.rollout_epoch,
+            "tasks": [
+                {
+                    "task_id": i,
+                    "task": s["task_name"],
+                    "suite": s["metadata_view"]["task_soup"],
+                    "horizon": int(s["horizon"]),
+                }
+                for i, s in enumerate(specs)
+            ],
+        }
+
+    def set_rollout_allocation(self, plan: list[dict], policy_update_step: int) -> None:
+        """Stage the next full round, before any bootstrap observations are sent."""
+        if self._prefetched_train_bootstrap is not None:
+            raise RuntimeError(
+                "Cannot change allocation after prefetching observations."
+            )
+        self._allocation_plan = [
+            dict(r, policy_update_step=policy_update_step)
+            for r in plan
+            if r["worker"] == self._rank
+        ]
+        expected = self.train_num_envs_per_stage * self.rollout_epoch
+        if len(self._allocation_plan) != expected:
+            raise ValueError("Allocation plan does not match this worker's layout.")
+        self._allocation_records = []
+
+    def get_rollout_allocation_records(self) -> list[dict]:
+        """Read records once the complete physical round has finished."""
+        return self._allocation_records
+
     def record_env_metrics(
         self,
         env_metrics: dict[str, list],
@@ -1026,6 +1071,9 @@ class EnvWorker(Worker):
         rlt_pending_obs: list[dict[str, Any] | None] = [None] * self.stage_num
 
         for epoch in range(self.rollout_epoch):
+            if self.cfg.runner.get("rollout_allocation", {}).get("enabled", False):
+                rows = [r for r in self._allocation_plan if r["epoch"] == epoch]
+                get_env_attr(self.env_list[0], "set_rollout_tasks")(rows)
             if epoch == 0 and self._prefetched_train_bootstrap is not None:
                 env_outputs = self._prefetched_train_bootstrap
                 self._prefetched_train_bootstrap = None
@@ -1227,6 +1275,10 @@ class EnvWorker(Worker):
                     getattr(self, "rollout_results", None)
                 )
 
+            if self.cfg.runner.get("rollout_allocation", {}).get("enabled", False):
+                self._allocation_records.extend(
+                    get_env_attr(self.env_list[0], "rollout_episode_records")()
+                )
             self.store_last_obs_and_intervened_info(env_outputs)
             self.finish_rollout()
 
