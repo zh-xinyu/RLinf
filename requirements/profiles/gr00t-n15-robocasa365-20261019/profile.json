@@ -1,0 +1,47 @@
+{
+  "id": "gr00t-n15-robocasa365-20261019",
+  "python": "3.11.14",
+  "uv": "0.12.0",
+  "platform": "Linux",
+  "machine": "x86_64",
+  "torch_cuda": "12.4",
+  "torch_cxx11_abi": false,
+  "bootstrap": [
+    "setuptools==75.8.2",
+    "wheel==0.48.0",
+    "pip==26.1.2",
+    "packaging==26.2",
+    "setuptools-scm==8.2.0"
+  ],
+  "sources": [
+    {
+      "name": "gr00t",
+      "version": "1.1.0",
+      "url": "https://github.com/NVIDIA/Isaac-GR00T.git",
+      "commit": "4af2b622892f7dcb5aae5a3fb70bcb02dc217b96"
+    },
+    {
+      "name": "robocasa",
+      "version": "1.0.1",
+      "url": "https://github.com/robocasa/robocasa.git",
+      "commit": "921c9a5736a8d0ea5589657898aadcfa55a6a195"
+    },
+    {
+      "name": "robosuite",
+      "version": "1.5.2",
+      "url": "https://github.com/ARISE-Initiative/robosuite.git",
+      "commit": "5ce6643f3092639d08f7b0f90ed1c6a84f50552c"
+    },
+    {
+      "name": "lerobot",
+      "version": "0.1.0",
+      "url": "https://github.com/huggingface/lerobot.git",
+      "commit": "0cf864870cf29f4738d3ade893e6fd13fbd7cdb5"
+    }
+  ],
+  "flash_attention": {
+    "name": "flash_attn",
+    "version": "2.7.4.post1",
+    "url": "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+  }
+}

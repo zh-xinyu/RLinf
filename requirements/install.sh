@@ -886,7 +886,11 @@ EOF
         # shellcheck disable=SC1090
         source "$VENV_DIR/bin/activate"
     fi
-    uv sync --active $NO_INSTALL_RLINF_CMD
+    # A versioned profile restores an exact package snapshot in a NEW venv.
+    # Its caller installs the locked bootstrap/runtime dependencies next.
+    if [ "${1:-}" != "create-only" ]; then
+        uv sync --active $NO_INSTALL_RLINF_CMD
+    fi
 }
 
 install_flash_attn() {

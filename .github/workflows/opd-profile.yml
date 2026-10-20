@@ -1,0 +1,35 @@
+name: OPD Profile Contract
+
+on:
+  push:
+    branches: [opd-project-main]
+    paths:
+      - requirements/opd_profile.py
+      - requirements/profiles/**
+      - requirements/install.sh
+      - tests/unit_tests/test_opd_profile.py
+      - .github/workflows/opd-profile.yml
+  pull_request:
+    paths:
+      - requirements/opd_profile.py
+      - requirements/profiles/**
+      - requirements/install.sh
+      - tests/unit_tests/test_opd_profile.py
+      - .github/workflows/opd-profile.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.14'
+      - run: python -m pip install 'pytest==9.1.1'
+      - run: bash -n requirements/install.sh
+      - run: python -m pytest -q tests/unit_tests/test_opd_profile.py

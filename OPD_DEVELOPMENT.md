@@ -80,6 +80,8 @@ controlled 模式隔离 flow RNG，避免刷新消耗训练 RNG。
 
 ## 在已配置的单机环境运行
 
+新 clone 请先按 [固定环境安装说明](OPD_ENVIRONMENT.md) 安装版本化 profile。
+
 先进入本分支的 checkout，激活已有 GR00T/RoboCasa365 runtime，并设置实际路径：
 
 ```bash
