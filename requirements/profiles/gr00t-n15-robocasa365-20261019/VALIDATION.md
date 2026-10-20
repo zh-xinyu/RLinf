@@ -49,5 +49,8 @@ inherited from the working stack are documented in `OPD_ENVIRONMENT.md`.
 - Availability or identity of external task assets and experiment checkpoints.
 - Bit-identical artifacts, deterministic success rates or a fully offline build.
 
-The GitHub workflow `OPD Profile Contract` runs the six lightweight profile tests;
+The GitHub workflow `OPD Profile Contract` runs the lightweight profile tests;
 it does not claim to run a full installation or GPU training.
+
+Final installer isolation regression: **7 profile tests passed**, including rejection
+of an inherited private `RLINF_PYTHON_EXECUTABLE` override.

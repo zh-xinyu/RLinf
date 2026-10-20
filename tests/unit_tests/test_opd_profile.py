@@ -121,3 +121,22 @@ create_and_sync_venv "$4"
         check=True,
     )
     assert ("sync --active" in log.read_text()) == sync_expected
+
+
+def test_private_python_override_does_not_leak_into_install(tmp_path, monkeypatch):
+    monkeypatch.setenv("RLINF_PYTHON_EXECUTABLE", "/private/runtime/python")
+    monkeypatch.setenv("PYTHONPATH", "/private/overlay")
+    monkeypatch.setattr(PROFILE.shutil, "which", lambda _: "/usr/bin/uv")
+    monkeypatch.setattr(PROFILE.subprocess, "check_output", lambda *a, **k: "uv 0.12.0")
+    captured = {}
+
+    def stop_before_install(command, **kwargs):
+        captured.update(kwargs["env"])
+        raise RuntimeError("stop before creating venv")
+
+    monkeypatch.setattr(PROFILE, "run", stop_before_install)
+    with pytest.raises(RuntimeError, match="stop before creating venv"):
+        PROFILE.install(tmp_path / "new-runtime", dry_run=False)
+    assert "RLINF_PYTHON_EXECUTABLE" not in captured
+    assert "PYTHONPATH" not in captured
+    assert captured["UV_PYTHON_PREFERENCE"] == "only-managed"

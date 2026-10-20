@@ -87,7 +87,14 @@ def install(runtime: Path, dry_run: bool) -> None:
         k: v
         for k, v in os.environ.items()
         if not k.startswith(("UV_", "PIP_"))
-        and k not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "CONDA_PREFIX"}
+        and k
+        not in {
+            "PYTHONPATH",
+            "PYTHONHOME",
+            "VIRTUAL_ENV",
+            "CONDA_PREFIX",
+            "RLINF_PYTHON_EXECUTABLE",
+        }
     }
     runtime.mkdir(parents=True, exist_ok=False)
     env.update(
