@@ -325,3 +325,23 @@ def test_controlled_base_updates_once_without_refresh(monkeypatch):
     metrics = inspect.unwrap(Actor.run_training)(worker)
     assert worker.optimizer_steps == metrics["refresh/optimizer_updates"] == 1
     assert not worker.model.calls and not worker.teacher_queries
+
+
+def test_resume_counters_keep_optimizer_and_scheduler_progress():
+    worker = SimpleNamespace(
+        cfg=OmegaConf.create({"runner": {"resume_mode": "adaptive_round_boundary"}}),
+        lr_scheduler=SimpleNamespace(last_epoch=40),
+        optimizer=SimpleNamespace(
+            state={"parameter": {"step": 40}}, param_groups=[{"lr": 3e-5}]
+        ),
+        _rank=0,
+        enable_offload=False,
+        log_info=lambda message: None,
+    )
+    result = inspect.unwrap(Actor.restore_opd_update_counters)(worker, 40)
+    assert result["optimizer_updates"] == 40
+    assert result["scheduler_last_epoch"] == 40
+    assert worker._sample_draw_count == 40
+    assert result["lr"] == 3e-5
+    with pytest.raises(ValueError, match="mismatched"):
+        inspect.unwrap(Actor.restore_opd_update_counters)(worker, 56)

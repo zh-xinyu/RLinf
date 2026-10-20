@@ -233,8 +233,55 @@ class EmbodiedRunner:
         assert os.path.exists(actor_checkpoint_path), (
             f"resume_dir {actor_checkpoint_path} does not exist."
         )
-        self.actor.load_checkpoint(actor_checkpoint_path).wait()
-        self.global_step = int(resume_dir.split("global_step_")[-1])
+        if self.optimizer_update_steps:
+            with open(os.path.join(resume_dir, "runner_state.json")) as stream:
+                state = json.load(stream)
+            with open(
+                os.path.join(resume_dir, "rollout_allocation_state.json")
+            ) as stream:
+                allocation_state = json.load(stream)
+            step = state["optimizer_updates"]
+            if (
+                state["step_unit"] != "optimizer_update"
+                or step <= 0
+                or step >= self.max_steps
+                or step % self.updates_per_rollout
+                or state["rollout_count"] != step // self.updates_per_rollout
+                or state["rollout_count"] != allocation_state["rounds"]
+                or state["env_steps"] != allocation_state["simulation_steps"]
+            ):
+                raise ValueError(
+                    "Inconsistent runner/allocation checkpoint or changed R."
+                )
+            self.rollout_allocator.load_state_dict(allocation_state)
+            self.actor.load_checkpoint(actor_checkpoint_path).wait()
+            actor_states = self.actor.restore_opd_update_counters(step).wait()
+            self.global_step = step
+            self.cumulative_env_steps = state["env_steps"]
+            with open(
+                os.path.join(self.metric_logger.log_path, "resume_metadata.json"), "w"
+            ) as stream:
+                json.dump(
+                    {
+                        "mode": "adaptive_round_boundary",
+                        "source": str(resume_dir),
+                        "runner_state": state,
+                        "actor_states": actor_states,
+                        "recovery_interactions": dict(
+                            self.cfg.runner.get("recovery_interactions", {})
+                        ),
+                        "exact_replay": False,
+                        "note": "Restores optimizer, scheduler, allocation history and task cursors; rollout proposal RNG restarts.",
+                    },
+                    stream,
+                    indent=2,
+                )
+            self.logger.info(
+                f"Restored adaptive rollout boundary at update {step}; rollout RNG restarts."
+            )
+        else:
+            self.actor.load_checkpoint(actor_checkpoint_path).wait()
+            self.global_step = int(resume_dir.split("global_step_")[-1])
 
     def update_rollout_weights(self):
         rollout_handle: Handle = self.rollout.sync_model_from_actor()
@@ -714,11 +761,22 @@ class EmbodiedRunner:
     def _allocation_interaction_metrics(self) -> dict:
         allocator = self.rollout_allocator
         calibration = getattr(self, "teacher_calibration_budget", {})
+        recovery = (
+            getattr(self, "cfg", {}).get("runner", {}).get("recovery_interactions", {})
+        )
         return {
+            "interaction/recovery_simulation_steps": recovery.get(
+                "simulation_steps", 0
+            ),
+            "interaction/recovery_trajectories": recovery.get("trajectories", 0),
+            "interaction/total_training_rollout_rounds": allocator.rounds
+            + recovery.get("rollout_rounds", 0),
             "interaction/total_simulation_steps": allocator.simulation_steps
-            + calibration.get("simulation_steps", 0),
+            + calibration.get("simulation_steps", 0)
+            + recovery.get("simulation_steps", 0),
             "interaction/total_trajectories": allocator.trajectories
-            + calibration.get("trajectories", 0),
+            + calibration.get("trajectories", 0)
+            + recovery.get("trajectories", 0),
             "interaction/rollout_rounds": allocator.rounds,
             "interaction/rollout_trajectories": allocator.trajectories,
             "interaction/simulation_steps": allocator.simulation_steps,

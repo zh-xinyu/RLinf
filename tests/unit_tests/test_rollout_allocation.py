@@ -276,7 +276,10 @@ def test_teacher_reference_rejects_protocol_mismatch(tmp_path, fault):
         load_teacher_reference(str(path), cfg, tasks)
 
 
-def test_runner_reconciles_physical_counts_and_logs_monotonic_updates(tmp_path):
+@pytest.mark.parametrize("recovery", [0, 9])
+def test_runner_reconciles_physical_counts_and_logs_monotonic_updates(
+    tmp_path, recovery
+):
     from types import SimpleNamespace
 
     from rlinf.runners.embodied_runner import EmbodiedRunner
@@ -285,6 +288,17 @@ def test_runner_reconciles_physical_counts_and_logs_monotonic_updates(tmp_path):
     records = outcomes(a.plan())
     runner = EmbodiedRunner.__new__(EmbodiedRunner)
     runner.rollout_allocator = a
+    runner.cfg = OmegaConf.create(
+        {
+            "runner": {
+                "recovery_interactions": {
+                    "rollout_rounds": recovery,
+                    "trajectories": recovery * 96,
+                    "simulation_steps": recovery * 100,
+                }
+            }
+        }
+    )
     runner.env = SimpleNamespace(
         get_rollout_allocation_records=lambda: SimpleNamespace(wait=lambda: [records])
     )
@@ -314,11 +328,116 @@ def test_runner_reconciles_physical_counts_and_logs_monotonic_updates(tmp_path):
         assert row["interaction/rollout_trajectories"] == 96
         assert row["interaction/rollout_rounds"] == 1
         assert row["interaction/simulation_steps"] == a.simulation_steps
-        assert row["interaction/total_simulation_steps"] == a.simulation_steps + 12345
-        assert row["interaction/total_trajectories"] == 1096
+        assert (
+            row["interaction/total_simulation_steps"]
+            == a.simulation_steps + 12345 + recovery * 100
+        )
+        assert row["interaction/total_trajectories"] == 1096 + recovery * 96
+        assert row["interaction/total_training_rollout_rounds"] == 1 + recovery
     assert "allocation/quota/a" not in logged[0][1]
     assert logged[1][1]["allocation/quota/a"] == 32
     assert logged[1][1]["calibration/trajectories"] == 1000
     metrics["refresh/real_env_steps_this_rollout"] += 1
     with pytest.raises(RuntimeError, match="accounting mismatch"):
         runner._log_optimizer_updates([metrics])
+
+
+def test_round_boundary_restore_preserves_next_plan_and_gap():
+    uninterrupted = allocator()
+    for _ in range(4):
+        uninterrupted.observe(outcomes(uninterrupted.plan()))
+    state = json.loads(json.dumps(uninterrupted.state_dict()))
+    restored = allocator()
+    restored.load_state_dict(state)
+    assert restored.plan() == uninterrupted.plan()
+    assert restored.last_diagnostics == uninterrupted.last_diagnostics
+    assert restored.simulation_steps == uninterrupted.simulation_steps
+
+
+@pytest.mark.parametrize("fault", ["layout", "reference", "tasks", "history", "config"])
+def test_round_boundary_restore_rejects_incompatible_state(fault):
+    a = allocator()
+    for _ in range(3):
+        a.observe(outcomes(a.plan()))
+    state = json.loads(json.dumps(a.state_dict()))
+    if fault == "layout":
+        state["history"][0][0]["worker"] = 99
+    elif fault == "reference":
+        state["reference"]["a"] = 0.1
+    elif fault == "tasks":
+        state["history"][0][0]["task_id"] = 99
+    elif fault == "history":
+        state["history"].pop()
+    else:
+        state["config"]["rho"] = 0.75
+    with pytest.raises(ValueError):
+        allocator().load_state_dict(state)
+
+
+def test_runner_restores_full_round_state_without_restarting_warmup(tmp_path):
+    from types import SimpleNamespace
+
+    from rlinf.runners.embodied_runner import EmbodiedRunner
+
+    a = allocator("uniform")
+    a.reference = None
+    for _ in range(3):
+        a.observe(outcomes(a.plan()))
+    checkpoint = tmp_path / "global_step_6"
+    (checkpoint / "actor").mkdir(parents=True)
+    (checkpoint / "runner_state.json").write_text(
+        json.dumps(
+            {
+                "step_unit": "optimizer_update",
+                "optimizer_updates": 6,
+                "rollout_count": 3,
+                "env_steps": a.simulation_steps,
+            }
+        )
+    )
+    (checkpoint / "rollout_allocation_state.json").write_text(
+        json.dumps(a.state_dict())
+    )
+    runner = EmbodiedRunner.__new__(EmbodiedRunner)
+    cfg = dict(a.config, enabled=True)
+    # Checkpoint config must match the resolved enabled setting as in production.
+    saved = a.state_dict()
+    saved["config"] = cfg
+    (checkpoint / "rollout_allocation_state.json").write_text(json.dumps(saved))
+    runner.cfg = OmegaConf.create(
+        {"runner": {"rollout_allocation": cfg, "resume_dir": str(checkpoint)}}
+    )
+    runner.reward = None
+    runner.optimizer_update_steps = True
+    runner.updates_per_rollout = 2
+    runner.max_steps = 10
+    runner.metric_logger = SimpleNamespace(log_path=str(tmp_path))
+    runner.logger = SimpleNamespace(info=lambda message: None)
+    handle = SimpleNamespace(wait=lambda: None)
+    loaded = []
+    runner.rollout = SimpleNamespace(init_worker=lambda: handle)
+    runner.env = SimpleNamespace(
+        init_worker=lambda: handle,
+        describe_rollout_allocation=lambda: SimpleNamespace(
+            wait=lambda: [
+                {"worker": w, "tasks": a.tasks, "envs": 6, "epochs": 2}
+                for w in range(8)
+            ]
+        ),
+    )
+    runner.actor = SimpleNamespace(
+        init_worker=lambda: handle,
+        load_checkpoint=lambda path: loaded.append(path) or handle,
+        restore_opd_update_counters=lambda step: SimpleNamespace(
+            wait=lambda: [{"optimizer_updates": step}]
+        ),
+    )
+    runner.init_workers()
+    assert runner.global_step == 6
+    assert runner.cumulative_env_steps == a.simulation_steps
+    assert loaded == [str(checkpoint / "actor")]
+    assert runner.rollout_allocator.plan() == a.plan()
+    assert (
+        json.loads((tmp_path / "resume_metadata.json").read_text())["exact_replay"]
+        is False
+    )

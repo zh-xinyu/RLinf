@@ -869,10 +869,18 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
         if cfg.runner.get("use_training_pipeline", False):
             raise ValueError("Optimizer-update steps require the synchronous runner.")
         if cfg.runner.get("resume_dir"):
-            raise ValueError(
-                "The initial optimizer-update recipe requires a fresh run; exact "
-                "environment and sampling-state resume is not implemented."
-            )
+            if cfg.runner.get("resume_mode") != "adaptive_round_boundary":
+                raise ValueError(
+                    "Optimizer-update recipes require a fresh run unless resume_mode=adaptive_round_boundary is explicit."
+                )
+            if not cfg.runner.get("rollout_allocation", {}).get("enabled", False):
+                raise ValueError(
+                    "Round-boundary resume requires rollout allocation state."
+                )
+            if cfg.runner.get("ckpt_path"):
+                raise ValueError(
+                    "Cannot combine resume_dir and a weights-only ckpt_path."
+                )
         for key in ("max_steps", "save_interval", "val_check_interval"):
             value = cfg.runner.get(key, -1)
             if value > 0 and value % repeats:

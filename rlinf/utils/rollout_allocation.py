@@ -291,8 +291,83 @@ class RolloutAllocator:
         self.simulation_steps += sum(row["simulation_steps"] for row in records)
         self.pending = None
 
+    def load_state_dict(self, state: dict) -> None:
+        """Restore a completed physical round, retaining task-local reset sequences.
+
+        Policy proposal RNG and simulator internals are not checkpointed here.
+        This supports continuation at a fresh rollout boundary, not bitwise replay.
+        """
+        if getattr(self, "pending", None) is not None or self.rounds:
+            raise ValueError("Restore requires a new allocator with no pending plan.")
+
+        def comparable(config: dict) -> dict:
+            return {k: v for k, v in config.items() if k != "teacher_reference_file"}
+
+        if (
+            comparable(state["config"]) != comparable(self.config)
+            or state["reference"] != self.reference
+        ):
+            raise ValueError("Resume allocation settings or teacher reference changed.")
+        rounds, trajectories = state["rounds"], state["trajectories"]
+        if rounds < 1 or trajectories != rounds * self.total:
+            raise ValueError("Resume rollout layout or trajectory counters differ.")
+        quotas = state["quotas"]
+        if (
+            set(quotas) != set(self.suites)
+            or sum(quotas.values()) != self.total
+            or min(quotas.values()) < self.minimum
+        ):
+            raise ValueError("Invalid checkpoint quotas for this worker layout.")
+        tasks = {t["task"]: t for t in self.tasks}
+        if (
+            set(state["occurrences"]) != set(tasks)
+            or sum(state["occurrences"].values()) != trajectories
+        ):
+            raise ValueError("Resume task catalog or occurrence counts differ.")
+        history = state["history"]
+        if len(history) != min(rounds, 2 * self.window_rounds):
+            raise ValueError("Incomplete resume success window.")
+        for index, records in enumerate(history):
+            expected_round = rounds - len(history) + index + 1
+            slots = {(r["worker"], r["epoch"], r["slot"]) for r in records}
+            expected_slots = {
+                (w, e, i)
+                for w in range(self.workers)
+                for e in range(self.epochs)
+                for i in range(self.envs_per_worker)
+            }
+            if len(records) != self.total or slots != expected_slots:
+                raise ValueError("Resume worker/epoch/slot layout differs.")
+            for row in records:
+                if (
+                    row["round"] != expected_round
+                    or row["task"] not in tasks
+                    or any(
+                        row[k] != tasks[row["task"]][k]
+                        for k in ("task_id", "suite", "horizon")
+                    )
+                ):
+                    raise ValueError("Resume history task catalog or rounds differ.")
+        if (
+            set(state["cursors"]) != set(self.suites)
+            or sum(state["cursors"].values()) != trajectories
+        ):
+            raise ValueError("Invalid resume task cursors.")
+        if state["simulation_steps"] < sum(
+            r["simulation_steps"] for rows in history for r in rows
+        ):
+            raise ValueError("Invalid cumulative simulation steps.")
+        self.rounds, self.trajectories = rounds, trajectories
+        self.simulation_steps = state["simulation_steps"]
+        self.quotas = [quotas[s] for s in self.suites]
+        self.cursors = dict(state["cursors"])
+        self.occurrences = Counter(state["occurrences"])
+        self.history.extend(history)
+        self.last_diagnostics = dict(state["diagnostics"])
+        self.pending = None
+
     def state_dict(self) -> dict:
-        """Export controller history and cursors for provenance, not exact resume."""
+        """Export controller state for provenance and rollout-boundary continuation."""
         return {
             "rounds": self.rounds,
             "trajectories": self.trajectories,

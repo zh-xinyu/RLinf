@@ -2648,6 +2648,33 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         metrics_data["actor/total_loss"] = loss.detach().item()
         append_to_dict(metrics, metrics_data)
 
+    def restore_opd_update_counters(self, expected_updates: int) -> dict:
+        """Reconcile actor counters with a loaded adaptive-round DCP checkpoint."""
+        if self.cfg.runner.get("resume_mode") != "adaptive_round_boundary":
+            raise ValueError("Explicit adaptive_round_boundary resume mode required.")
+        if self.lr_scheduler.last_epoch != expected_updates or not self.optimizer.state:
+            raise ValueError(
+                "Checkpoint optimizer/scheduler state is missing or mismatched."
+            )
+        self.optimizer_steps = expected_updates
+        # This recipe makes one suite-balanced draw per optimizer update.
+        self._sample_draw_count = expected_updates
+        result = {
+            "rank": self._rank,
+            "optimizer_updates": self.optimizer_steps,
+            "scheduler_last_epoch": self.lr_scheduler.last_epoch,
+            "sample_draw_count": self._sample_draw_count,
+            "lr": self.optimizer.param_groups[0]["lr"],
+            "optimizer_state_entries": len(self.optimizer.state),
+        }
+        self.log_info(f"Restored OPD training state: {result}")
+        if self.enable_offload:
+            if not self.is_optimizer_offloaded:
+                self.offload_optimizer()
+            if not self.is_weight_offloaded:
+                self.offload_param_and_grad()
+        return result
+
     def set_global_step(self, global_step: int) -> None:
         """
         Set the global step for the model, if needed.

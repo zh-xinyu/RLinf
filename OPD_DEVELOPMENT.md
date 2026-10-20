@@ -73,8 +73,13 @@ controlled 模式隔离 flow RNG，避免刷新消耗训练 RNG。
 - `time/step` 和 `time/rollout_round`：一轮物理采集 + R次更新的耗时。
 - `time/amortized_update`：整轮耗时除以 R。
 - checkpoint 带 `runner_state.json`，记录更新数、轮次与环境步数。
-- 当前记录用于追溯；**optimizer-update 模式不支持精确 resume**，设置
-  `runner.resume_dir` 会被拒绝。它需要同步 runner，不能使用 pipeline 模式。
+- optimizer-update 模式默认要求 fresh run。Adaptive allocation 可以显式设置
+  `runner.resume_dir=<global_step_N>` 和 `+runner.resume_mode=adaptive_round_boundary`，
+  从完整 rollout 边界恢复模型、Adam、scheduler、采样计数及 allocation history/task cursors。
+  R、controller、reference 和 worker 布局必须一致；启动前也需核对原训练参数。
+  Rollout proposal RNG 会重启，因此不是 bitwise replay。它需要同步 runner，不能使用 pipeline 模式。
+  `max_steps` 是恢复后的累计更新目标；丢弃的交互通过 `+runner.recovery_interactions`
+  （`rollout_rounds`、`trajectories`、`simulation_steps`）加入总成本，不加入模型训练谱系计数。
 
 `flow_reuse_mode=cached`、`flow_observation_sampling=fixed_batch`、启用
 `flow_probe` 在主线会明确报错，防止旧实验配置被悄悄解释为 Refresh。
@@ -190,7 +195,7 @@ student，也不作为最终独立评测。低样本 teacher reference 本身存
 | `calibration/*` / `teacher_reference.json` | 校准轨迹数、实际步数、wall time 与参考快照 |
 | `rollout_episodes.jsonl` | 每条轨迹的 task、suite、round、worker/slot、seed、policy version、success、实际步数 |
 | `rollout_allocation.jsonl` | 每轮配额、决策依据与累计预算 |
-| `rollout_allocation_state.json` | checkpoint 中的窗口、task cursors、计数；用于追溯，不支持精确 resume |
+| `rollout_allocation_state.json` | checkpoint 中的窗口、task cursors、计数；支持显式 rollout-boundary continuation，不保证 bitwise replay |
 
 每轮环境实际步数必须与 actor 的有效 control mask 总数一致，否则报错。
 第二次 flow 更新不增加交互计数。动态配额会改变 episode 长度，所以 **相同 T 和轮数
