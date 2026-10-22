@@ -851,6 +851,38 @@ def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
         )
 
 
+def validate_suite_distillation_cfg(cfg: DictConfig) -> None:
+    """Validate optional suite ordering and diagnostics without changing loss weights."""
+    order = cfg.algorithm.get("suite_batch_order", "mixed")
+    metrics = cfg.algorithm.get("log_suite_velocity_metrics", False)
+    if order not in ("mixed", "grouped"):
+        raise ValueError("suite_batch_order must be mixed or grouped.")
+    if not isinstance(metrics, bool):
+        raise ValueError("log_suite_velocity_metrics must be a boolean.")
+    if order == "mixed" and not metrics:
+        return
+    if (
+        cfg.algorithm.loss_type not in ("velocity_distill", "analytic_local_kl")
+        or not cfg.rollout.get("expert_models")
+        or cfg.actor.get("training_backend") != "fsdp"
+        or cfg.algorithm.get("update_epoch", 1) != 1
+    ):
+        raise ValueError(
+            "Suite velocity diagnostics require routed FSDP M1/M3 and update_epoch=1."
+        )
+    if not cfg.algorithm.get("suite_balanced_sampling", False):
+        raise ValueError(
+            "Suite diagnostics require balanced sampling for one batch per update."
+        )
+    if order == "grouped" and (
+        cfg.algorithm.get("reward_type") != "chunk_level"
+        or cfg.algorithm.get("filter_rewards", False)
+    ):
+        raise ValueError(
+            "Grouped suite updates require balanced sampling, chunk_level masks and no reward filtering."
+        )
+
+
 def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
     """Reject unsupported combinations for the initial GR00T ODE refresh path."""
     repeats = cfg.algorithm.get("flow_refresh_updates", 1)
@@ -888,6 +920,7 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
         if cfg.runner.get("max_steps", -1) <= 0:
             raise ValueError("Optimizer-update steps require explicit max_steps > 0.")
     if repeats == 1 and step_unit == "rollout":
+        validate_suite_distillation_cfg(cfg)
         return
     requirements = {
         "GR00T N1.5": cfg.actor.model.model_type == "gr00t",
@@ -912,6 +945,7 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
     missing = [name for name, valid in requirements.items() if not valid]
     if missing:
         raise ValueError("Flow refresh requires " + ", ".join(missing) + ".")
+    validate_suite_distillation_cfg(cfg)
 
 
 def validate_embodied_cfg(cfg):

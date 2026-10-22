@@ -751,6 +751,13 @@ class EmbodiedRunner:
                     row.update(self._last_allocation_metrics)
             if inner == 1:
                 row["train/new_rollout_velocity_mse"] = row["train/actor/velocity_mse"]
+                for key, value in list(row.items()):
+                    if key.startswith("train/actor/velocity_mse/"):
+                        row[
+                            key.replace(
+                                "actor/velocity_mse/", "new_rollout_velocity_mse/"
+                            )
+                        ] = value
             self.metric_logger.log(row, self.global_step + inner)
             with open(
                 os.path.join(self.metric_logger.log_path, "optimizer_updates.jsonl"),

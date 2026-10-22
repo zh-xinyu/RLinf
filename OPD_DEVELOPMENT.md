@@ -201,3 +201,36 @@ student，也不作为最终独立评测。低样本 teacher reference 本身存
 第二次 flow 更新不增加交互计数。动态配额会改变 episode 长度，所以 **相同 T 和轮数
 不代表相同 simulation steps**；需分别绘制效果对 student updates、实际环境步、wall time。
 训练窗口成功率是自适应策略的输入，不能代替固定协议独立评测。
+
+## Suite 顺序更新与逐 suite loss（2026-10-21）
+
+`robocasa365_mopd_gr00t_full` 及其 Base / Refresh / Adaptive 派生配置默认启用：
+
+```yaml
+algorithm:
+  suite_batch_order: grouped
+  log_suite_velocity_metrics: true
+```
+
+- 在已经采样、标注 teacher velocity 的 batch 上，按 teacher ID 稳定排序。样本及重复样本不变，suite 内原随机顺序保留；不重新采样、不增加 teacher 查询。
+- 保留固定大小 microbatch、原 M3 loss、梯度累积缩放、最终统一梯度裁剪和一次 optimizer step。B2304/8卡/micro32 时，每个 suite 每卡96条，依次3+3+3次前向/backward；与混合batch的等权目标数学等价。
+- B2048/8192 等不能整分的旧配方保留少量跨 suite 边界的 microbatches，避免增加前向次数。继续按实际样本数加权，不偷偷改成严格的suite等权；例如B2048仍为688/680/680。
+- 分组模式要求M1/M3、FSDP、已配置expert_models、suite-balanced sampling、chunk-level mask、update_epoch=1且关闭reward filtering。运行时拒绝含无效元素的已选batch，避免改变microbatch mask分母后仍宣称梯度等价。
+- 不保证逐位复现：样本顺序改变会影响dropout随机数对应关系和浮点求和顺序。此更改不包含额外suite loss weighting。
+
+### 指标与开销
+
+每个 suite 在GPU累计三个量：unweighted squared-error sum、M3 weighted-error sum、有效velocity元素数。microbatches累加后，一次小型SUM collective合并所有rank；再求均值。不能先平均各microbatch/rank的suite均值。额外统计不参与autograd，不增加模型前向。
+
+每次student更新记录（`<suite>` 为 `atomic_seen` / `composite_seen` / `composite_unseen`）：
+
+- `train/actor/velocity_mse/<suite>`：未乘flow时间权重的MSE。
+- `train/actor/analytic_kl/<suite>`：M3加权loss，不含梯度累积的缩放因子；M1不输出此项。
+- `train/actor/valid_velocity_elements/<suite>`：该更新实际训练的有效元素数，重复抽样计入。
+- `train/new_rollout_velocity_mse/<suite>`：仅每轮首次更新记录，便于隔离flow refresh更新。
+
+原有global指标保持原定义。Refresh每次更新独立重置统计，通过既有 `train/refresh/pool_update` 和 `is_refreshed` 标记区分；不跨R次更新合并。若某suite全局无有效元素，仅记录计数0，不把缺失loss伪装成0。
+
+统计模式也要求suite-balanced sampling和update_epoch=1，保证每次调用仅处理一次optimizer update。通过 `algorithm.suite_batch_order=mixed` 可保留历史混合顺序并获取相同的新指标；同时设置 `algorithm.log_suite_velocity_metrics=false` 可关闭新统计。没有配置新字段的其他任务默认保持原混合顺序、关闭新统计。
+
+验证：真实actor更新循环的CPU小模型测试比较混合/分组的梯度、Adam参数及moment更新、前向/backward次数和日志；覆盖B2304、B2048以及不均匀mask的统计。两进程Gloo检查缺失suite和不同有效计数的SUM归约。真实GR00T/FSDP GPU耗时尚未测量。

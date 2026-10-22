@@ -243,3 +243,47 @@ def test_adaptive_r2_recipe_and_required_collection_contract(monkeypatch):
         validate_rollout_allocation_cfg(cfg)
     cfg.runner.rollout_allocation.mode = "uniform"
     validate_rollout_allocation_cfg(cfg)
+
+
+def test_suite_diagnostics_defaults_and_mixed_compatibility():
+    from rlinf.config import validate_suite_distillation_cfg
+
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_adaptive_r2_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint"],
+    )
+    assert cfg.algorithm.suite_batch_order == "grouped"
+    assert cfg.algorithm.log_suite_velocity_metrics
+    validate_suite_distillation_cfg(cfg)
+    cfg.algorithm.suite_batch_order = "mixed"
+    validate_suite_distillation_cfg(cfg)
+    # Metrics-only mode also works with an action-level validity mask.
+    cfg.algorithm.reward_type = "action_level"
+    validate_suite_distillation_cfg(cfg)
+    cfg.algorithm.suite_balanced_sampling = False
+    with pytest.raises(ValueError, match="one batch per update"):
+        validate_suite_distillation_cfg(cfg)
+
+
+@pytest.mark.parametrize(
+    "override, message",
+    [
+        ("algorithm.suite_batch_order=unknown", "suite_batch_order"),
+        ("algorithm.log_suite_velocity_metrics=1", "boolean"),
+        ("algorithm.loss_type=opd", "routed FSDP M1/M3"),
+        ("actor.training_backend=megatron", "routed FSDP M1/M3"),
+        ("algorithm.update_epoch=2", "update_epoch=1"),
+        ("algorithm.suite_balanced_sampling=false", "balanced sampling"),
+        ("algorithm.reward_type=action_level", "chunk_level"),
+        ("algorithm.filter_rewards=true", "reward filtering"),
+    ],
+)
+def test_suite_diagnostics_reject_incompatible_config(override, message):
+    from rlinf.config import validate_suite_distillation_cfg
+
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint", override],
+    )
+    with pytest.raises(ValueError, match=message):
+        validate_suite_distillation_cfg(cfg)

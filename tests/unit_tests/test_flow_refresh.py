@@ -271,8 +271,14 @@ def test_runner_counts_rollouts_and_logs_each_optimizer_update(tmp_path, repeats
                     "refresh/optimizer_updates": end,
                     "refresh/real_env_steps_this_rollout": 48,
                     **{
-                        f"refresh/update_{i}/actor/velocity_mse": 1.0 / i
+                        f"refresh/update_{i}/actor/velocity_mse{suffix}": 1.0 / i
                         for i in range(1, repeats + 1)
+                        for suffix in (
+                            "",
+                            "/atomic_seen",
+                            "/composite_seen",
+                            "/composite_unseen",
+                        )
                     },
                 }
             ]
@@ -307,6 +313,13 @@ def test_runner_counts_rollouts_and_logs_each_optimizer_update(tmp_path, repeats
     for i, row in enumerate(rows):
         assert ("train/new_rollout_velocity_mse" in row) == (i % repeats == 0)
         assert row["train/refresh/is_refreshed"] == int(i % repeats > 0)
+        for suite in ("atomic_seen", "composite_seen", "composite_unseen"):
+            assert row[f"train/actor/velocity_mse/{suite}"] == pytest.approx(
+                1 / (i % repeats + 1)
+            )
+            assert (f"train/new_rollout_velocity_mse/{suite}" in row) == (
+                i % repeats == 0
+            )
 
 
 def test_controlled_base_updates_once_without_refresh(monkeypatch):

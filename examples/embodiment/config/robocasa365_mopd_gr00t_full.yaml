@@ -28,6 +28,9 @@ env:
 
 algorithm:
   loss_type: analytic_local_kl
+  # Reorder the same sampled rows; retain the existing per-microbatch objective.
+  suite_batch_order: grouped
+  log_suite_velocity_metrics: true
 
 actor:
   micro_batch_size: 32

@@ -17,6 +17,10 @@ from typing import Callable, Optional
 import torch
 
 from rlinf.algorithms.registry import register_policy_loss
+from rlinf.algorithms.suite_distillation import (
+    SUITE_STATS_KEY,
+    suite_velocity_statistics,
+)
 from rlinf.algorithms.utils import huber_loss
 from rlinf.utils.metric_utils import (
     compute_critic_explained_variance_stats,
@@ -510,6 +514,8 @@ def compute_velocity_distill_loss(
     student_velocity: torch.Tensor,
     teacher_velocity: torch.Tensor,
     loss_mask: Optional[torch.Tensor] = None,
+    teacher_ids: Optional[torch.Tensor] = None,
+    num_teachers: int = 0,
     **kwargs,
 ) -> tuple[torch.Tensor, dict]:
     """On-policy velocity distillation (Method 1).
@@ -522,6 +528,8 @@ def compute_velocity_distill_loss(
         student_velocity: v_S, shape ``[..., action_chunk, action_dim]`` (requires grad).
         teacher_velocity: v_T, same shape (stop-gradient is applied here).
         loss_mask: optional validity mask, broadcastable over the leading (sample) dims.
+        teacher_ids: optional routed suite IDs for detached additive diagnostics.
+        num_teachers: number of suites in the routing order.
     """
     assert student_velocity.shape == teacher_velocity.shape, (
         f"student_velocity {tuple(student_velocity.shape)} must match "
@@ -530,6 +538,7 @@ def compute_velocity_distill_loss(
     v_teacher = teacher_velocity.detach()
     sq_err = (student_velocity.float() - v_teacher.float()).pow(2)
 
+    mask = None
     if loss_mask is not None:
         mask = loss_mask
         while mask.dim() < sq_err.dim():
@@ -553,6 +562,10 @@ def compute_velocity_distill_loss(
             "actor/student_velocity_norm": s_flat.norm(dim=-1).mean().item(),
             "actor/teacher_velocity_norm": t_flat.norm(dim=-1).mean().item(),
         }
+    if teacher_ids is not None:
+        metrics_data[SUITE_STATS_KEY] = suite_velocity_statistics(
+            sq_err, sq_err, mask, teacher_ids, num_teachers
+        )
     return loss, metrics_data
 
 
@@ -640,6 +653,8 @@ def compute_analytic_local_kl_loss(
     teacher_velocity: torch.Tensor,
     kl_weight: torch.Tensor,
     loss_mask: Optional[torch.Tensor] = None,
+    teacher_ids: Optional[torch.Tensor] = None,
+    num_teachers: int = 0,
     **kwargs,
 ) -> tuple[torch.Tensor, dict]:
     """Local Flow-SDE analytic reverse KL (Method 3 / M3-Hybrid).
@@ -657,6 +672,8 @@ def compute_analytic_local_kl_loss(
         teacher_velocity: v_T, same shape (stop-gradient is applied here).
         kl_weight: per-sample ``w(tau)``, shape ``[flat]``.
         loss_mask: optional validity mask, broadcastable over the leading (sample) dims.
+        teacher_ids: optional routed suite IDs for detached additive diagnostics.
+        num_teachers: number of suites in the routing order.
     """
     assert student_velocity.shape == teacher_velocity.shape, (
         f"student_velocity {tuple(student_velocity.shape)} must match "
@@ -674,6 +691,7 @@ def compute_analytic_local_kl_loss(
         weight = weight.unsqueeze(-1)
     weighted = sq_err * weight
 
+    mask = None
     if loss_mask is not None:
         mask = loss_mask
         while mask.dim() < sq_err.dim():
@@ -703,6 +721,10 @@ def compute_analytic_local_kl_loss(
             "actor/teacher_velocity_norm": t_flat.norm(dim=-1).mean().item(),
             "actor/kl_weight_mean": kl_weight.float().mean().item(),
         }
+    if teacher_ids is not None:
+        metrics_data[SUITE_STATS_KEY] = suite_velocity_statistics(
+            sq_err, weighted, mask, teacher_ids, num_teachers
+        )
     return loss, metrics_data
 
 

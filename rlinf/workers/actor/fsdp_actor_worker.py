@@ -46,6 +46,11 @@ from rlinf.algorithms.registry import (
     get_policy_loss,
     policy_loss,
 )
+from rlinf.algorithms.suite_distillation import (
+    SUITE_STATS_KEY,
+    finalize_suite_statistics,
+    group_sample_indices,
+)
 from rlinf.algorithms.utils import (
     kl_penalty,
 )
@@ -2419,10 +2424,24 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             g.manual_seed(self.cfg.actor.seed + self._rank)
             shuffle_id = torch.randperm(rollout_size, generator=g)
 
+        if self.cfg.algorithm.get("suite_batch_order", "mixed") == "grouped":
+            shuffle_id = group_sample_indices(
+                shuffle_id,
+                self.rollout_batch["forward_inputs"]["teacher_ids"],
+                len(self._teacher_names()),
+            )
+
         with torch.no_grad():
             self.rollout_batch = process_nested_dict_for_train(
                 self.rollout_batch, shuffle_id
             )
+
+        if self.cfg.algorithm.get("suite_batch_order", "mixed") == "grouped":
+            # Reordering equal-size microbatches preserves the original objective
+            # only when each selected row has the same effective mask denominator.
+            if not bool(self.rollout_batch["loss_mask"].all()):
+                raise ValueError("Grouped suite updates require fully valid chunks.")
+        self._suite_loss_stats = None
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
@@ -2502,6 +2521,20 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 compute_critic_explained_variance_from_stats(reduced_stats).item()
             )
 
+        if self._suite_loss_stats is not None:
+            # One tiny SUM collective per update, never per suite or microbatch.
+            stats = self._suite_loss_stats
+            if torch.distributed.is_initialized():
+                torch.distributed.all_reduce(stats, op=torch.distributed.ReduceOp.SUM)
+            mean_metric_dict.update(
+                finalize_suite_statistics(
+                    stats,
+                    self._teacher_names(),
+                    weighted=self.cfg.algorithm.loss_type == "analytic_local_kl",
+                )
+            )
+            self._suite_loss_stats = None
+
         return mean_metric_dict
 
     def train_micro_batch(
@@ -2544,9 +2577,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             }
             if self.cfg.algorithm.loss_type == "analytic_local_kl":
                 loss_kwargs["kl_weight"] = micro_batch["nft_kl_weight"]
+            if self.cfg.algorithm.get("log_suite_velocity_metrics", False):
+                loss_kwargs["teacher_ids"] = forward_inputs["teacher_ids"]
+                loss_kwargs["num_teachers"] = len(self._teacher_names())
             loss, metrics_data = get_policy_loss(self.cfg.algorithm.loss_type)(
                 **loss_kwargs
             )
+            suite_stats = metrics_data.pop(SUITE_STATS_KEY, None)
+            if suite_stats is not None:
+                if self._suite_loss_stats is None:
+                    self._suite_loss_stats = suite_stats
+                else:
+                    self._suite_loss_stats.add_(suite_stats)
             loss = loss / self.gradient_accumulation
             with backward_ctx:
                 self.grad_scaler.scale(loss).backward()
