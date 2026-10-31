@@ -251,4 +251,9 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     if cfg.rl_head_config.disable_dropout:
         replace_dropout_with_identity(model)
 
+    if cfg.get("skip_backbone_logits", False):
+        from .memory_utils import enable_feature_only_backbone
+
+        enable_feature_only_backbone(model)
+
     return model

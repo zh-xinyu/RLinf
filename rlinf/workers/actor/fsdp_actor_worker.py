@@ -50,6 +50,7 @@ from rlinf.algorithms.suite_distillation import (
     SUITE_STATS_KEY,
     finalize_suite_statistics,
     group_sample_indices,
+    normalized_suite_loss_weights,
 )
 from rlinf.algorithms.utils import (
     kl_penalty,
@@ -1166,6 +1167,13 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             self.offload_param_and_grad()
             self.offload_optimizer()
 
+        retention = float(self.cfg.actor.get("cuda_cache_retention_gib", 0))
+        if retention:
+            from rlinf.utils.cuda_cache import retain_cuda_cache
+
+            retain_cuda_cache(retention)
+            self.log_info(f"Retain actor CUDA cache up to {retention} GiB.")
+
     def model_provider_func(self) -> nn.Module:
         model = get_model(self.cfg.actor.model)
         if model is None:
@@ -1878,6 +1886,37 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
 
         clear_memory()
 
+    def _start_cuda_memory_phase(self) -> bool:
+        """Reset per-process peaks for an explicitly enabled diagnostic phase."""
+        enabled = self.cfg.algorithm.get("log_cuda_memory", False)
+        if not enabled or not torch.cuda.is_available():
+            return False
+        torch.cuda.synchronize(self.device)
+        torch.cuda.reset_peak_memory_stats(self.device)
+        return True
+
+    def _finish_cuda_memory_phase(self, phase: str, enabled: bool) -> None:
+        """Log rank-local allocated/reserved peaks, excluding other processes."""
+        if not enabled:
+            return
+        torch.cuda.synchronize(self.device)
+        self.log_info(
+            "CUDA phase memory: "
+            + json.dumps(
+                {
+                    "phase": phase,
+                    "rank": self._rank,
+                    "optimizer_updates": getattr(self, "optimizer_steps", 0),
+                    "peak_allocated_gib": torch.cuda.max_memory_allocated(self.device)
+                    / 2**30,
+                    "peak_reserved_gib": torch.cuda.max_memory_reserved(self.device)
+                    / 2**30,
+                    "end_allocated_gib": torch.cuda.memory_allocated(self.device)
+                    / 2**30,
+                }
+            )
+        )
+
     def _teacher_velocity_pass(
         self,
         flat_forward_inputs: dict[str, torch.Tensor],
@@ -1891,6 +1930,8 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         moved to the GPU, run over its own partition, and moved back -- so peak GPU memory
         matches the single-teacher case however many teachers are configured.
         """
+
+        memory_enabled = self._start_cuda_memory_phase()
 
         def _run(model, inputs: dict[str, torch.Tensor], size: int) -> torch.Tensor:
             # Chunk count must come from this call's own size, not from the whole batch:
@@ -1962,7 +2003,8 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             )
             velocities = []
             with torch.no_grad():
-                for micro_batch in split_dict_to_chunk(inputs, num_chunks):
+                micro_batches = split_dict_to_chunk(inputs, num_chunks)
+                for micro_idx, micro_batch in enumerate(micro_batches):
                     micro_batch = put_tensor_device(micro_batch, self.device)
                     nft_inputs = {
                         "x_t": micro_batch["_nft_x_t"],
@@ -1976,6 +2018,8 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                             compute_values=False,
                         )
                     velocities.append(out["v_theta"].detach().cpu())
+                    micro_batches[micro_idx] = None
+                    del micro_batch, nft_inputs, out
             velocities = torch.cat(velocities, dim=0)
             if transport is not None:
                 source_x_t, step_idx, endpoint_scale, endpoint_shift = transport
@@ -1997,6 +2041,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 teacher_model, flat_forward_inputs, flat_batch_size
             )
             teacher_model.to("cpu")
+            self._finish_cuda_memory_phase("teacher", memory_enabled)
             return teacher_velocities
 
         teacher_ids = flat_forward_inputs.get("teacher_ids", None)
@@ -2033,6 +2078,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             teacher_velocities[rows] = subset_velocities
 
         self.log_info(f"Routed teacher velocities over {counts}.")
+        self._finish_cuda_memory_phase("teacher", memory_enabled)
         return teacher_velocities
 
     def _log_opd_reward_per_suite(
@@ -2214,8 +2260,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         return loss
 
     @Worker.timer("run_training")
-    def run_training(self) -> dict[str, float]:
+    def run_training(
+        self, suite_loss_weights: dict[str, float] | None = None
+    ) -> dict[str, float]:
         """Train once, or refresh flow between updates on the latest observation pool."""
+        sync_weights = self.cfg.algorithm.get("sync_suite_loss_weights", False)
+        if sync_weights != (suite_loss_weights is not None):
+            raise ValueError("Synchronized suite weights must be supplied every round.")
+        self._round_suite_loss_weights = None
+        if suite_loss_weights is not None:
+            names = self._teacher_names()
+            weights = normalized_suite_loss_weights(suite_loss_weights, names)
+            self._round_suite_loss_weights = dict(zip(names, weights))
         repeats = int(self.cfg.algorithm.get("flow_refresh_updates", 1))
         update_steps = self.cfg.get("runner", {}).get("step_unit") == "optimizer_update"
         if repeats == 1 and not update_steps:
@@ -2282,6 +2338,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         rows throughout generation and supervision, rather than scattering fresh
         flow states back to a possibly repeated observation index.
         """
+        memory_enabled = self._start_cuda_memory_phase()
         time_dim, batch_dim = self.rollout_batch["loss_mask"].shape[:2]
         sample_idx = self._suite_balanced_sample(
             time_dim * batch_dim, time_dim, batch_dim
@@ -2327,9 +2384,10 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 torch.random.default_generator.manual_seed(seed)
                 for device_index in devices:
                     torch.cuda.default_generators[device_index].manual_seed(seed)
-            for micro in split_dict_to_chunk(
+            micro_batches = split_dict_to_chunk(
                 inputs, size // self.cfg.actor.micro_batch_size
-            ):
+            )
+            for micro_idx, micro in enumerate(micro_batches):
                 micro = put_tensor_device(micro, self.device)
                 with self.amp_context:
                     output = self.model(
@@ -2337,12 +2395,14 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                         forward_inputs=micro,
                     )
                 chains.append(output["chains"].detach().cpu())
+                micro_batches[micro_idx] = None
+                del micro, output
         inputs["chains"] = torch.cat(chains, dim=0)
         self.log_info(
             f"Refreshed {size} sampled flows in "
             f"{time.perf_counter() - refresh_start:.2f}s on rank {self._rank}."
         )
-        del micro, output, chains
+        del micro_batches, chains
         if self.enable_offload:
             self.offload_param_and_grad()
         clear_memory()
@@ -2358,12 +2418,14 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             )
             for key, item in selected.items()
         }
+        self._finish_cuda_memory_phase("student_refresh", memory_enabled)
         self.compute_teacher_velocities(already_sampled=True)
 
     def _run_training_once(self) -> dict[str, float]:
         """
         Run the training process using the received rollout batch.
         """
+        memory_enabled = self._start_cuda_memory_phase()
         if self.is_weight_offloaded:
             self.load_param_and_grad(self.device)
         if self.is_optimizer_offloaded:
@@ -2442,6 +2504,26 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             if not bool(self.rollout_batch["loss_mask"].all()):
                 raise ValueError("Grouped suite updates require fully valid chunks.")
         self._suite_loss_stats = None
+
+        suite_weights = self.cfg.algorithm.get("suite_loss_weights", None)
+        if self.cfg.algorithm.get("sync_suite_loss_weights", False):
+            suite_weights = getattr(self, "_round_suite_loss_weights", None)
+            if suite_weights is None:
+                raise ValueError("Missing current-round synchronized suite weights.")
+        if suite_weights is not None:
+            names = self._teacher_names()
+            weights = normalized_suite_loss_weights(suite_weights, names)
+            ids = self.rollout_batch["forward_inputs"]["teacher_ids"].reshape(-1)
+            counts = torch.bincount(ids.long(), minlength=len(names))
+            if len(counts) != len(names) or not bool((counts == counts[0]).all()):
+                raise ValueError(
+                    "Suite loss weighting requires equal per-rank suite counts."
+                )
+            if not bool(self.rollout_batch["loss_mask"].all()):
+                raise ValueError("Suite loss weighting requires fully valid chunks.")
+            self.rollout_batch["distillation_sample_weights"] = torch.tensor(
+                weights, device=ids.device, dtype=torch.float32
+            )[ids.long()]
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
@@ -2535,6 +2617,14 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             )
             self._suite_loss_stats = None
 
+        self._finish_cuda_memory_phase("student_update", memory_enabled)
+        if suite_weights is not None:
+            mean_metric_dict.update(
+                {
+                    f"actor/suite_loss_weight/{name}": weight
+                    for name, weight in zip(names, weights)
+                }
+            )
         return mean_metric_dict
 
     def train_micro_batch(
@@ -2577,6 +2667,10 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             }
             if self.cfg.algorithm.loss_type == "analytic_local_kl":
                 loss_kwargs["kl_weight"] = micro_batch["nft_kl_weight"]
+            if "distillation_sample_weights" in micro_batch:
+                loss_kwargs["sample_weights"] = micro_batch[
+                    "distillation_sample_weights"
+                ]
             if self.cfg.algorithm.get("log_suite_velocity_metrics", False):
                 loss_kwargs["teacher_ids"] = forward_inputs["teacher_ids"]
                 loss_kwargs["num_teachers"] = len(self._teacher_names())
@@ -2692,8 +2786,11 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
 
     def restore_opd_update_counters(self, expected_updates: int) -> dict:
         """Reconcile actor counters with a loaded adaptive-round DCP checkpoint."""
-        if self.cfg.runner.get("resume_mode") != "adaptive_round_boundary":
-            raise ValueError("Explicit adaptive_round_boundary resume mode required.")
+        if self.cfg.runner.get("resume_mode") not in {
+            "adaptive_round_boundary",
+            "allocation_probe",
+        }:
+            raise ValueError("Explicit round-boundary resume mode required.")
         if self.lr_scheduler.last_epoch != expected_updates or not self.optimizer.state:
             raise ValueError(
                 "Checkpoint optimizer/scheduler state is missing or mismatched."

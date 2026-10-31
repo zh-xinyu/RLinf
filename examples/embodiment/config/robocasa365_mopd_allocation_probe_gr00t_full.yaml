@@ -1,0 +1,20 @@
+# Common U40 fork: 40 additional student updates / 20 physical rounds.
+defaults:
+  - robocasa365_mopd_adaptive_r2_gr00t_full
+  - _self_
+
+runner:
+  resume_dir: ${oc.env:OPD_PROBE_CHECKPOINT}
+  resume_mode: allocation_probe
+  max_steps: 80
+  save_interval: 40
+  val_check_interval: -1
+  logger:
+    project_name: RoboCasa_MultiTeacher_Diagnostics
+    wandb_group: allocation_probe_u40_20261022
+  rollout_allocation:
+    mode: uniform
+    static_quotas:
+      atomic_seen: 24
+      composite_seen: 36
+      composite_unseen: 36

@@ -5,10 +5,45 @@
 """Sample ordering and additive diagnostics for routed velocity distillation."""
 
 import math
+from collections.abc import Mapping
+from numbers import Real
 
 import torch
 
 SUITE_STATS_KEY = "_suite_velocity_stats"
+
+
+def normalized_suite_loss_weights(configured: Mapping, names: list[str]) -> list[float]:
+    """Return positive suite coefficients with mean one in routing order."""
+    if not isinstance(configured, Mapping) or set(configured) != set(names):
+        raise ValueError("suite_loss_weights must name every routed teacher exactly.")
+    values = [configured[name] for name in names]
+    if not values or any(
+        isinstance(v, bool) or not isinstance(v, Real) or not math.isfinite(v) or v <= 0
+        for v in values
+    ):
+        raise ValueError("suite_loss_weights must be finite positive numbers.")
+    mean = sum(values) / len(values)
+    return [v / mean for v in values]
+
+
+def sample_weighted_velocity_loss(
+    error: torch.Tensor, mask: torch.Tensor | None, sample_weights: torch.Tensor
+) -> torch.Tensor:
+    """Weight the numerator only; never normalize within a suite microbatch.
+
+    The actor supplies mean-one coefficients and equal suite counts per update.
+    Dividing by a microbatch's weight sum would cancel homogeneous-suite weights.
+    ``error`` already includes the original flow-time weighting, if applicable.
+    """
+    if sample_weights.ndim != 1 or len(sample_weights) != len(error):
+        raise ValueError("Expected one suite loss coefficient per sample.")
+    weights = sample_weights.detach().to(error).reshape((-1,) + (1,) * (error.ndim - 1))
+    weighted = error * weights
+    if mask is None:
+        return weighted.mean()
+    mask = mask.expand_as(error)
+    return (weighted * mask).sum() / mask.sum().clamp_min(1.0)
 
 
 def group_sample_indices(

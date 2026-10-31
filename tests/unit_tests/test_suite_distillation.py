@@ -21,6 +21,7 @@ from rlinf.algorithms.suite_distillation import (
     SUITE_STATS_KEY,
     finalize_suite_statistics,
     group_sample_indices,
+    normalized_suite_loss_weights,
     suite_velocity_statistics,
 )
 from rlinf.workers.actor import fsdp_actor_worker as actor_module
@@ -88,7 +89,7 @@ class TinyVelocityModel(torch.nn.Module):
         return {"v_theta": self.linear(nft_inputs["x_t"])}
 
 
-def run_actor_update(monkeypatch, order, counts):
+def run_actor_update(monkeypatch, order, counts, suite_weights=None, dynamic=False):
     """Exercise the real actor loop and its actual loss/backward path on CPU."""
     monkeypatch.setattr(actor_module, "clear_memory", lambda: None)
     monkeypatch.setattr(actor_module, "all_reduce_dict", lambda value, op: value)
@@ -112,6 +113,22 @@ def run_actor_update(monkeypatch, order, counts):
         batch["teacher_velocities"][0],
         batch["nft_kl_weight"][0],
     )
+    if suite_weights is not None:
+        coefficients = normalized_suite_loss_weights(suite_weights, ["a", "b", "c"])
+        squared_error = (
+            model.linear(batch["nft_x_t"][0]) - batch["teacher_velocities"][0]
+        ).square()
+        initial_loss = (
+            sum(
+                coefficients[s]
+                * (
+                    squared_error[ids == s]
+                    * batch["nft_kl_weight"][0, ids == s, None, None]
+                ).mean()
+                for s in range(3)
+            )
+            / 3
+        )
     expected_grads = torch.autograd.grad(initial_loss, tuple(model.parameters()))
     cfg = OmegaConf.create(
         {
@@ -125,10 +142,16 @@ def run_actor_update(monkeypatch, order, counts):
             "runner": {"step_unit": "optimizer_update"},
         }
     )
+    if suite_weights is not None:
+        if dynamic:
+            cfg.algorithm.sync_suite_loss_weights = True
+        else:
+            cfg.algorithm.suite_loss_weights = suite_weights
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-5)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1)
     sync_flags, gradients = [], []
     worker = SimpleNamespace(
+        _round_suite_loss_weights=suite_weights if dynamic else None,
         cfg=cfg,
         model=model,
         rollout_batch=batch,
@@ -159,7 +182,12 @@ def run_actor_update(monkeypatch, order, counts):
 
     worker.before_micro_batch = before
     worker.optimizer_step = step
-    for name in ["_run_training_once", "train_micro_batch"]:
+    for name in [
+        "_run_training_once",
+        "train_micro_batch",
+        "_start_cuda_memory_phase",
+        "_finish_cuda_memory_phase",
+    ]:
         setattr(
             worker,
             name,
@@ -173,6 +201,87 @@ def run_actor_update(monkeypatch, order, counts):
         torch.testing.assert_close(got, expected, rtol=2e-6, atol=1e-7)
     assert worker._suite_loss_stats is None
     return model, optimizer, metrics
+
+
+@pytest.mark.parametrize("order", ["mixed", "grouped"])
+@pytest.mark.parametrize(
+    "weights", [{"a": 1, "b": 1, "c": 1}, {"a": 0.5, "b": 1.25, "c": 1.25}]
+)
+def test_weighted_actor_gradient_matches_explicit_suite_objective(
+    monkeypatch, order, weights
+):
+    run_actor_update(monkeypatch, order, (96, 96, 96), weights)
+
+
+@pytest.mark.parametrize("order", ["mixed", "grouped"])
+def test_dynamic_weights_match_static_objective(monkeypatch, order):
+    weights = {"a": 0.5, "b": 1.25, "c": 1.25}
+    static, _, static_metrics = run_actor_update(
+        monkeypatch, order, (96, 96, 96), weights
+    )
+    dynamic, _, dynamic_metrics = run_actor_update(
+        monkeypatch, order, (96, 96, 96), weights, dynamic=True
+    )
+    for a, b in zip(static.parameters(), dynamic.parameters()):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
+    assert static_metrics == dynamic_metrics
+
+
+def test_suite_weighting_rejects_unequal_counts(monkeypatch):
+    with pytest.raises(ValueError, match="equal per-rank"):
+        run_actor_update(monkeypatch, "grouped", (86, 85, 85), {"a": 1, "b": 1, "c": 1})
+
+
+@pytest.mark.parametrize("m3", [False, True])
+def test_loss_weighting_preserves_raw_metrics_and_masks(m3):
+    torch.manual_seed(29)
+    student = torch.randn(6, 4, 2, requires_grad=True)
+    teacher = torch.randn_like(student)
+    ids = torch.tensor([0, 1, 2, 0, 1, 2])
+    mask = torch.rand(6, 4, 1) > 0.3
+    coefficients = torch.tensor([0.5, 1.25, 1.25])[ids]
+    fn = compute_analytic_local_kl_loss if m3 else compute_velocity_distill_loss
+    kwargs = {"kl_weight": torch.rand(6)} if m3 else {}
+    raw, raw_metrics = (
+        fn(student, teacher, mask, **kwargs)
+        if not m3
+        else fn(student, teacher, loss_mask=mask, **kwargs)
+    )
+    weighted, metrics = fn(
+        student,
+        teacher,
+        loss_mask=mask,
+        sample_weights=coefficients,
+        teacher_ids=ids,
+        num_teachers=3,
+        **kwargs,
+    )
+    error = (student - teacher).square()
+    if m3:
+        error = error * kwargs["kl_weight"][:, None, None]
+    expected = (error * coefficients[:, None, None] * mask).sum() / mask.expand_as(
+        error
+    ).sum()
+    torch.testing.assert_close(weighted, expected)
+    torch.testing.assert_close(
+        torch.autograd.grad(weighted, student, retain_graph=True)[0],
+        torch.autograd.grad(expected, student)[0],
+    )
+    for key, value in raw_metrics.items():
+        assert metrics[key] == value
+    identity, _ = fn(
+        student, teacher, loss_mask=mask, sample_weights=torch.ones(6), **kwargs
+    )
+    torch.testing.assert_close(identity, raw, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [{"a": 1}, {"a": 0, "b": 1}, {"a": float("nan"), "b": 1}, {"a": True, "b": 1}],
+)
+def test_suite_weight_validation(weights):
+    with pytest.raises(ValueError, match="suite_loss_weights"):
+        normalized_suite_loss_weights(weights, ["a", "b"])
 
 
 @pytest.mark.parametrize("counts", [(96, 96, 96), (86, 85, 85)])

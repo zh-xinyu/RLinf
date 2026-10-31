@@ -1,0 +1,21 @@
+# Adaptive teacher-gap allocation with matching optimization shares.
+defaults:
+  - robocasa365_mopd_allocation_probe_memory_gr00t_full
+  - _self_
+
+runner:
+  max_steps: 200
+  save_interval: 10
+  logger:
+    project_name: RoboCasa_MultiTeacher_Diagnostics
+    wandb_group: adaptive_sync_pilot_20261029
+  rollout_allocation:
+    mode: adaptive
+    rho: 0.5
+
+algorithm:
+  sync_suite_loss_weights: true
+
+actor:
+  micro_batch_size: 16
+  cuda_cache_retention_gib: 18

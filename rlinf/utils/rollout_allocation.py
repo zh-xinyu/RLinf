@@ -291,21 +291,41 @@ class RolloutAllocator:
         self.simulation_steps += sum(row["simulation_steps"] for row in records)
         self.pending = None
 
-    def load_state_dict(self, state: dict) -> None:
+    def load_state_dict(self, state: dict, *, allocation_probe: bool = False) -> None:
         """Restore a completed physical round, retaining task-local reset sequences.
 
         Policy proposal RNG and simulator internals are not checkpointed here.
         This supports continuation at a fresh rollout boundary, not bitwise replay.
+        An explicit probe may change only mode/static quotas at the end of the
+        uniform warmup, preserving the common data and optimizer history.
         """
         if getattr(self, "pending", None) is not None or self.rounds:
             raise ValueError("Restore requires a new allocator with no pending plan.")
 
         def comparable(config: dict) -> dict:
-            return {k: v for k, v in config.items() if k != "teacher_reference_file"}
+            excluded = {"teacher_reference_file"}
+            if allocation_probe:
+                excluded.update({"mode", "static_quotas"})
+            return {k: v for k, v in config.items() if k not in excluded}
 
-        if (
-            comparable(state["config"]) != comparable(self.config)
-            or state["reference"] != self.reference
+        if allocation_probe:
+            uniform = self.total // len(self.suites)
+            if (
+                state["rounds"] != self.config.get("warmup_rounds", 20)
+                or any(n != uniform for n in state["quotas"].values())
+                or any(
+                    Counter(r["suite"] for r in rows)
+                    != dict.fromkeys(self.suites, uniform)
+                    for rows in state["history"]
+                )
+            ):
+                raise ValueError(
+                    "Allocation probe requires the uniform warmup boundary."
+                )
+
+        if comparable(state["config"]) != comparable(self.config) or (
+            state["reference"] != self.reference
+            and not (allocation_probe and self.mode in {"uniform", "static"})
         ):
             raise ValueError("Resume allocation settings or teacher reference changed.")
         rounds, trajectories = state["rounds"], state["trajectories"]

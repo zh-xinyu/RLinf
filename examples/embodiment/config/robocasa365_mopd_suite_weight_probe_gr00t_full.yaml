@@ -1,0 +1,14 @@
+# Common-U40 fork: separate collection allocation from optimization weighting.
+defaults:
+  - robocasa365_mopd_allocation_probe_memory_gr00t_full
+  - _self_
+
+runner:
+  logger:
+    wandb_group: allocation_weighting_probe_u40_20261023
+
+algorithm:
+  suite_loss_weights:
+    atomic_seen: 0.5
+    composite_seen: 1.25
+    composite_unseen: 1.25

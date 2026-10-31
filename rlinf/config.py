@@ -852,14 +852,45 @@ def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
 
 
 def validate_suite_distillation_cfg(cfg: DictConfig) -> None:
-    """Validate optional suite ordering and diagnostics without changing loss weights."""
+    """Validate suite diagnostics and optional normalized suite loss coefficients."""
     order = cfg.algorithm.get("suite_batch_order", "mixed")
     metrics = cfg.algorithm.get("log_suite_velocity_metrics", False)
+    weights = cfg.algorithm.get("suite_loss_weights", None)
+    sync_weights = cfg.algorithm.get("sync_suite_loss_weights", False)
+    if not isinstance(sync_weights, bool):
+        raise ValueError("sync_suite_loss_weights must be a boolean.")
+    if sync_weights:
+        allocation = cfg.runner.get("rollout_allocation", {})
+        if not allocation.get("enabled", False) or cfg.runner.get(
+            "use_training_pipeline", False
+        ):
+            raise ValueError(
+                "Synchronized suite weights require synchronous allocation."
+            )
+        if weights is not None:
+            raise ValueError("Static and synchronized suite weights are exclusive.")
     if order not in ("mixed", "grouped"):
         raise ValueError("suite_batch_order must be mixed or grouped.")
     if not isinstance(metrics, bool):
         raise ValueError("log_suite_velocity_metrics must be a boolean.")
-    if order == "mixed" and not metrics:
+    if weights is not None:
+        from rlinf.algorithms.suite_distillation import normalized_suite_loss_weights
+
+        normalized_suite_loss_weights(
+            weights, list(cfg.rollout.get("expert_models", {}).keys())
+        )
+    if weights is not None or sync_weights:
+        if not metrics:
+            raise ValueError(
+                "Suite loss weighting requires raw suite velocity metrics."
+            )
+        if cfg.algorithm.get("reward_type") != "chunk_level" or cfg.algorithm.get(
+            "filter_rewards", False
+        ):
+            raise ValueError(
+                "Suite loss weighting requires unfiltered chunk_level masks."
+            )
+    if order == "mixed" and not metrics and weights is None and not sync_weights:
         return
     if (
         cfg.algorithm.loss_type not in ("velocity_distill", "analytic_local_kl")
@@ -901,9 +932,12 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
         if cfg.runner.get("use_training_pipeline", False):
             raise ValueError("Optimizer-update steps require the synchronous runner.")
         if cfg.runner.get("resume_dir"):
-            if cfg.runner.get("resume_mode") != "adaptive_round_boundary":
+            if cfg.runner.get("resume_mode") not in {
+                "adaptive_round_boundary",
+                "allocation_probe",
+            }:
                 raise ValueError(
-                    "Optimizer-update recipes require a fresh run unless resume_mode=adaptive_round_boundary is explicit."
+                    "Optimizer-update recipes require a fresh run unless adaptive_round_boundary or allocation_probe resume mode is explicit."
                 )
             if not cfg.runner.get("rollout_allocation", {}).get("enabled", False):
                 raise ValueError(

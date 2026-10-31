@@ -99,7 +99,12 @@ def make_worker(monkeypatch):
         _flow_sde_transition_spec=lambda: (0.5, None, None, None),
         lr_scheduler=SimpleNamespace(last_epoch=0),
     )
-    for name in ("_suite_balanced_sample", "_prepare_flow_refresh_batch"):
+    for name in (
+        "_suite_balanced_sample",
+        "_prepare_flow_refresh_batch",
+        "_start_cuda_memory_phase",
+        "_finish_cuda_memory_phase",
+    ):
         bind(worker, name)
     bind(worker, "compute_teacher_velocities", unwrap=True)
     worker.teacher_queries = []
@@ -177,6 +182,44 @@ def test_r1_preserves_original_training_path(monkeypatch):
     assert worker.rollout_batch is pool and not worker.model.calls
 
 
+def test_synchronized_weights_are_required_and_frozen_across_refreshes(monkeypatch):
+    worker, pool = make_worker(monkeypatch)
+    worker.cfg.algorithm.sync_suite_loss_weights = True
+    worker.cfg.algorithm.flow_refresh_updates = 2
+    run = inspect.unwrap(Actor.run_training)
+    with pytest.raises(ValueError, match="every round"):
+        run(worker)
+    seen = []
+
+    def update():
+        seen.append(dict(worker._round_suite_loss_weights))
+        worker.lr_scheduler.last_epoch += 1
+        return {"loss": 1.0}
+
+    worker._run_training_once = update
+    run(worker, suite_loss_weights={"a": 16, "b": 40, "c": 40})
+    assert seen == [{"a": 0.5, "b": 1.25, "c": 1.25}] * 2
+    worker.rollout_batch = pool
+    run(worker, suite_loss_weights={"a": 24, "b": 36, "c": 36})
+    assert seen[2:] == [{"a": 0.75, "b": 1.125, "c": 1.125}] * 2
+    with pytest.raises(ValueError, match="every round"):
+        run(worker)
+
+
+def test_runner_passes_actual_quota_weights_without_changing_config():
+    from rlinf.runners.embodied_runner import EmbodiedRunner
+
+    runner = SimpleNamespace(
+        cfg=OmegaConf.create({"algorithm": {"sync_suite_loss_weights": True}}),
+        rollout_allocator=SimpleNamespace(suites=["a", "b", "c"], quotas=[25, 35, 36]),
+    )
+    result = EmbodiedRunner._actor_training_kwargs(runner)
+    assert result == {"suite_loss_weights": {"a": 25 / 32, "b": 35 / 32, "c": 36 / 32}}
+    assert "suite_loss_weights" not in runner.cfg.algorithm
+    runner.cfg.algorithm.sync_suite_loss_weights = False
+    assert EmbodiedRunner._actor_training_kwargs(runner) == {}
+
+
 def test_controlled_refresh_does_not_consume_training_rng(monkeypatch):
     worker, _ = make_worker(monkeypatch)
     worker.cfg.runner = {"step_unit": "optimizer_update"}
@@ -229,7 +272,7 @@ def test_runner_counts_rollouts_and_logs_each_optimizer_update(tmp_path, repeats
     from rlinf.runners.embodied_runner import EmbodiedRunner
 
     runner = EmbodiedRunner.__new__(EmbodiedRunner)
-    runner.cfg = OmegaConf.create({"runner": {}})
+    runner.cfg = OmegaConf.create({"runner": {}, "algorithm": {}})
     runner.global_step = 0
     runner.max_steps = 200
     runner.updates_per_rollout = repeats
@@ -340,9 +383,10 @@ def test_controlled_base_updates_once_without_refresh(monkeypatch):
     assert not worker.model.calls and not worker.teacher_queries
 
 
-def test_resume_counters_keep_optimizer_and_scheduler_progress():
+@pytest.mark.parametrize("mode", ["adaptive_round_boundary", "allocation_probe"])
+def test_resume_counters_keep_optimizer_and_scheduler_progress(mode):
     worker = SimpleNamespace(
-        cfg=OmegaConf.create({"runner": {"resume_mode": "adaptive_round_boundary"}}),
+        cfg=OmegaConf.create({"runner": {"resume_mode": mode}}),
         lr_scheduler=SimpleNamespace(last_epoch=40),
         optimizer=SimpleNamespace(
             state={"parameter": {"step": 40}}, param_groups=[{"lr": 3e-5}]

@@ -374,23 +374,25 @@ def test_round_boundary_restore_rejects_incompatible_state(fault):
         allocator().load_state_dict(state)
 
 
-def test_runner_restores_full_round_state_without_restarting_warmup(tmp_path):
+@pytest.mark.parametrize("probe", [False, True])
+def test_runner_restores_full_round_state_without_restarting_warmup(tmp_path, probe):
     from types import SimpleNamespace
 
     from rlinf.runners.embodied_runner import EmbodiedRunner
 
     a = allocator("uniform")
     a.reference = None
-    for _ in range(3):
+    for _ in range(2 if probe else 3):
         a.observe(outcomes(a.plan()))
+    updates = a.rounds * 2
     checkpoint = tmp_path / "global_step_6"
     (checkpoint / "actor").mkdir(parents=True)
     (checkpoint / "runner_state.json").write_text(
         json.dumps(
             {
                 "step_unit": "optimizer_update",
-                "optimizer_updates": 6,
-                "rollout_count": 3,
+                "optimizer_updates": updates,
+                "rollout_count": a.rounds,
                 "env_steps": a.simulation_steps,
             }
         )
@@ -405,7 +407,15 @@ def test_runner_restores_full_round_state_without_restarting_warmup(tmp_path):
     saved["config"] = cfg
     (checkpoint / "rollout_allocation_state.json").write_text(json.dumps(saved))
     runner.cfg = OmegaConf.create(
-        {"runner": {"rollout_allocation": cfg, "resume_dir": str(checkpoint)}}
+        {
+            "runner": {
+                "rollout_allocation": dict(cfg, mode="static") if probe else cfg,
+                "resume_dir": str(checkpoint),
+                "resume_mode": "allocation_probe"
+                if probe
+                else "adaptive_round_boundary",
+            }
+        }
     )
     runner.reward = None
     runner.optimizer_update_steps = True
@@ -433,11 +443,64 @@ def test_runner_restores_full_round_state_without_restarting_warmup(tmp_path):
         ),
     )
     runner.init_workers()
-    assert runner.global_step == 6
+    assert runner.global_step == updates
     assert runner.cumulative_env_steps == a.simulation_steps
     assert loaded == [str(checkpoint / "actor")]
-    assert runner.rollout_allocator.plan() == a.plan()
+    if probe:
+        assert Counter(r["suite"] for r in runner.rollout_allocator.plan()) == {
+            "a": 16,
+            "b": 40,
+            "c": 40,
+        }
+    else:
+        assert runner.rollout_allocator.plan() == a.plan()
     assert (
         json.loads((tmp_path / "resume_metadata.json").read_text())["exact_replay"]
         is False
     )
+
+
+@pytest.mark.parametrize("mode", ["uniform", "static", "adaptive"])
+def test_allocation_probe_preserves_history_and_task_reset_sequences(mode):
+    source = allocator()
+    for _ in range(2):
+        source.observe(outcomes(source.plan()))
+    state = json.loads(json.dumps(source.state_dict()))
+    target = allocator(mode, static_quotas={"a": 24, "b": 36, "c": 36})
+    if mode != "adaptive":
+        target.reference = None
+    target.load_state_dict(state, allocation_probe=True)
+    assert target.cursors == source.cursors
+    assert target.occurrences == source.occurrences
+    assert target.history == source.history
+    assert target.simulation_steps == source.simulation_steps
+    plan = target.plan()
+    if mode != "adaptive":
+        expected = [32, 32, 32] if mode == "uniform" else [24, 36, 36]
+        assert Counter(r["suite"] for r in plan) == dict(zip(target.suites, expected))
+    original = source.plan()
+    seeds = {(r["task"], r["occurrence"]): r["reset_seed"] for r in original}
+    for row in plan:
+        key = row["task"], row["occurrence"]
+        if key in seeds:
+            assert row["reset_seed"] == seeds[key]
+
+
+@pytest.mark.parametrize(
+    "fault", ["implicit", "late", "seed", "window", "rho", "history"]
+)
+def test_allocation_probe_rejects_uncontrolled_changes(fault):
+    source = allocator()
+    for _ in range(3 if fault == "late" else 2):
+        source.observe(outcomes(source.plan()))
+    state = json.loads(json.dumps(source.state_dict()))
+    overrides = {}
+    if fault in {"seed", "rho"}:
+        overrides[fault] = 0.75 if fault == "rho" else 99
+    elif fault == "window":
+        overrides["window_rounds"] = 1
+    elif fault == "history":
+        state["history"][0][0]["suite"] = "b"
+    target = allocator("static", **overrides)
+    with pytest.raises(ValueError):
+        target.load_state_dict(state, allocation_probe=fault != "implicit")

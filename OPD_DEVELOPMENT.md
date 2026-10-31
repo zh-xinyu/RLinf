@@ -234,3 +234,62 @@ algorithm:
 统计模式也要求suite-balanced sampling和update_epoch=1，保证每次调用仅处理一次optimizer update。通过 `algorithm.suite_batch_order=mixed` 可保留历史混合顺序并获取相同的新指标；同时设置 `algorithm.log_suite_velocity_metrics=false` 可关闭新统计。没有配置新字段的其他任务默认保持原混合顺序、关闭新统计。
 
 验证：真实actor更新循环的CPU小模型测试比较混合/分组的梯度、Adam参数及moment更新、前向/backward次数和日志；覆盖B2304、B2048以及不均匀mask的统计。两进程Gloo检查缺失suite和不同有效计数的SUM归约。真实GR00T/FSDP GPU耗时尚未测量。
+
+### Allocation warmup-boundary probes
+
+`robocasa365_mopd_allocation_probe_gr00t_full` restores a complete U40 checkpoint
+and runs to U80 with T96/B2304/micro32/Refresh-R2. Set `OPD_PROBE_CHECKPOINT`
+and explicitly select the node environment. `runner.resume_mode=allocation_probe`
+allows only allocation mode/static quota changes at the end of a uniform warmup;
+all task cursors, Adam/scheduler state and interaction counters are retained.
+Ordinary `adaptive_round_boundary` resume remains strict. Proposal RNG restarts.
+The Uniform and Static branches use the same suite grouping/metrics code and
+fixed, equal suite training shares. This is a short diagnostic fork, not a new
+C10 training seed. See `docs/opd/adaptive_rollout_allocation/probes_20261022/README.md`
+for the sequential queue, budgets and interpretation.
+
+### GR00T N1.5 memory diagnostics
+
+`actor.model.skip_backbone_logits: true` bypasses the unused Qwen3 vocabulary
+projection in GR00T's Eagle feature path. It retains the original hidden-state
+tuple, selected layer, parameters, tied embeddings and checkpoint keys. The
+setting is opt-in and inherited by routed teachers and training rollout copies.
+Language-model labels and token-logit requests are unsupported in this mode.
+The pinned third-party runtime sources are not edited.
+
+`algorithm.log_cuda_memory: true` logs rank-local CUDA allocated/reserved peaks
+for teacher passes, student updates and student flow refresh. These exclude EGL,
+other worker processes and other users; do not sum phase peaks. Process/device
+monitoring is needed for whole-card accounting. Teacher and refresh loops also
+release already processed input microbatches promptly.
+
+The U120 probe recipe is `robocasa365_mopd_allocation_probe_memory_gr00t_full`:
+T96/B2304/micro32/R2, LR3e-5, save every20 updates. Static restarts at commonU40;
+Uniform continues its savedU80 to U120. Numerical equivalence checks and a
+real-checkpoint teacher-style GPU comparison are recorded under
+`outputs/setup/action11-memory-probe-20261022/`; the latter uses synthetic
+normalized observations and is not a whole-system training memory benchmark.
+
+### Suite loss weighting probe (2026-10-23)
+
+- `algorithm.suite_loss_weights` optionally maps every routed teacher name to a
+  positive coefficient; coefficients are normalized to mean one. With equal
+  per-rank suite sample counts and fully valid chunks, the objective is
+  `sum_s(weight_s * M3_s) / K`. The default (key absent) is unchanged.
+- Weights multiply the error numerator before microbatch accumulation, never a
+  weight-normalized microbatch mean (which would cancel homogeneous-suite weights).
+  Raw `velocity_mse`, `analytic_kl`, and per-suite metrics stay unweighted across
+  suites. `actor/optimization_loss` records the weighted objective before gradient
+  accumulation scaling; the existing `total_loss` retains its scaled convention.
+- Validation requires balanced sampling, unfiltered chunk-level masks, routed
+  FSDP M1/M3 and raw suite diagnostics. Runtime rejects unequal per-rank suite
+  counts rather than silently changing the equal-suite objective.
+- Probe config: `robocasa365_mopd_suite_weight_probe_gr00t_full`, common U40 fork,
+  T96/B2304/R2/micro32/LR3e-5, target U120, weights 0.5/1.25/1.25. Allocation stays
+  either Uniform 32/32/32 or Static 24/36/36, completing a 2x2 pilot with existing
+  unweighted controls. These fixed coefficients are sensitivity probes, not a
+  validated adaptive law.
+- Tests cover explicit weighted-objective gradients in the real actor loop,
+  grouped/mixed microbatches, masks, unchanged raw metrics, all-one equivalence,
+  invalid weights and unequal counts. Analysis and queue details:
+  `docs/opd/adaptive_rollout_allocation/probes_20261023/README.md`.

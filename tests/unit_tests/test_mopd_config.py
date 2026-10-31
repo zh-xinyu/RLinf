@@ -22,6 +22,29 @@ from omegaconf import OmegaConf
 REPO = Path(__file__).resolve().parents[2]
 
 
+def test_adaptive_sync_config(monkeypatch):
+    from rlinf.config import validate_suite_distillation_cfg
+
+    monkeypatch.setenv("OPD_PROBE_CHECKPOINT", "/checkpoint/u40")
+    monkeypatch.setenv("OPD_TEACHER_REFERENCE", "/calibration/reference.json")
+    monkeypatch.setenv("OPD_STUDENT_CHECKPOINT", "/checkpoint/c10")
+    cfg = compose_mopd_config("robocasa365_mopd_adaptive_sync_r2_gr00t_full")
+    validate_suite_distillation_cfg(cfg)
+    assert cfg.algorithm.sync_suite_loss_weights
+    assert cfg.algorithm.get("suite_loss_weights") is None
+    assert cfg.runner.rollout_allocation.rho == 0.5
+    assert cfg.actor.global_batch_size == 2304 and cfg.actor.micro_batch_size == 16
+    assert cfg.runner.max_steps == 200 and cfg.runner.save_interval == 10
+    OmegaConf.set_struct(cfg, False)
+    cfg.algorithm.suite_loss_weights = dict.fromkeys(cfg.rollout.expert_models, 1.0)
+    with pytest.raises(ValueError, match="exclusive"):
+        validate_suite_distillation_cfg(cfg)
+    del cfg.algorithm.suite_loss_weights
+    cfg.runner.rollout_allocation.enabled = False
+    with pytest.raises(ValueError, match="synchronous allocation"):
+        validate_suite_distillation_cfg(cfg)
+
+
 def compose_mopd_config(config_name, overrides=None):
     with initialize_config_dir(
         config_dir=str(REPO / "examples/embodiment/config"), version_base=None
@@ -286,4 +309,22 @@ def test_suite_diagnostics_reject_incompatible_config(override, message):
         ["actor.model.model_path=/cold-start/checkpoint", override],
     )
     with pytest.raises(ValueError, match=message):
+        validate_suite_distillation_cfg(cfg)
+
+
+def test_suite_weight_probe_config(monkeypatch):
+    from rlinf.config import validate_suite_distillation_cfg
+
+    monkeypatch.setenv("OPD_PROBE_CHECKPOINT", "/common/checkpoints/global_step_40")
+    cfg = compose_mopd_config(
+        "robocasa365_mopd_suite_weight_probe_gr00t_full",
+        ["actor.model.model_path=/cold-start/checkpoint"],
+    )
+    validate_suite_distillation_cfg(cfg)
+    assert cfg.algorithm.suite_loss_weights.atomic_seen == 0.5
+    assert cfg.runner.max_steps == 120
+    assert cfg.actor.global_batch_size == 2304
+    assert cfg.actor.micro_batch_size == 32
+    cfg.algorithm.log_suite_velocity_metrics = False
+    with pytest.raises(ValueError, match="raw suite velocity metrics"):
         validate_suite_distillation_cfg(cfg)

@@ -253,7 +253,10 @@ class EmbodiedRunner:
                 raise ValueError(
                     "Inconsistent runner/allocation checkpoint or changed R."
                 )
-            self.rollout_allocator.load_state_dict(allocation_state)
+            resume_mode = self.cfg.runner.get("resume_mode", "adaptive_round_boundary")
+            self.rollout_allocator.load_state_dict(
+                allocation_state, allocation_probe=resume_mode == "allocation_probe"
+            )
             self.actor.load_checkpoint(actor_checkpoint_path).wait()
             actor_states = self.actor.restore_opd_update_counters(step).wait()
             self.global_step = step
@@ -263,10 +266,12 @@ class EmbodiedRunner:
             ) as stream:
                 json.dump(
                     {
-                        "mode": "adaptive_round_boundary",
+                        "mode": resume_mode,
                         "source": str(resume_dir),
                         "runner_state": state,
                         "actor_states": actor_states,
+                        "source_allocation_config": allocation_state["config"],
+                        "target_allocation_config": self.rollout_allocator.config,
                         "recovery_interactions": dict(
                             self.cfg.runner.get("recovery_interactions", {})
                         ),
@@ -669,7 +674,9 @@ class EmbodiedRunner:
 
                 # actor training.
                 with self.timer("actor_training"):
-                    actor_training_handle: Handle = self.actor.run_training()
+                    actor_training_handle: Handle = self.actor.run_training(
+                        **self._actor_training_kwargs()
+                    )
                     env_bootstrap_handle: Handle | None = None
                     if (
                         self.overlap_env_bootstrap
@@ -765,6 +772,17 @@ class EmbodiedRunner:
             ) as stream:
                 stream.write(json.dumps(row) + "\n")
 
+    def _actor_training_kwargs(self) -> dict:
+        """Freeze loss shares from this round's actual integer rollout quotas."""
+        if not self.cfg.algorithm.get("sync_suite_loss_weights", False):
+            return {}
+        allocator = self.rollout_allocator
+        from rlinf.algorithms.suite_distillation import normalized_suite_loss_weights
+
+        quotas = dict(zip(allocator.suites, allocator.quotas))
+        weights = normalized_suite_loss_weights(quotas, allocator.suites)
+        return {"suite_loss_weights": dict(zip(allocator.suites, weights))}
+
     def _allocation_interaction_metrics(self) -> dict:
         allocator = self.rollout_allocator
         calibration = getattr(self, "teacher_calibration_budget", {})
@@ -828,6 +846,9 @@ class EmbodiedRunner:
             metrics[f"allocation/success_once/{suite}"] = sum(
                 r["success_once"] for r in selected
             ) / len(selected)
+        metrics["allocation/success_once_suite_macro"] = sum(
+            metrics[f"allocation/success_once/{suite}"] for suite in state["quotas"]
+        ) / len(state["quotas"])
         for name in ("gap", "success", "probabilities", "signed_progress"):
             for suite, value in state["diagnostics"].get(name, {}).items():
                 metrics[f"allocation/{name}/{suite}"] = value

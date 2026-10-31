@@ -19,6 +19,7 @@ import torch
 from rlinf.algorithms.registry import register_policy_loss
 from rlinf.algorithms.suite_distillation import (
     SUITE_STATS_KEY,
+    sample_weighted_velocity_loss,
     suite_velocity_statistics,
 )
 from rlinf.algorithms.utils import huber_loss
@@ -516,6 +517,7 @@ def compute_velocity_distill_loss(
     loss_mask: Optional[torch.Tensor] = None,
     teacher_ids: Optional[torch.Tensor] = None,
     num_teachers: int = 0,
+    sample_weights: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, dict]:
     """On-policy velocity distillation (Method 1).
@@ -530,6 +532,7 @@ def compute_velocity_distill_loss(
         loss_mask: optional validity mask, broadcastable over the leading (sample) dims.
         teacher_ids: optional routed suite IDs for detached additive diagnostics.
         num_teachers: number of suites in the routing order.
+        sample_weights: optional mean-one suite coefficients; diagnostics stay raw.
     """
     assert student_velocity.shape == teacher_velocity.shape, (
         f"student_velocity {tuple(student_velocity.shape)} must match "
@@ -566,6 +569,9 @@ def compute_velocity_distill_loss(
         metrics_data[SUITE_STATS_KEY] = suite_velocity_statistics(
             sq_err, sq_err, mask, teacher_ids, num_teachers
         )
+    if sample_weights is not None:
+        loss = sample_weighted_velocity_loss(sq_err, mask, sample_weights)
+        metrics_data["actor/optimization_loss"] = loss.detach().item()
     return loss, metrics_data
 
 
@@ -655,6 +661,7 @@ def compute_analytic_local_kl_loss(
     loss_mask: Optional[torch.Tensor] = None,
     teacher_ids: Optional[torch.Tensor] = None,
     num_teachers: int = 0,
+    sample_weights: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, dict]:
     """Local Flow-SDE analytic reverse KL (Method 3 / M3-Hybrid).
@@ -674,6 +681,7 @@ def compute_analytic_local_kl_loss(
         loss_mask: optional validity mask, broadcastable over the leading (sample) dims.
         teacher_ids: optional routed suite IDs for detached additive diagnostics.
         num_teachers: number of suites in the routing order.
+        sample_weights: optional mean-one suite coefficients; diagnostics stay raw.
     """
     assert student_velocity.shape == teacher_velocity.shape, (
         f"student_velocity {tuple(student_velocity.shape)} must match "
@@ -725,6 +733,9 @@ def compute_analytic_local_kl_loss(
         metrics_data[SUITE_STATS_KEY] = suite_velocity_statistics(
             sq_err, weighted, mask, teacher_ids, num_teachers
         )
+    if sample_weights is not None:
+        loss = sample_weighted_velocity_loss(weighted, mask, sample_weights)
+        metrics_data["actor/optimization_loss"] = loss.detach().item()
     return loss, metrics_data
 
 

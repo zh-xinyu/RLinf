@@ -1,0 +1,15 @@
+# Extended allocation probe with identical features and no unused token logits.
+defaults:
+  - robocasa365_mopd_allocation_probe_gr00t_full
+  - _self_
+
+runner:
+  max_steps: 120
+  save_interval: 20
+
+algorithm:
+  log_cuda_memory: true
+
+actor:
+  model:
+    skip_backbone_logits: true
