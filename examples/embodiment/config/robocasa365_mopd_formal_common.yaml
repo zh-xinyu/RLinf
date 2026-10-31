@@ -1,0 +1,38 @@
+# Frozen four-experiment recipe: T96, B2304, fresh C10, 150 physical rounds.
+# Every arm uses the same suite-quota collector; only allocation/sync/R differ.
+defaults:
+  - robocasa365_mopd_adaptive_r2_gr00t_full
+  - _self_
+
+runner:
+  resume_dir: null
+  ckpt_path: null
+  step_unit: optimizer_update
+  max_steps: 300
+  save_interval: 50
+  val_check_interval: -1
+  logger:
+    project_name: RoboCasa_MultiTeacher_Diagnostics
+    wandb_group: robocasa_formal_150r
+  rollout_allocation:
+    mode: uniform
+
+algorithm:
+  flow_refresh_updates: 2
+  flow_reuse_mode: refresh
+  flow_observation_sampling: full_pool
+  sync_suite_loss_weights: false
+  log_cuda_memory: true
+
+actor:
+  global_batch_size: 2304
+  micro_batch_size: 32
+  cuda_cache_retention_gib: 0
+  seed: 0
+  model:
+    skip_backbone_logits: true
+  optim:
+    lr: 3.0e-5
+    value_lr: 3.0e-5
+    lr_scheduler: constant
+    lr_warmup_steps: 10

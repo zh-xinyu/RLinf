@@ -32,7 +32,8 @@ outputs/
 # Single-host operations and still-private MOPD working notes.
 # Keep established OPD research/results (especially mechanism_study) tracked.
 /.project_results/mopd
-/docs/opd/
+/docs/opd/*
+!/docs/opd/collaboration/
 /shs/
 /toolkits/mopd/
 /.opd.*.env

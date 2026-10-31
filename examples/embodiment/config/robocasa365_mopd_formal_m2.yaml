@@ -1,0 +1,14 @@
+# M2: adaptive, R=2, synchronized suite loss weights=true.
+defaults:
+  - robocasa365_mopd_formal_common
+  - _self_
+
+runner:
+  max_steps: 300
+  save_interval: 50
+  rollout_allocation:
+    mode: adaptive
+
+algorithm:
+  flow_refresh_updates: 2
+  sync_suite_loss_weights: true

@@ -2,7 +2,7 @@
 
 本页及 `requirements/profiles/` 随 `opd-project-main` 版本化。
 新 clone 使用这里的入口；不需要 `.opd.*.env`、`shs/`、`toolkits/mopd/` 或
-`docs/opd/`。实验入口见 [OPD_DEVELOPMENT.md](OPD_DEVELOPMENT.md)。
+个人研究草稿。正式实验入口见 [合作者交接指南](docs/opd/collaboration/README.md)。
 
 ## 默认 profile
 

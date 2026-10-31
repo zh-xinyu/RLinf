@@ -3,10 +3,10 @@
 2026-10-19：`opd-project-main` 整合现有、已运行过实验的 Base MOPD 与
 Refresh 实现，作为后续方法开发的起点。
 
-Base/Refresh 整合保留在 `opd-project-main`；2026-10-20 的 adaptive 开发位于
-`dev/mopd-adaptive-rollout-allocation`。本页是版本化的代码使用说明；共享工作区
-的研究文档、实验记录与汇报材料统一从 [文档导航](docs/opd/README.md) 进入。
-`docs/opd/` 为本地研究资料，单独clone时可能不存在；训练与评测不依赖该目录。
+2026-10-31：主线进一步整合 adaptive rollout allocation、同步 suite loss weighting、
+逐 suite 指标和 GR00T 显存优化。正式配置与跨机器入口见
+[合作者交接指南](docs/opd/collaboration/README.md)；以下 pilot 参数保留作开发历史，
+不替代正式矩阵。`docs/opd/collaboration/` 随 Git 版本化；其余本地研究资料不作为运行依赖。
 
 ## 来源与保留范围
 
@@ -23,7 +23,7 @@ Base/Refresh 整合保留在 `opd-project-main`；2026-10-20 的 adaptive 开发
 - Event weighting、Cached、固定观测 probe、SOPD 专用实验配置继续保存在原开发
   分支/worktree。本次不删除或重写这些目录，不包含新的训练实验。
 
-## 推荐入口
+## 历史 controlled 入口
 
 | 配置名（`examples/embodiment/config/`） | T | B | R | 总更新数 | 保存间隔 |
 | --- | ---: | ---: | ---: | ---: | ---: |
