@@ -1,8 +1,8 @@
 # RoboTwin 2.0 四任务 MOPD
 
-**最新状态：20-update pilot及测评已完成，MSE下降但SR从6/32降至1/32；见 [完成结果](SPECIALIST_INIT_RESULTS_20261101.md)。以下运行中状态为历史记录。**
+更新：2026-11-01，action00。**自动调试进行中，尚未展示四任务 MOPD 的成功率收益。** 已完成 teacher 训练路径验证（21/32）和 specialist 起点短程 MOPD（冻结测评6/32→1/32）。当前进行同 teacher 自蒸馏控制、固定输入误差诊断及真实四任务联合 SFT 初始化，见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)、[联合 SFT](JOINT_SFT_WARMSTART.md) 和 [当前状态](LIVE_STATUS.md)。
 
-更新：2026-11-01。后续训练路径验证与初始化调试已启动，见 [本轮调试](TRAIN_PATH_DEBUG_20261101.md)。此前阶段：四teacher管线和两段pilot训练已完成；两个student独立测评均0/20，未显示可用的任务能力融合收益。全部计划内任务已收尾。入口是 [结果与交接](PILOT_RESULTS_20261101.md)，具体进度见 [LIVE_STATUS](LIVE_STATUS.md)。
+前几轮负面结果完整保留：[初期 pilot](PILOT_RESULTS_20261101.md)、[specialist 初始化结果](SPECIALIST_INIT_RESULTS_20261101.md)。训练 loss 下降不等于任务能力融合成功。
 
 ## 已固定的 setting
 

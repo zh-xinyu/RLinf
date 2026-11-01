@@ -1,0 +1,24 @@
+# RoboTwin 长程自动调试计划（2026-11-01）
+
+目标：优先检查充分优化与真正的joint SFT初始化能否使4-task MOPD产生任务收益。不能把MSE下降、teacher正常起点成功或程序无报错单独当作成功。
+
+## 已知起点
+
+- 先前joint20-update specialist-init：global MSE前5/后5约0.443→0.227，M3目标0.260→0.228；冻结测评6/32→1/32。
+- self teacher/学生初始同源任务MSE5e-5，训练推理teacher21/32成功；关键链路有依据，仍需行为保留控制。
+
+## 当前安排
+
+| 阶段 | 内容 | 状态/资源 |
+|---|---|---|
+| 正确性控制 | place单任务、student=teacher同SFT，M3 full50、T8/R4/B128/micro2、LR1e-5、20updates，随后原4-task eval seed200000 | 已启动，物理GPU4–7；setup/self_control_queue_20261101.json |
+| 真正joint SFT | 官方4task demo_clean、50episodes/task；逐task最后5episode留出，seen instruction；标准conditional FM，非M3，非teacher生成伪数据 | 数据/26项工具CPU测试通过；GPU前向相对官方FM loss差<0.32%；物理GPU0–3两步smoke更新完成，保存中 |
+| 固定输入诊断 | 固定place reference policy的同一(o,x_t,t)、全10时间点；比较初始与joint20，拆分physical/padded与first/last25 | 四task完成；同输入新任务误差下降，place遗忘；见FIXED_REFERENCE_RESULTS_20261101.md |
+| 更多OPD优化 | 正确性控制通过后考虑从joint20恢复更多更新，或优先从jointSFT起点继续；保存阶段性checkpoints检验低MSE是否转化为SR | 尚未启动；原resume校验禁止R改变，不绕过检查 |
+| 不确定性后备 | 同noise的teacher10/5步ODE self-consistency、可能prefix mask | 仅文献分析；优先级低于充分拟合/联合初始化 |
+
+各阶段以GPU实测显存和吞吐确定最终训练预算。SFT拟先smoke/数值对照，再100/200/500更新分阶段观察；不在未测吞吐前承诺时间。保持RoboCasa主分支/环境隔离，不终止其他用户进程。
+
+若同teacher自蒸馏也持续丢失能力，先定位训练数值/目标实现，不以增加joint训练量掩盖问题。若self保留而joint退化，优先充分优化与jointSFT；uncertainty不提前加入。失效/负面结果也保留，所有run记录精确初始化和累计预算。
+
+本次paper解读见 [Teacher可靠性后备](TEACHER_RELIABILITY_FALLBACK.md)。原user写teacher OOM，此处暂按teacher OOD/不可靠状态理解，不将其与显存OOM混为一谈。

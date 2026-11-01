@@ -1,12 +1,20 @@
-# RoboTwin 四 teacher pilot：收尾状态
+# RoboTwin 四 teacher：自动调试状态
 
-**最新状态：20-update pilot及测评已完成，MSE下降但SR从6/32降至1/32；见 [完成结果](SPECIALIST_INIT_RESULTS_20261101.md)。以下运行中状态为历史记录。**
+更新：2026-11-01，action00。当前仍在调试，RoboCasa 主分支代码与环境保持隔离。
 
-更新：2026-11-01，action00。**后续调试已开始：teacher训练路径21/32成功，shared-specialist step0为6/32，20-update MOPD pilot运行中，见 [训练路径调试](TRAIN_PATH_DEBUG_20261101.md)。** 以下是上一阶段收尾存档：
+| 项目 | 状态 | 证据入口（根目录 outputs/robotwin4/） |
+|---|---|---|
+| teacher 真实训练推理路径 | 完成，21/32 成功 | analysis/teacher_train_t16_verified_20261101/ |
+| specialist 初始化 joint MOPD 20 updates | 完成；MSE下降，冻结测评6/32→1/32 | analysis/specialist_init_final_summary_20261101.json |
+| 同 teacher 自蒸馏控制 | GPU4–7运行中，20updates后自动冻结测评 | setup/self_control_queue_20261101.json |
+| 固定输入 flow 对照 | 四task完成，逐task分析中；每task一个初始观测，不能代表整条episode | analysis/fixed_reference_joint20_20261101/ |
+| 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3两步反向/保存验证中 | setup/joint_sft/；train/joint_sft_smoke_20261101/ |
 
-两段训练、两套未筛选/seen测评、13份flow/数值诊断均已完成。所有自有训练、评测和诊断进程已退出；检查时无GPU compute进程。没有继续排训练。
+详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
 
-**结果：两个student均0/20，base1/20，teacher16/20。管线跑通，但本预算下没有展示能力融合收益。** 完整证据、复现入口与限制见 [PILOT_RESULTS_20261101](PILOT_RESULTS_20261101.md)。
+## 早期 pilot 存档
+
+以下为先前两轮已结束实验，不表示当前没有运行任务。
 
 ## 完成的实验
 
