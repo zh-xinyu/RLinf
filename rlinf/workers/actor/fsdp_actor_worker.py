@@ -1183,6 +1183,27 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             model_dict = torch.load(self.cfg.runner.ckpt_path)
             model.load_state_dict(model_dict)
 
+        if self.cfg.actor.get("cast_trainable_params_to_fp32", False):
+            # Apply only to the actor, before FSDP wrapping and optimizer creation.
+            # Model factories are also used by rollout and frozen teachers, whose
+            # inference dtypes must remain independent of actor master weights.
+            cast_numel = 0
+            with torch.no_grad():
+                for parameter in model.parameters():
+                    if (
+                        parameter.requires_grad
+                        and parameter.is_floating_point()
+                        and parameter.dtype != torch.float32
+                    ):
+                        parameter.data = parameter.data.to(dtype=torch.float32)
+                        if parameter.grad is not None:
+                            parameter.grad = parameter.grad.to(dtype=torch.float32)
+                        cast_numel += parameter.numel()
+            self.log_info(
+                f"Cast {cast_numel:,} actor trainable parameters to FP32 masters; "
+                "frozen parameters and buffers retain their original dtypes."
+            )
+
         return model
 
     def get_rollout_state_dict(self) -> dict:

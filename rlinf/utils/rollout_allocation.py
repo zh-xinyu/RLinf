@@ -437,7 +437,7 @@ def training_signature(cfg: Any) -> dict:
         "policy_setup",
         "rl_head_config",
     )
-    return {
+    signature = {
         "env": {k: env.get(k) for k in env_keys},
         "model": {k: model.get(k) for k in model_keys},
         "teacher_action_head_precision": {
@@ -447,6 +447,21 @@ def training_signature(cfg: Any) -> dict:
             for name, expert in cfg.rollout.expert_models.items()
         },
     }
+
+    if env.get("env_type") == "robotwin":
+        # Preserve existing RoboCasa reference signatures; bind the new protocol
+        # to its native execution, language, cameras and normalization settings.
+        for key in (
+            "task_names",
+            "task_horizons",
+            "task_config",
+            "instruction_type",
+            "center_crop",
+        ):
+            signature["env"][key] = env.get(key)
+        for key in ("num_steps", "openpi", "openpi_data", "opd_task_norm_stats"):
+            signature["model"][key] = model.get(key)
+    return signature
 
 
 def load_teacher_reference(path: str, cfg: Any, tasks: list[dict]) -> dict[str, float]:

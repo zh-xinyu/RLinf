@@ -13,8 +13,10 @@
 # limitations under the License.
 # openpi model configs
 
+import copy
 import os
 import pathlib
+from contextlib import nullcontext
 
 import torch
 from omegaconf import DictConfig
@@ -36,7 +38,11 @@ def get_model(cfg: DictConfig, torch_dtype=None):
 
     # config
     config_name = getattr(cfg.openpi, "config_name", None)
-    data_kwargs = getattr(cfg, "openpi_data", None)
+    data_kwargs = copy.deepcopy(getattr(cfg, "openpi_data", None))
+    task_norm_paths = cfg.get("opd_task_norm_stats", None)
+    if task_norm_paths:
+        data_kwargs = dict(data_kwargs or {})
+        data_kwargs["norm_stats_path"] = next(iter(task_norm_paths.values()))
     actor_train_config = get_openpi_config(
         config_name, model_path=cfg.model_path, data_kwargs=data_kwargs
     )
@@ -60,9 +66,20 @@ def get_model(cfg: DictConfig, torch_dtype=None):
         checkpoint_dir, "actor", "model_state_dict", "full_weights.pt"
     )
 
-    model: OpenPi0ForRLActionPrediction = OpenPi0ForRLActionPrediction(
-        actor_model_config
+    # Strict checkpoints replace every parameter (including verified tied aliases).
+    # Avoid randomizing billions of weights that are immediately overwritten.
+    from transformers.modeling_utils import no_init_weights
+
+    init_context = (
+        no_init_weights if cfg.get("strict_checkpoint_loading", False) else nullcontext
     )
+    with init_context():
+        model: OpenPi0ForRLActionPrediction = OpenPi0ForRLActionPrediction(
+            actor_model_config
+        )
+    if cfg.get("strict_checkpoint_loading", False):
+        # no_init_weights also defers HF's normal embedding/head tying.
+        model.paligemma_with_expert.paligemma.tie_weights()
     # train expert only
     if actor_model_config.train_expert_only:
         model.freeze_vlm()
@@ -71,21 +88,33 @@ def get_model(cfg: DictConfig, torch_dtype=None):
     if os.path.exists(full_weights_path):
         # Direct checkpoint directory
         model_state_dict = torch.load(full_weights_path, map_location="cpu")
-        model.load_state_dict(model_state_dict, strict=False)
+        model.load_state_dict(
+            model_state_dict, strict=bool(cfg.get("strict_checkpoint_loading", False))
+        )
     elif os.path.exists(actor_full_weights_path):
         # Checkpoint directory from runner
         model_state_dict = torch.load(actor_full_weights_path, map_location="cpu")
-        model.load_state_dict(model_state_dict, strict=False)
+        model.load_state_dict(
+            model_state_dict, strict=bool(cfg.get("strict_checkpoint_loading", False))
+        )
     else:
         # Original model directory with safetensors files
         weight_paths = sorted(glob.glob(os.path.join(checkpoint_dir, "*.safetensors")))
         if not weight_paths:
             weight_paths = [os.path.join(checkpoint_dir, "model.safetensors")]
-        all_state_dict = {}
-        for weight_path in weight_paths:
-            state_dict = safetensors.torch.load_file(weight_path, device="cpu")
-            all_state_dict.update(state_dict)
-        model.load_state_dict(all_state_dict, strict=False)
+        if cfg.get("strict_checkpoint_loading", False) and len(weight_paths) == 1:
+            # save_model omits tied tensors; load_model validates actual shared
+            # storage instead of accepting arbitrary missing parameter names.
+            safetensors.torch.load_model(model, weight_paths[0], strict=True)
+        else:
+            all_state_dict = {}
+            for weight_path in weight_paths:
+                state_dict = safetensors.torch.load_file(weight_path, device="cpu")
+                all_state_dict.update(state_dict)
+            model.load_state_dict(
+                all_state_dict,
+                strict=bool(cfg.get("strict_checkpoint_loading", False)),
+            )
 
     model.paligemma_with_expert.to_bfloat16_for_selected_params("bfloat16")
     # fsdp replace
@@ -110,27 +139,41 @@ def get_model(cfg: DictConfig, torch_dtype=None):
         if data_config.asset_id is None:
             raise ValueError("Asset id is required to load norm stats.")
         norm_stats = _checkpoints.load_norm_stats(checkpoint_dir, data_config.asset_id)
-    # wrappers
-    repack_transforms = transforms.Group()
-    default_prompt = None
-    model.setup_wrappers(
-        transforms=[
-            *repack_transforms.inputs,
-            transforms.InjectDefaultPrompt(default_prompt),
-            *data_config.data_transforms.inputs,
-            transforms.Normalize(
-                norm_stats, use_quantiles=data_config.use_quantile_norm
-            ),
-            *data_config.model_transforms.inputs,
-        ],
-        output_transforms=[
-            *data_config.model_transforms.outputs,
-            transforms.Unnormalize(
-                norm_stats, use_quantiles=data_config.use_quantile_norm
-            ),
-            *data_config.data_transforms.outputs,
-            *repack_transforms.outputs,
-        ],
-    )
 
+    # Fixed task coordinates are shared by student and routed teachers.
+    def make_wrappers(stats):
+        return (
+            [
+                transforms.InjectDefaultPrompt(None),
+                *data_config.data_transforms.inputs,
+                transforms.Normalize(
+                    stats, use_quantiles=data_config.use_quantile_norm
+                ),
+                *data_config.model_transforms.inputs,
+            ],
+            [
+                *data_config.model_transforms.outputs,
+                transforms.Unnormalize(
+                    stats, use_quantiles=data_config.use_quantile_norm
+                ),
+                *data_config.data_transforms.outputs,
+            ],
+        )
+
+    inputs, outputs = make_wrappers(norm_stats)
+    model.setup_wrappers(transforms=inputs, output_transforms=outputs)
+    if task_norm_paths:
+        from openpi.shared import normalize
+
+        wrappers = {}
+        for task, path in task_norm_paths.items():
+            norm_dir = pathlib.Path(path).expanduser()
+            if not norm_dir.exists():
+                raise FileNotFoundError(
+                    f"Missing task norm stats for {task}: {norm_dir}"
+                )
+            if norm_dir.is_file():
+                norm_dir = norm_dir.parent
+            wrappers[task] = make_wrappers(normalize.load(norm_dir))
+        model.setup_task_wrappers(wrappers)
     return model

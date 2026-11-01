@@ -87,6 +87,7 @@ class OpenPi0Config(Pi0Config):
 
     # ===== NFT-specific parameters =====
     is_nft: bool = False
+    nft_joint_forward: bool = False
 
     # ===== RLT SFT parameters =====
     use_rlt: bool = False
@@ -290,8 +291,32 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         self._input_transform = _transforms.compose(transforms)
         self._output_transform = _transforms.compose(output_transforms)
 
+    def setup_task_wrappers(self, task_transforms: dict) -> None:
+        """Share policy weights while using each task teacher's flow coordinates."""
+        self._opd_task_names = tuple(task_transforms)
+        self._opd_task_input_transforms = tuple(
+            _transforms.compose(pair[0]) for pair in task_transforms.values()
+        )
+        self._opd_task_output_transforms = tuple(
+            _transforms.compose(pair[1]) for pair in task_transforms.values()
+        )
+
+    def _opd_transform_ids(self, obs: dict, batch_size: int):
+        if not getattr(self, "_opd_task_names", ()):
+            return None
+        ids = obs.get("opd_task_ids")
+        if ids is None:
+            raise ValueError("Task-conditioned OpenPI requires opd_task_ids.")
+        ids = np.asarray(_to_numpy(ids)).reshape(-1)
+        if len(ids) != batch_size or not np.issubdtype(ids.dtype, np.integer):
+            raise ValueError("Expected one integer normalization ID per observation.")
+        if np.any(ids < 0) or np.any(ids >= len(self._opd_task_names)):
+            raise ValueError("Unknown task normalization ID.")
+        return ids
+
     def input_transform(self, obs: dict, transpose=True):
         inputs = tree_map(lambda x: x, obs)
+        inputs.pop("opd_task_ids", None)
         # process input
         first_process = "prompt" in inputs.keys()
         if first_process:
@@ -321,9 +346,16 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             else:
                 sample["prompt"] = "xxxx"
             batch_samples.append(sample)
-        # transform
-        with ThreadPoolExecutor(max_workers=min(len(batch_samples), 8)) as ex:
-            transformed_samples = list(ex.map(self._input_transform, batch_samples))
+        # Use identical coordinates for rollout, refresh and teacher/student NFT.
+        task_ids = self._opd_transform_ids(obs, batch_size)
+        if task_ids is None:
+            with ThreadPoolExecutor(max_workers=min(len(batch_samples), 8)) as ex:
+                transformed_samples = list(ex.map(self._input_transform, batch_samples))
+        else:
+            transformed_samples = [
+                self._opd_task_input_transforms[int(task_id)](sample)
+                for task_id, sample in zip(task_ids, batch_samples, strict=True)
+            ]
         # recombine
         inputs = tree_map(
             lambda *torch_arr: torch.from_numpy(np.asarray(torch_arr).copy()),
@@ -335,13 +367,19 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             inputs["tokenized_prompt_mask"] = obs["tokenized_prompt_mask"]
         return inputs
 
-    def output_transform(self, outputs):
+    def output_transform(self, outputs, task_ids=None):
         # split & transform
         batch_size = outputs["actions"].shape[0]
+        task_ids = self._opd_transform_ids({"opd_task_ids": task_ids}, batch_size)
         transformed_samples = []
         for i in range(batch_size):
             sample = tree_map(lambda x: np.asarray(x[i].detach().cpu()), outputs)
-            sample = self._output_transform(sample)
+            transform = (
+                self._output_transform
+                if task_ids is None
+                else self._opd_task_output_transforms[int(task_ids[i])]
+            )
+            sample = transform(sample)
             transformed_samples.append(sample)
         # recombine
         outputs = tree_map(
@@ -358,6 +396,8 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             return self.default_forward(**kwargs)
         elif forward_type == ForwardType.NFT:
             return self.nft_forward(**kwargs)
+        elif forward_type == ForwardType.FLOW_REFRESH:
+            return self.flow_refresh_forward(**kwargs)
         elif forward_type == ForwardType.SAC:
             return self.sac_forward(**kwargs)
         elif forward_type == ForwardType.SAC_Q:
@@ -754,6 +794,16 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             "entropy": entropy,
         }
 
+    @torch.no_grad()
+    def flow_refresh_forward(self, forward_inputs, **kwargs):
+        """Generate fresh ODE paths on cached raw observations with fresh noise."""
+        if self.config.noise_method != "flow_ode":
+            raise ValueError("OpenPI flow refresh currently supports flow_ode only.")
+        processed = self.input_transform(forward_inputs, transpose=False)
+        observation = _model.Observation.from_dict(self.precision_processor(processed))
+        outputs = self.sample_actions(observation, mode="eval", compute_values=False)
+        return {"chains": outputs["chains"]}
+
     def nft_forward(
         self,
         forward_inputs: dict[str, torch.Tensor],
@@ -762,7 +812,9 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         """Compute velocity v_theta at explicit (x_t, timesteps) for NFT loss."""
         # obs process
         observation = self.input_transform(forward_inputs, transpose=False)
-        observation = _model.Observation.from_dict(observation)
+        observation = _model.Observation.from_dict(
+            self.precision_processor(observation)
+        )
         images, img_masks, lang_tokens, lang_masks, state = (
             self._preprocess_observation(observation, train=False)
         )
@@ -776,19 +828,62 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         x_t = nft_inputs["x_t"].to(device)
         t = nft_inputs["timesteps"].to(device)
         # get v_theta
-        _, prefix_pad_masks, past_key_values = self._build_prefix_cache(
-            images, img_masks, lang_tokens, lang_masks
-        )
         compute_values = kwargs.get("compute_values", False)
-        v_theta, suffix_out = self.get_velocity(
-            state, x_t, t, prefix_pad_masks, past_key_values
-        )
+        if self.config.nft_joint_forward and self.training:
+            v_theta, suffix_out = self.get_joint_velocity(
+                images, img_masks, lang_tokens, lang_masks, state, x_t, t
+            )
+        else:
+            _, prefix_pad_masks, past_key_values = self._build_prefix_cache(
+                images, img_masks, lang_tokens, lang_masks
+            )
+            v_theta, suffix_out = self.get_velocity(
+                state, x_t, t, prefix_pad_masks, past_key_values
+            )
         v_theta = v_theta[:, : self.config.action_chunk, :]
         # result
         result: dict[str, Any] = {"v_theta": v_theta, "x_t": x_t, "timesteps": t}
         if compute_values and self.config.add_value_head:
             result["values"] = self._compute_value_from_suffix(suffix_out)[:, None]
         return result
+
+    def get_joint_velocity(
+        self, images, img_masks, lang_tokens, lang_masks, state, x_t, timestep
+    ):
+        """Predict velocity with a differentiable joint prefix/suffix forward.
+
+        The explicit distillation state and time are unchanged. Joint attention
+        preserves observation gradients without a training KV cache, which
+        Transformers disables when gradient checkpointing is enabled.
+        """
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
+            images, img_masks, lang_tokens, lang_masks
+        )
+        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = (
+            self.embed_suffix(state, x_t, timestep)
+        )
+        backbone_dtype = self.paligemma_with_expert.paligemma.language_model.layers[
+            0
+        ].self_attn.q_proj.weight.dtype
+        prefix_embs = prefix_embs.to(dtype=backbone_dtype)
+        suffix_embs = suffix_embs.to(dtype=backbone_dtype)
+        pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
+        att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
+        attention_mask = self._prepare_attention_masks_4d(
+            make_att_2d_masks(pad_masks, att_masks)
+        )
+        position_ids = torch.cumsum(pad_masks, dim=1) - 1
+        (_, suffix_out), _ = self.paligemma_with_expert.forward(
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, suffix_embs],
+            use_cache=False,
+            adarms_cond=[None, adarms_cond],
+        )
+        suffix_out = suffix_out[:, -self.config.action_horizon :].to(torch.float32)
+        velocity = self._apply_checkpoint(self.action_out_proj, suffix_out)
+        return velocity, suffix_out
 
     def obs_processor(self, env_obs):
         env_states = self._select_configured_state(env_obs["states"])
@@ -807,6 +902,16 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             processed_obs["observation/wrist_image"] = env_obs["wrist_images"]
         if env_obs["extra_view_images"] is not None:
             processed_obs["observation/extra_view_image"] = env_obs["extra_view_images"]
+        if getattr(self, "_opd_task_names", ()):
+            groups = env_obs.get("task_groups")
+            if groups is None or len(groups) != len(env_states):
+                raise ValueError(
+                    "Task-conditioned OpenPI needs one task label per row."
+                )
+            lookup = {name: i for i, name in enumerate(self._opd_task_names)}
+            processed_obs["opd_task_ids"] = torch.tensor(
+                [lookup[name] for name in groups], dtype=torch.long
+            )
         return processed_obs
 
     def precision_processor(self, processed_obs):
@@ -865,7 +970,8 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
 
             # Step 3: Extract actual actions for environment interaction
             real_actions = self.output_transform(
-                {"actions": outputs["actions"], "state": observation.state}
+                {"actions": outputs["actions"], "state": observation.state},
+                task_ids=to_process_obs.get("opd_task_ids"),
             )["actions"]
 
             # Return actual actions to environment, but forward_inputs stores noise.
@@ -880,7 +986,8 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
                 observation, mode=mode, compute_values=compute_values
             )
             actions = self.output_transform(
-                {"actions": outputs["actions"], "state": observation.state}
+                {"actions": outputs["actions"], "state": observation.state},
+                task_ids=to_process_obs.get("opd_task_ids"),
             )["actions"]
             prev_logprobs = outputs["prev_logprobs"]
             prev_values = outputs["prev_values"]

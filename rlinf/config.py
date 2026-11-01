@@ -830,7 +830,8 @@ def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
             raise ValueError("suite_quota requires runner.rollout_allocation.enabled.")
         return
     conditions = {
-        "RoboCasa365": cfg.env.train.env_type == "robocasa365",
+        "quota-capable RoboCasa365 or RoboTwin": cfg.env.train.env_type
+        in {"robocasa365", "robotwin"},
         "suite_quota": cfg.env.train.task_sampling_strategy == "suite_quota",
         "group_size=1": cfg.env.train.group_size == 1,
         "optimizer_update steps": cfg.runner.get("step_unit") == "optimizer_update",
@@ -915,7 +916,7 @@ def validate_suite_distillation_cfg(cfg: DictConfig) -> None:
 
 
 def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
-    """Reject unsupported combinations for the initial GR00T ODE refresh path."""
+    """Reject unsupported combinations for GR00T/OpenPI ODE refresh."""
     repeats = cfg.algorithm.get("flow_refresh_updates", 1)
     if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
         raise ValueError("algorithm.flow_refresh_updates must be a positive integer.")
@@ -956,16 +957,31 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
     if repeats == 1 and step_unit == "rollout":
         validate_suite_distillation_cfg(cfg)
         return
+    model_type = cfg.actor.model.model_type
+    flow_cfg = (
+        cfg.actor.model.get("openpi", {})
+        if model_type == "openpi"
+        else cfg.actor.model.get("rl_head_config", {})
+    )
+    if (
+        model_type == "openpi"
+        and cfg.actor.get("fsdp_config", {}).get("gradient_checkpointing", False)
+        and not flow_cfg.get("nft_joint_forward", False)
+    ):
+        raise ValueError(
+            "OpenPI distillation with gradient checkpointing requires nft_joint_forward=true; "
+            "the cached prefix path cannot retain its KV cache in checkpointed training."
+        )
     requirements = {
-        "GR00T N1.5": cfg.actor.model.model_type == "gr00t",
+        "GR00T N1.5 or OpenPI": model_type in {"gr00t", "openpi"},
         "analytic_local_kl": cfg.algorithm.loss_type == "analytic_local_kl",
         "update_epoch=1": cfg.algorithm.get("update_epoch", 1) == 1,
         "suite_balanced_sampling=true": cfg.algorithm.get(
             "suite_balanced_sampling", False
         ),
         "routed expert_models": bool(cfg.rollout.get("expert_models")),
-        "flow_ode": cfg.actor.model.rl_head_config.noise_method == "flow_ode",
-        "joint_logprob=true": cfg.actor.model.rl_head_config.joint_logprob,
+        "flow_ode": flow_cfg.get("noise_method") == "flow_ode",
+        "joint_logprob=true": flow_cfg.get("joint_logprob", False),
         "constant LR with explicit warmup steps": (
             cfg.actor.optim.lr_scheduler == "constant"
             and cfg.actor.optim.get("lr_warmup_steps", -1) >= 0
