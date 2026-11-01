@@ -44,7 +44,7 @@ NUMA interleave kept swap around6.6GiB with no sustained reclaim pressure; actor
 Both queues are waiting without GPU children and never stop training or unrelated processes.
 
 - Matching unfiltered/seen queue PID2910670: `outputs/robotwin4/eval/uniform_r2_step40/queue.json`. Waits for actual launcher exit+COMPLETE+step40 checkpoint, then student4×5episodes and base4×2extensionepisodes. Existing base3/task and teachers5/task are preserved. Seed overlap is explicit; adjust teacher starts at a shifted seed.
-- Supplementary fixed feasible/unseen queue PID2933622: `outputs/robotwin4/eval/feasible_unseen_step40/queue.json`. Waits for the first queue to finish. Builds5scripted-expert-accepted scenes/task, then evaluates teacher/base/student on exactly the same seeds and prompts. Separate attempt paths and pool content hashes are retained. See [protocol audit](EVALUATION_PROTOCOL_AUDIT.md) and [evaluation details](FEASIBLE_EVALUATION.md).
+- Supplementary fixed feasible/unseen queue PID2933622: `outputs/robotwin4/eval/feasible_unseen_step40/queue.json`. Waits for the first queue to finish. Builds5scripted-expert-accepted scenes/task, then evaluates teacher/base/student on exactly the same seeds and prompts. Separate attempt paths and pool content hashes are retained. See [protocol audit](../EVALUATION_PROTOCOL_AUDIT.md) and [evaluation details](../FEASIBLE_EVALUATION.md).
 
 The official screening rule is scripted planner `plan_success AND check_success`; it does not select scenes based on learned teacher/student success. No scripted action data enter training. Current training remains unfiltered/seen. All5episode results are pilot estimates, not formal benchmark scores.
 

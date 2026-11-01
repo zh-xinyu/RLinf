@@ -1,0 +1,79 @@
+[
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_open-microwave_Baseline",
+    "revision": "9c7b12439b1d2e83948cea9e11c65ef9734d4fbe",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/open_microwave_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  },
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_beat-block-hammer_Baseline",
+    "revision": "07c518cfb65f461b6d2e2a2cfa40e6249236dcf1",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/beat_block_hammer_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  },
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_lift-pot_Baseline",
+    "revision": "33e8e204d6467a3696a3f906ee5143a82a7a6f0b",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/lift_pot_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  },
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_place-dual-shoes_Baseline",
+    "revision": "527324c85cfda29173c8d0b44893b32dc818df20",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/place_dual_shoes_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  },
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_turn-switch_Baseline",
+    "revision": "883dcff083d036216ba3812e39082e9fce79ed12",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/turn_switch_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  },
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_move-playingcard-away_Baseline",
+    "revision": "a664cf0da7a2385990f0ccd79fe8066d106e6ea5",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/move_playingcard_away_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  },
+  {
+    "id": "s1ghhh/VLADrop_pi05_RoboTwin_click-bell_Baseline",
+    "revision": "6171382e9f07da42487078d73bd75ba337103d95",
+    "files": [
+      ".gitattributes",
+      "README.md",
+      "assets/robotwin_v1/click_bell_demo_clean_repo/norm_stats.json",
+      "metadata.pt",
+      "model.safetensors"
+    ]
+  }
+]

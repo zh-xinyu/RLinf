@@ -1,53 +1,33 @@
-# RoboTwin 2.0 四任务 MOPD 扩展
+# RoboTwin 2.0 四任务 MOPD
 
-更新：2026-10-20。优先级低于 [RoboCasa rollout allocation](../adaptive_rollout_allocation/RoboCasa_MOPD_Adaptive_Rollout_Allocation.md)。
-状态（2026-11-01）：已从 `opd-project-main@5d1d1494` 建立 `dev/mopd-robotwin2-four-task` 分支（当前根workspace）。尚未安装环境、下载权重、冻结四任务或启动训练。公开checkpoint调查见 [CHECKPOINT_SURVEY_20261101.md](CHECKPOINT_SURVEY_20261101.md)。
+更新：2026-11-01。四teacher管线和两段pilot训练已完成；两个student独立测评均0/20，未显示可用的任务能力融合收益。全部计划内任务已收尾。入口是 [结果与交接](PILOT_RESULTS_20261101.md)，具体进度见 [LIVE_STATUS](LIVE_STATUS.md)。
 
-## 1. 目标与隔离方案
+## 已固定的 setting
 
-四个双臂操作tasks，各有对应specialist，一个共享student。保持task→teacher固定路由，先建立uniform MOPD，再测试自适应rollout allocation。不要求长任务或teacher近100%成功；需要teacher相对共同student初始化有可测量的能力优势和融合空间。
+π0.5 base student；四个PACE specialists分别对应adjust_bottle、handover_mic、place_container_plate、stack_bowls_two。Native clean ALOHA，三相机，14维物理动作，50步latent预测、执行25步、10步ODE。按task路由teacher与固定归一化。
 
-| 内容 | 建议 |
-| --- | --- |
-| 起点 | 当前 `opd-project-main`，不从旧probe/Cached分支起步 |
-| RoboTwin开发 | 当前根workspace的 `dev/mopd-robotwin2-four-task`（已建立） |
-| RoboCasa方法开发 | 另开 `dev/mopd-adaptive-rollout-allocation`（拟议名称） |
-| Python runtime | 独立RoboTwin runtime / 固定profile，不向现有RoboCasa runtime追加包 |
-| 节点配置 | 通用依赖与action00/action10本地assets、checkpoint路径分别记录 |
-| 后续合并 | 适配、通用allocator与配置可合回主线；benchmark继续使用不同profile |
+首轮T64/R2/B512训练40updates；一次温启动跟进使用完整50步监督、T32/R4/B256，再训练40updates。两组是可行性调参，不是单因素消融。当前评测为未筛选/seen小样本pilot，不能当作官方feasible/unseen benchmark成绩。
 
-**同一代码主线不要求只有一个Python环境。** 分支隔离控制开发风险，runtime隔离控制依赖风险。
-RoboTwin官方安装文档列出Python3.10、推荐CUDA12.1；现有RoboCasa固定profile为Python3.11 / Torch CUDA12.4。这不证明绝对不兼容，但建议先独立验证。[官方安装指南](https://robotwin-platform.github.io/doc/usage/robotwin-install.html)
+## 隔离与复现
 
-## 2. 当前代码基础与缺口
+- 根workspace：`opd-project-main@5d1d1494`，RoboCasa源码与runtime保持原状。
+- 开发分支：`dev/mopd-robotwin2-four-task`，worktree：`outputs/worktrees/robotwin4`。
+- 独立runtime/模型/assets：`/localscratch2/liyifa11/XyFile/opd-robotwin4`。
+- 输出：根目录`outputs/robotwin4/`，训练、评测、分析和setup分别保存。
+- 在worktree内参阅`toolkits/robotwin_mopd/README.md`和`toolkits/robotwin_mopd/setup/README.md`；精确命令、resolved config、source快照保存在每个run及setup launch JSON。
 
-核对基于 `opd-project-main@fdde9522`：
+## 文档导航
 
-- 已有 [RoboTwinEnv](../../../rlinf/envs/robotwin/robotwin_env.py)、reset seed工具和若干单任务配置；环境读取单一`task_config.task_name`。
-- 已有OpenPI / OpenVLA-OFT等配置，**没有当前GR00T N1.5 × RoboTwin的完整配置与observation adapter**。[GR00T simulation IO](../../../rlinf/models/embodiment/gr00t/simulation_io.py)的转换注册不含RoboTwin。
-- 当前observation含图像、state、指令，尚未输出多teacher router要求的`task_groups`。
-- 四任务混合执行、task identity传递、每个actor的本地任务覆盖需适配；已有单任务env不等于已支持四任务MOPD。
-- [安装脚本](../../../requirements/install.sh)的`install_robotwin_env`包含SAPIEN / MPLib修改和cuRobo等依赖；GR00T安装组合目前没有RoboTwin分支。不能当作已验证的可复现GR00T-RoboTwin profile。
-- 主线完整观测池Refresh当前限定GR00T N1.5。换Pi0.5不能假定Refresh直接可用。
+| 文档 | 用途 |
+|---|---|
+| [结果与交接](PILOT_RESULTS_20261101.md) | 实测结果、预算、结论和限制 |
+| [当前状态](LIVE_STATUS.md) | 运行身份、队列和checkpoint状态 |
+| [实验方案](EXPERIMENTS_20261101.md) | 参数选择与单次follow-up设计 |
+| [模型来源](CHECKPOINT_SURVEY_20261101.md) | 开源checkpoint调查与筛选依据 |
+| [Actor精度](ACTOR_PRECISION.md) | FP32 masters/BF16 AMP验证 |
+| [评测协议](EVALUATION_PROTOCOL_AUDIT.md) | 本地pilot与官方协议的区别 |
+| [完整flow诊断](FLOW_PROBE.md) | 前后horizon、physical/padded维度及数值检查 |
+| [补充筛选设计](FEASIBLE_EVALUATION.md) | 未验证路线；MPLib筛选已停止，不能直接用于正式成绩 |
+| [初始设计存档](experiments/initial_design_20261020.md) | 保留早期计划，不代表当前状态 |
 
-## 3. 开始前固定的设置
-
-1. **模型与checkpoints**：先确认四个specialists和共同student初始化是否可用。沿用GR00T有利于与RoboCasa对照，但需额外适配；是否用Pi0.5由资源和验证成本决定。
-2. **动作/观测约定**：四个teachers使用相同embodiment、action参数化和归一化坐标。不同SFT统计量可能导致velocity坐标不一致，不能直接MSE。
-3. **任务**：先看teacher可用性、运行稳定性和学习空间，再覆盖不同双臂交互。已有`handover_block`、`lift_pot`、`pick_dual_bottles`、`place_container_plate`单任务配置可作候选，不代表已验证或最终选定。
-4. **数据/评测**：固定clean/randomized设置、初始化数据预算、各task horizon、训练/校准/最终评测reset分割和seed清单，不按新方法效果挑任务。
-5. **预算**：先测rollout成本再定T/B/R；四task不照搬三suite的局部整除规则，确保每actor有所有激活teacher的有效数据。
-
-## 4. 落地顺序
-
-1. 独立runtime验证单task teacher inference、环境step、成功率和格式。
-2. 跑通单task OPD，确认loss、mask与teacher动作坐标，再验证Refresh。
-3. 四任务uniform MOPD，建立共同student与specialists对照。
-4. 复用RoboCasa验证过的allocator接口，每个task成为一个group。
-5. 整理固定安装profile与测试，再决定合并范围。
-
-不因另开分支长期复制两套actor/loss/refresh；通用逻辑共享，benchmark差异放在环境适配与配置中。
-
-评测协议：[筛选协议核对](EVALUATION_PROTOCOL_AUDIT.md)、[固定场景补充评测](FEASIBLE_EVALUATION.md)。训练进度和评测队列见 [LIVE_STATUS](LIVE_STATUS.md)。
-
-训练后可选诊断：[完整 flow 误差分解](FLOW_PROBE.md)。
+本轮不合并RoboTwin依赖到RoboCasa profile，也不继续扩大参数扫描。后续是否推进正式实验应以任务成功率为依据。

@@ -55,3 +55,11 @@ the visual/language backbone without a training KV cache. Teacher evaluation
 retains the cached split forward. This flag defaults to false for existing
 recipes. Tiny real Gemma tests compare both velocity and parameter gradients,
 and verify a finite optimizer update with checkpointing enabled.
+
+Scripted-expert feasibility screening is **not validated** in this MPLib setup.
+The attempted Aloha screening repeatedly hit invalid-start/self-collision
+failures; double-arm joint mapping and planner state synchronization need a
+separate audit. The completed pilot uses unfiltered scenes and seen prompts.
+Do not interpret planner failure as policy failure or report this setup as an
+official feasible/unseen benchmark replication. See
+`docs/opd/robotwin2/PILOT_RESULTS_20261101.md` for the retained evidence.

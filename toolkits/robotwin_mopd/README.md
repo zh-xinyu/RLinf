@@ -1,9 +1,10 @@
 # Four-task RoboTwin MOPD pilot
 
-This isolated pilot consolidates four PACE single-task π0.5 teachers into one
-base π0.5 student. It uses the existing M3 objective, task-balanced supervision,
+This isolated pilot trains one base π0.5 student from four PACE single-task
+teachers. The initial experiments have not demonstrated task-success gains. It uses the existing M3 objective, task-balanced supervision,
 native control, and current-student flow refresh. See
-`docs/opd/robotwin2/EXPERIMENTS_20261101.md` for the experiment plan.
+`docs/opd/robotwin2/EXPERIMENTS_20261101.md` for the experiment plan and
+`docs/opd/robotwin2/PILOT_RESULTS_20261101.md` for measured results and exact runs.
 
 - Runtime and simulator: [setup/README.md](setup/README.md).
 - Pinned checkpoints, conversion and JAX/PyTorch checks:

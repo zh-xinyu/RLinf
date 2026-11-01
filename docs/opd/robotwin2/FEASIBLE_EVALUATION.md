@@ -1,6 +1,8 @@
-# RoboTwin 固定可行场景补充评测
+# RoboTwin 固定可行场景补充评测（未验证设计）
 
-2026-11-01。本轮训练继续使用 **unfiltered scenes + seen instructions**；已经运行的 matching unfiltered teacher/student 结果保留为 pilot 参照。新增评测采用 **固定 scripted-expert-screened scenes + unseen instructions**，不混在同一成绩表中，也不因此修改训练。
+2026-11-01。**当前状态：STOPPED_PROTOCOL_UNVALIDATED。** 实测MPLib筛选反复出现invalid-start/self-collision，首个候选失败耗时121秒；没有完成可行场景池，也没有运行此协议下的teacher/base/student测评。保留`outputs/robotwin4/eval/feasible_unseen_bucket_step40/`全部现场，具体风险见 [FLOW_PROBE](FLOW_PROBE.md)。
+
+本轮实际训练与测评均为 **unfiltered scenes + seen instructions**。以下保留原拟采用的固定scripted-expert-screened/unseen补充协议设计与命令；在planner兼容性验证前，不把它当当前正式实验入口。
 
 ## 协议与用途
 
@@ -40,5 +42,5 @@ CUDA_VISIBLE_DEVICES=0 python toolkits/robotwin_mopd/feasible_pool.py \
 ## 当前验证范围
 
 - 9 项 CPU 单测通过：planner/task 双成功条件、异常清理、prompt 来自成功 expert info、动作不保留、pool 哈希、partial/duplicate 拒绝、显卡占用拒绝，以及筛选与 NativeTaskSlot 固定重放共享 `is_test` 等运行标记。
-- 开发时没有占用训练 GPU，也没有生成真实场景池；真实 planner 验证由后续空闲队列执行。
+- 空闲后真实planner尝试未通过，队列已主动停止；没有完整场景池。CPU逻辑测试不能代替真实planner兼容性验证。
 - 配置与代码接口已按 docs-check 核对；本文件是内部实验说明，无独立 EN/ZH Sphinx 页面。

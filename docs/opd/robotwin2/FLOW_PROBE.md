@@ -2,7 +2,7 @@
 
 目的：解释当前 projected velocity MSE 与任务 SR 的差距，不改变训练 loss，也不把诊断当作成功率评测。
 
-模型生成 50×32 的 latent trajectory，当前 M3 返回前 25 个位置的 velocity，实际执行前 25×14。这个工具在 student 访问的同一个 `(observation, x_t, t)` 上比较完整 student/teacher velocity，并比较相同初始 noise 下分别积分得到的完整 endpoint。
+模型生成 50×32 的 latent trajectory，默认 M3 返回前 25 个位置的 velocity，实际执行前 25×14。这个工具在 student 访问的同一个 `(observation, x_t, t)` 上比较完整 student/teacher velocity，并比较相同初始 noise 下分别积分得到的完整 endpoint。
 
 - 每次明确选择固定评测池或普通 seen reset；默认取前 4 个决策观测；最多执行 3 个 chunk / 75 个 control targets，原生终止时提前停止。
 - 时间索引 `0 4 9` 对应 `1.0, 0.6, 0.1`；不是全时间积分，也不能直接当训练 MSE 的估计。
@@ -47,7 +47,7 @@ CPU 测试覆盖统计、同 noise/同 student path/真实时间网格、最多�
 
 `actor.model.openpi.nft_full_horizon` 默认 `false`，保持现有前 `25×32` 的 M1/M3 监督。显式使用 Hydra override `+actor.model.openpi.nft_full_horizon=true` 后，student 与 routed teacher 的 NFT 输出均保留完整 `50×32`；要求 `reward_type=chunk_level`，以观测/chunk 的有效性 mask 广播到完整 latent。实际 action 执行仍是 `25×14`，ODE、时间权重和机器人 reset 不变。
 
-完整 horizon 的 loss/velocity MSE 对 50 个位置取均值，分母是原来的两倍，前25位置的单元素梯度系数也相应减半。因此新旧训练 MSE 数值不是同一口径，应使用同一 probe 的 first25/last25 分区统计比较。四任务短 probe 的尾段误差较大支持尝试此选项，但不证明它导致 SR 不响应；若从已有 student checkpoint 继续训练，这只是效率优先的跟进试验，不是控制其他条件的因果消融。
+在固定batch与有效mask时，完整 horizon 的 loss/velocity MSE 对50个位置取均值，分母翻倍，前25位置的单元素梯度系数减半；本次follow-up也改变了B，需另行考虑batch平均系数。因此新旧训练 MSE 数值不是同一口径，应使用同一 probe 的 first25/last25 分区统计比较。四任务短 probe 的尾段误差较大支持尝试此选项，但不证明它导致 SR 不响应；若从已有 student checkpoint 继续训练，这只是效率优先的跟进试验，不是控制其他条件的因果消融。
 
 
 ## 已完成 GPU 诊断（step40）
@@ -62,3 +62,21 @@ CPU 测试覆盖统计、同 noise/同 student path/真实时间网格、最多�
 | stack_bowls_two | 0.2635 / 0.4888 | 0.0949 / 0.2163 | 0.5285 → 0.0703 |
 
 表内均为normalized physical14坐标。证明拟合有进展，但不证明任务能力提升或后半段误差的因果作用。来源：`outputs/robotwin4/analysis/flow_probe_step40_unfiltered/summary.json`及逐任务reports。
+
+
+## 温启动follow-up与数值检查
+
+两段训练的最终独立SR都为0/20。下表只比较同一初始seed/prompt/noise的normalized physical14 endpoint MSE；teacher初始endpoint RMS也一致。后续观测受策略影响，因此不将四观测aggregate解释为严格配对比较。
+
+| Task | 初始pilot first25 / last25 | Full-horizon follow-up first25 / last25 |
+|---|---:|---:|
+| adjust_bottle | 0.0643 / 0.3362 | 0.0234 / 0.0906 |
+| handover_mic | 0.0890 / 0.3130 | 0.1539 / 0.5193 |
+| place_container_plate | 0.1001 / 0.4265 | 0.0392 / 0.1907 |
+| stack_bowls_two | 0.0703 / 0.2168 | 0.0690 / 0.3052 |
+
+结果并非一致改善：adjust/place下降，handover上升，stack前25接近而后25上升；这组同时改变了训练量、T/B/R和监督范围，不支持full-horizon的单因素因果结论。
+
+额外在真实最终checkpoint、adjust初始场景的3个ODE时刻比较joint/cached forward：physical14 MSE为1.4e-5–4.9e-5；joint加BF16 autocast为2.0e-5–1.8e-4。此差异远小于当前student/teacher误差；它是unsharded eval数值sanity check，不是完整分布式训练等价性证明。
+
+新来源：`outputs/robotwin4/analysis/flow_probe_fullflow_step40_unfiltered/comparison_summary.json`、`joint_cached_adjust_bottle.json`；检查脚本保留在`outputs/robotwin4/analysis/check_joint_cached.py`。全部13份GPU诊断已完成，不需继续等待训练或排队。
