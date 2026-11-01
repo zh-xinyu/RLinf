@@ -20,7 +20,7 @@ from toolkits.robocasa_mopd import owned_ray, resources, run
 @pytest.fixture
 def release_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("OPD_MODEL_ROOT", str(tmp_path / "teachers"))
-    monkeypatch.setenv("OPD_STUDENT_CHECKPOINT", str(tmp_path / "C10"))
+    monkeypatch.setenv("OPD_STUDENT_CHECKPOINT", str(tmp_path / "Joint-SFT-Full"))
     monkeypatch.setenv("OPD_RUN_DIR", str(tmp_path / "run"))
     monkeypatch.setenv("OPD_TEACHER_REFERENCE", str(tmp_path / "reference.json"))
     monkeypatch.setenv("EMBODIED_PATH", str(run.REPO / "examples/embodiment"))
@@ -80,7 +80,7 @@ def test_smoke_only_changes_budget_output_and_logging(release_paths):
 def test_resource_binding_verifies_bytes_before_relocating(tmp_path, monkeypatch):
     inputs = tmp_path / "inputs"
     inputs.mkdir()
-    paths = {"C10": tmp_path / "C10"}
+    paths = {"Joint-SFT-Full": tmp_path / "Joint-SFT-Full"}
     suites = ("atomic_seen", "composite_seen", "composite_unseen")
     for suite in suites:
         paths[suite] = (
@@ -106,7 +106,7 @@ def test_resource_binding_verifies_bytes_before_relocating(tmp_path, monkeypatch
     (inputs / "teacher_reference.portable.json").write_text(json.dumps(reference))
     monkeypatch.setattr(resources, "INPUTS", inputs)
     output = tmp_path / "bound.json"
-    resources.prepare(paths["C10"], tmp_path / "teachers", output)
+    resources.prepare(paths["Joint-SFT-Full"], tmp_path / "teachers", output)
     bound = json.loads(output.read_text())
     assert bound["tasks"] == reference["tasks"]
     assert bound["training_signature"] == reference["training_signature"]
@@ -114,9 +114,12 @@ def test_resource_binding_verifies_bytes_before_relocating(tmp_path, monkeypatch
     assert bound["checkpoint_manifest_sha256"] == formal_eval.sha256(
         inputs / "checkpoints.json"
     )
-    (paths["C10"] / "model.safetensors").write_bytes(b"bad")
+    corrupted = paths["Joint-SFT-Full"] / "model.safetensors"
+    corrupted.write_bytes(b"x" * corrupted.stat().st_size)
     with pytest.raises(ValueError, match="SHA256 mismatch"):
-        resources.prepare(paths["C10"], tmp_path / "teachers", tmp_path / "bad.json")
+        resources.prepare(
+            paths["Joint-SFT-Full"], tmp_path / "teachers", tmp_path / "bad.json"
+        )
     assert not (tmp_path / "bad.json").exists()
 
 

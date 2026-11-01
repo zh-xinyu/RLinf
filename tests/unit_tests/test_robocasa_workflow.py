@@ -21,7 +21,7 @@ def machine_file(tmp_path):
         "hostname": socket.gethostname().split(".")[0],
         "runtime_root": str(tmp_path / "runtime"),
         "resource_root": str(tmp_path / "resources"),
-        "student_checkpoint": str(tmp_path / "C10"),
+        "student_checkpoint": str(tmp_path / "Joint-SFT-Full"),
         "output_root": str(tmp_path / "output"),
         "wandb_entity": "team",
         "wandb_mode": "offline",
@@ -57,6 +57,58 @@ def test_machine_rejects_wrong_host_and_unknown_keys(tmp_path):
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="exactly"):
         experiment.load_machine(path)
+
+
+@pytest.mark.parametrize("mode", ["disabled", "offline"])
+def test_local_logging_needs_no_account_or_login(tmp_path, monkeypatch, mode):
+    path = machine_file(tmp_path)
+    value = json.loads(path.read_text())
+    value.update(wandb_entity="", wandb_mode=mode)
+    path.write_text(json.dumps(value))
+    machine = experiment.load_machine(path)
+    monkeypatch.setenv("WANDB_ENTITY", "unrelated-team")
+    monkeypatch.setenv("WANDB_DISABLED", "true")
+    env = experiment.environment(machine)
+    assert "WANDB_ENTITY" not in env and "WANDB_DISABLED" not in env
+    assert env["WANDB_MODE"] == mode
+    assert experiment.commands_for(argparse.Namespace(command="login"), machine) == []
+
+
+def test_online_logging_uses_collaborator_account(tmp_path):
+    path = machine_file(tmp_path)
+    value = json.loads(path.read_text())
+    value.update(wandb_entity="", wandb_mode="online")
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="username or team"):
+        experiment.load_machine(path)
+    value["wandb_entity"] = "collaborator-account"
+    path.write_text(json.dumps(value))
+    machine = experiment.load_machine(path)
+    assert experiment.environment(machine)["WANDB_ENTITY"] == "collaborator-account"
+    assert experiment.commands_for(argparse.Namespace(command="login"), machine) == [
+        [str(Path(machine["runtime_root"]) / "venv/bin/wandb"), "login"]
+    ]
+
+
+@pytest.mark.parametrize("arm", list(experiment.ARMS))
+def test_disabling_wandb_only_changes_logger_backend(tmp_path, monkeypatch, arm):
+    from omegaconf import OmegaConf
+
+    machine = experiment.load_machine(machine_file(tmp_path))
+    for key, value in experiment.environment(machine).items():
+        if key.startswith(("OPD_", "EMBODIED_")):
+            monkeypatch.setenv(key, value)
+    monkeypatch.setenv("WANDB_MODE", "online")
+    online = run.training_config(arm, "logger-test")[0]
+    monkeypatch.setenv("WANDB_MODE", "disabled")
+    local, _, command = run.training_config(arm, "logger-test")
+    assert local.runner.logger.logger_backends == ["tensorboard"]
+    assert "runner.logger.logger_backends=[tensorboard]" in command
+    assert "wandb" in online.runner.logger.logger_backends
+    online.runner.logger.logger_backends = ["tensorboard"]
+    assert OmegaConf.to_container(online, resolve=True) == OmegaConf.to_container(
+        local, resolve=True
+    )
 
 
 def test_outputs_binding_never_replaces_existing_data(tmp_path, monkeypatch):
@@ -104,7 +156,7 @@ def test_matrix_entry_and_checkpoint_schedule(tmp_path, monkeypatch, arm):
 def test_all_twenty_five_evaluations_and_template_budgets(tmp_path):
     machine = experiment.load_machine(machine_file(tmp_path))
     command = experiment.commands_for(
-        argparse.Namespace(command="eval", arm="c10", round=None), machine
+        argparse.Namespace(command="eval", arm="joint-sft-full", round=None), machine
     )[0]
     assert "--weights" not in command and "--intermediate" not in command
     rows = results.template_rows()
@@ -127,6 +179,9 @@ def fake_eval(folder, monkeypatch):
         for suite, entries in manifest.items()
         for name, horizon in entries.items()
     ]
+    inputs = json.loads(
+        (experiment.REPO / "docs/opd/collaboration/checkpoints.json").read_text()
+    )["checkpoints"][experiment.INITIALIZATION]
     plan = {
         "mode": "formal",
         "protocol": "rlinf-robocasa365-target50-native-v1",
@@ -134,7 +189,13 @@ def fake_eval(folder, monkeypatch):
         "episodes_per_task": 50,
         "tasks": tasks,
         "weights": None,
-        "base_model_sha256": {"weights": "hash"},
+        "base_model_sha256": {
+            name: record["sha256"]
+            for name, record in inputs.items()
+            if name.endswith((".safetensors", ".safetensors.index.json"))
+        },
+        "base_config_sha256": inputs["config.json"]["sha256"],
+        "base_metadata_sha256": inputs["experiment_cfg/metadata.json"]["sha256"],
     }
     (folder / "plan.json").write_text(json.dumps(plan))
     with (folder / "per_task_results.csv").open("w", newline="") as stream:
@@ -196,6 +257,18 @@ def test_result_rejects_twenty_episode_or_wrong_checkpoint(tmp_path, monkeypatch
         results.evaluation_scores(folder, None)
 
 
+@pytest.mark.parametrize(
+    "field", ["base_model_sha256", "base_config_sha256", "base_metadata_sha256"]
+)
+def test_result_rejects_different_initialization(tmp_path, monkeypatch, field):
+    folder = tmp_path / "eval"
+    plan = fake_eval(folder, monkeypatch)
+    plan[field] = {"old-model": "hash"} if field == "base_model_sha256" else "old-hash"
+    (folder / "plan.json").write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="initialization"):
+        results.evaluation_scores(folder, None)
+
+
 def test_result_rejects_incomplete_task_results(tmp_path, monkeypatch):
     folder = tmp_path / "eval"
     fake_eval(folder, monkeypatch)
@@ -232,3 +305,49 @@ def test_round_time_uses_completed_update_steps(tmp_path, monkeypatch):
         writer.add_scalar("time/rollout_round", 20.0, 2)
         writer.add_scalar("time/rollout_round", 30.0, 4)
     assert results.round_times("m1") == {2: 20.0, 4: 30.0}
+
+
+def test_complete_result_without_wandb(tmp_path, monkeypatch):
+    from torch.utils.tensorboard import SummaryWriter
+
+    directory = tmp_path / "outputs/eval" / experiment.eval_id("m0", 25)
+    directory.parent.mkdir(parents=True)
+    plan = fake_eval(directory, monkeypatch)
+    plan["weights"] = str(experiment.weights_path("m0", 25))
+    plan["weights_sha256"] = "checkpoint-hash"
+    (directory / "plan.json").write_text(json.dumps(plan))
+    (directory / "status").write_text("OK\n")
+    folder = tmp_path / "outputs/train" / experiment.ARMS["m0"][0]
+    with SummaryWriter(str(folder / "tensorboard")) as writer:
+        for update in range(1, 26):
+            writer.add_scalar("time/rollout_round", 10.0, update)
+    (folder / "optimizer_updates.jsonl").write_text(
+        json.dumps(
+            {
+                "update_step": 25,
+                "interaction/rollout_rounds": 25,
+                "interaction/rollout_trajectories": 2400,
+                "interaction/simulation_steps": 123456,
+            }
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(experiment, "REPO", tmp_path)
+    # Public manifests identify tasks and initialization without model files or W&B.
+    for relative in (
+        "evaluations/robocasa365/target50_manifest.json",
+        "docs/opd/collaboration/checkpoints.json",
+    ):
+        manifest = tmp_path / relative
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        original = Path(__file__).resolve().parents[2] / relative
+        manifest.write_bytes(original.read_bytes())
+    row = next(
+        r
+        for r in results.collect()
+        if r["experiment"] == "M0" and r["rollout_round"] == 25
+    )
+    assert row["status"] == "COMPLETE"
+    assert not row.get("wandb_url") and not row["notes"]
+    assert row["training_round_seconds"] == 250.0
+    assert row["suite_macro_sr"] == pytest.approx(1 / 3)

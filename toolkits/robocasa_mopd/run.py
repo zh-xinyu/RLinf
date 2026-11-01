@@ -47,12 +47,13 @@ def training_config(experiment: str, run_id: str, smoke: bool = False):
         f"runner.logger.experiment_name={run_id}",
         f"hydra.run.dir={json.dumps(str(output))}",
     ]
+    if smoke or os.environ.get("WANDB_MODE") == "disabled":
+        overrides.append("runner.logger.logger_backends=[tensorboard]")
     if smoke:
         r = 1 if experiment.lower() in {"m0", "m3"} else 2
         overrides += [
             f"runner.max_steps={2 * r}",
             f"runner.save_interval={2 * r}",
-            "runner.logger.logger_backends=[tensorboard]",
         ]
     with initialize_config_dir(
         version_base=None, config_dir=str(REPO / "examples/embodiment/config")
@@ -127,7 +128,7 @@ def main() -> None:
     )
     evaluate = sub.add_parser("eval")
     evaluate.add_argument(
-        "--weights", type=Path, help="Omit only for the shared C10 baseline"
+        "--weights", type=Path, help="Omit only for the shared Joint-SFT-Full baseline"
     )
     evaluate.add_argument(
         "--intermediate", action="store_true", help="20 episodes/task; otherwise 50"

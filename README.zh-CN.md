@@ -1,11 +1,11 @@
 # 机器人策略的多教师 On-Policy Distillation
 
-Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffc10b67c61c8e4b73208b45)。[English](README.md)
+Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffjoint-sft-fullb67c61c8e4b73208b45)。[English](README.md)
 
 本项目将多个任务专家 VLA 的能力融合到一个 flow-based student 中。当前使用
 GR00T N1.5、RoboCasa365 三个 suites（atomic seen、composite seen、composite
-unseen），共 50 个操作任务、3 个 specialist teachers；student 从使用 10% 数据
-联合 SFT 得到的 C10 checkpoint 出发。
+unseen），共 50 个操作任务、3 个 specialist teachers；student 从全量数据
+联合 SFT 得到的 Joint-SFT-Full checkpoint 出发（每任务 500 条、共 25,000 条示范）。
 
 研究两个互补机制：
 
@@ -24,8 +24,8 @@ unseen），共 50 个操作任务、3 个 specialist teachers；student 从使�
 | 理解训练实现与指标 | [开发说明](OPD_DEVELOPMENT.md) |
 | 独立评测 | [评测协议](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-固定实验 tag：`robocasa-formal-150r-handoff-20261031`；`opd-project-main` 继续作为开发基线。
-正式配方使用单机 8×48GB GPU；四组均从 C10 开始，每轮 96 条轨迹，训练 150 轮，
+固定实验 tag：`robocasa-mopd-joint-sft-full-v1`；`opd-project-main` 继续作为开发基线。
+正式配方使用单机 8×48GB GPU；四组均从 Joint-SFT-Full 开始，每轮 96 条轨迹，训练 150 轮，
 每 25 轮保存。完整参数和结果交付要求见交接指南。
 
 模型和仿真资产另行准备。个人机器路径、凭据、原始运行数据与研究草稿不作为安装
@@ -35,7 +35,7 @@ unseen），共 50 个操作任务、3 个 specialist teachers；student 从使�
 
 四组训练 YAML 已提供；合作者只需复制
 [machine.example.json](toolkits/robocasa_mopd/machine.example.json) 到仓库外，
-一次填写机器名、路径与 W&B team。之后全部使用
+一次填写机器名和路径。W&B 可选、默认关闭；本地 TensorBoard/JSONL 日志与汇总 CSV 必须保留。之后全部使用
 `python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json <command>`。
 完整顺序是安装、资源、验证、训练、评测、汇总；无需分散设置 export 或手动激活环境。
 

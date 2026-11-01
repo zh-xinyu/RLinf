@@ -2,8 +2,8 @@
   "hostname": "REPLACE_WITH_HOSTNAME_SHORT",
   "runtime_root": "/absolute/path/opd-runtime",
   "resource_root": "/absolute/path/opd-resources",
-  "student_checkpoint": "/absolute/path/C10/checkpoint-60000",
+  "student_checkpoint": "/absolute/path/joint-sft-full/checkpoint-60000",
   "output_root": "/absolute/path/opd-results",
-  "wandb_entity": "REPLACE_WITH_SHARED_TEAM_SLUG",
-  "wandb_mode": "online"
+  "wandb_entity": "",
+  "wandb_mode": "disabled"
 }

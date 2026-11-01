@@ -15,6 +15,7 @@ from toolkits.robocasa_mopd import experiment
 
 FIELDS = [
     "experiment",
+    "initialization",
     "training_seed",
     "rollout_round",
     "optimizer_updates",
@@ -43,22 +44,23 @@ def template_rows() -> list[dict]:
     """Create empty measured fields and explicit expected budgets, not fake results."""
     rows = []
     for arm, rounds in [
-        ("c10", [0]),
+        ("joint-sft-full", [0]),
         *[(arm, experiment.ROUNDS) for arm in experiment.ARMS],
     ]:
         for r in rounds:
-            repeats = 0 if arm == "c10" else experiment.ARMS[arm][1]
+            repeats = 0 if arm == "joint-sft-full" else experiment.ARMS[arm][1]
             rows.append(
                 {
                     "experiment": arm.upper(),
-                    "training_seed": "" if arm == "c10" else 0,
+                    "initialization": experiment.INITIALIZATION,
+                    "training_seed": "" if arm == "joint-sft-full" else 0,
                     "rollout_round": r,
                     "optimizer_updates": r * repeats,
                     "episodes_per_task": 50,
                     "num_tasks": 50,
                     "expected_training_trajectories": r * 96,
-                    "checkpoint_id": "C10"
-                    if arm == "c10"
+                    "checkpoint_id": "Joint-SFT-Full"
+                    if arm == "joint-sft-full"
                     else f"{arm.upper()}/U{r * repeats}",
                     "eval_directory": f"outputs/eval/{experiment.eval_id(arm, r)}",
                     "status": "PENDING",
@@ -82,13 +84,30 @@ def evaluation_scores(directory: Path, expected_weights: Path | None) -> dict:
         raise ValueError("Expected formal evaluation, 50 episodes/task, seed7")
     if plan["protocol"] != "rlinf-robocasa365-target50-native-v1":
         raise ValueError("Unexpected evaluation protocol")
+    inputs = json.loads(
+        (experiment.REPO / "docs/opd/collaboration/checkpoints.json").read_text()
+    )["checkpoints"][experiment.INITIALIZATION]
+    expected_base = {
+        name: record["sha256"]
+        for name, record in inputs.items()
+        if name.endswith((".safetensors", ".safetensors.index.json"))
+    }
+    if (
+        plan.get("base_model_sha256") != expected_base
+        or plan.get("base_config_sha256") != inputs["config.json"]["sha256"]
+        or plan.get("base_metadata_sha256")
+        != inputs["experiment_cfg/metadata.json"]["sha256"]
+    ):
+        raise ValueError("Evaluation initialization does not match Joint-SFT-Full")
     if {(t["suite"], t["task"]): t["horizon"] for t in plan["tasks"]} != tasks or len(
         plan["tasks"]
     ) != 50:
         raise ValueError("Evaluation task manifest mismatch")
     if expected_weights is None:
         if plan["weights"] is not None:
-            raise ValueError("C10 evaluation must not have a trained-weight override")
+            raise ValueError(
+                "Joint-SFT-Full evaluation must not have a trained-weight override"
+            )
     else:
         # Compare the stable path suffix; result directories may move between machines.
         if (
@@ -190,14 +209,14 @@ def collect() -> list[dict]:
                 if status.is_file() and status.read_text().strip() == "OK":
                     expected = (
                         None
-                        if arm == "c10"
+                        if arm == "joint-sft-full"
                         else experiment.weights_path(arm, row["rollout_round"])
                     )
                     row.update(evaluation_scores(directory, expected))
                     row["status"] = "EVAL_COMPLETE"
                 else:
                     row["status"] = "INCOMPLETE"
-            if arm == "c10":
+            if arm == "joint-sft-full":
                 row.update(
                     training_trajectories=0,
                     training_simulation_steps=0,

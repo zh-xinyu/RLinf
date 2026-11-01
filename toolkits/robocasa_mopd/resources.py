@@ -18,7 +18,7 @@ INPUTS = REPO / "docs/opd/collaboration"
 def checkpoint_paths(student: Path, teachers: Path) -> dict[str, Path]:
     """Map the four logical inputs to their local checkpoint directories."""
     return {
-        "C10": student.resolve(strict=True),
+        "Joint-SFT-Full": student.resolve(strict=True),
         **{
             suite: (
                 teachers / "target_posttraining" / suite / "checkpoint-60000"
@@ -47,7 +47,7 @@ def prepare(student: Path, teachers: Path, output: Path) -> None:
         print(f"Verified {name}", flush=True)
     reference = json.loads((INPUTS / "teacher_reference.portable.json").read_text())
     reference["teacher_checkpoints"] = {
-        name: str(path) for name, path in paths.items() if name != "C10"
+        name: str(path) for name, path in paths.items() if name != "Joint-SFT-Full"
     }
     reference["checkpoint_manifest_sha256"] = sha256(INPUTS / "checkpoints.json")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +66,7 @@ def download_teachers(destination: Path) -> None:
     patterns = [
         f"{prefix}/target_posttraining/{suite}/checkpoint-60000/{file}"
         for suite, files in manifest["checkpoints"].items()
-        if suite != "C10"
+        if suite != "Joint-SFT-Full"
         for file in files
     ]
     snapshot_download(

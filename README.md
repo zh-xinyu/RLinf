@@ -1,12 +1,12 @@
 # Multi-Teacher On-Policy Distillation for Robot Policies
 
-Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffc10b67c61c8e4b73208b45).
+Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffjoint-sft-fullb67c61c8e4b73208b45).
 
 This project consolidates task-specialist vision-language-action policies into
 one flow-based student. Our current setting uses GR00T N1.5 and RoboCasa365's
 atomic-seen, composite-seen, and composite-unseen suites: 50 manipulation tasks,
-three specialist teachers, and a joint student initialized from a 10%-data SFT
-checkpoint (C10).
+three specialist teachers, and a joint student initialized from full-data joint SFT
+(Joint-SFT-Full: 500 demonstrations per task, 25,000 demonstrations total).
 
 We study two complementary mechanisms:
 
@@ -21,13 +21,13 @@ We study two complementary mechanisms:
 | --- | --- |
 | Reproduce the current software environment | [Fixed GR00T/RoboCasa365 profile](OPD_ENVIRONMENT.md) |
 | Run the four agreed experiments, including setup and evaluation | [Collaborator / coding-agent handoff](docs/opd/collaboration/README.md) |
-| Obtain and verify C10, teachers, and simulator assets | [Resources](docs/opd/collaboration/RESOURCES.md) |
+| Obtain and verify Joint-SFT-Full, teachers, and simulator assets | [Resources](docs/opd/collaboration/RESOURCES.md) |
 | Understand the training implementation and metrics | [Development guide](OPD_DEVELOPMENT.md) |
 | Inspect the independent evaluation protocol | [RoboCasa365 evaluation](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-The experiment release is pinned by Git tag `robocasa-formal-150r-handoff-20261031`.
+The experiment release is pinned by Git tag `robocasa-mopd-joint-sft-full-v1`.
 Use that tag for reproduction; `opd-project-main` remains the development base.
-Training uses eight 48-GB GPUs on one machine. Every arm starts from C10,
+Training uses eight 48-GB GPUs on one machine. Every arm starts from Joint-SFT-Full,
 collects 96 trajectories per rollout round, runs 150 rounds, and saves every
 25 rounds. The handoff defines all remaining controls and result requirements.
 
@@ -45,8 +45,10 @@ fully adapted to this project; use the OPD entries above for reproduction.
 
 The four training YAMLs are already provided. Copy
 [`machine.example.json`](toolkits/robocasa_mopd/machine.example.json) outside the
-repository and fill in your hostname, paths, and W&B team once. Every stage then
-uses the same entrypoint; no shell exports or manual runtime activation are needed:
+repository and fill in your hostname and paths once. W&B is optional and disabled
+by default; local TensorBoard/JSONL logs and the summary CSV are always required.
+Every stage uses the same entrypoint; no shell exports or manual runtime activation
+are needed:
 
 ```bash
 python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json paths

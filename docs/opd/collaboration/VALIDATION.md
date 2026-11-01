@@ -64,3 +64,72 @@ directory; the new evaluation command resolves that path automatically.
 This entrypoint validation did not reinstall the full runtime or run new
 multi-GPU simulator training. The receiving machine must still complete the
 installation/resource checks and the documented eight-GPU smoke sequence.
+
+## Handoff review — 2026-11-01
+
+Release tag: `robocasa-formal-150r-handoff-20261101`.
+
+- W&B is optional: the machine template defaults to disabled logging, online
+  users choose their own username/team, and offline/disabled modes skip login.
+  Disabled mode removes the W&B backend while retaining TensorBoard and JSONL.
+- Passed **178 targeted tests**, including all four formal configurations,
+  flow losses/refresh, suite allocation/weighting, profile contracts, independent
+  evaluation, and result collection. New tests check that disabling W&B changes
+  only the logger backend and that a result with no W&B URL can be complete.
+- C10 is available from the public project HF repository at revision
+  `6d74e06da27996ae7802fb9b83b6697e07590a1f`. All five input file sizes and SHA256
+  values match the existing checkpoint manifest; no model contents changed.
+- Reviewed the current tracked tree (1,961 files): no matches in the scanned
+  HF/GitHub/AWS credential, private-key, or literal API-token patterns; no tracked
+  model weights, raw outputs, personal node env files, meeting documents, or mail
+  handoff files; no individual tracked file larger than 10 MiB. This is a bounded
+  current-tree scan, not a full-history or comprehensive security audit.
+- RLinf attribution and Apache-2.0 license remain present. Third-party models,
+  assets, and source repositories retain their own licenses. Historical mechanism
+  study records remain tracked as provenance; their old machine paths are not
+  installation inputs. Public pi0.5 config paths are environment inputs.
+- The learning code, YAML recipes, runtime profile, evaluation protocol, and
+  result CSV schema are unchanged by this handoff revision. The private task
+  sheet and blank CSV remain outside Git and are sent separately.
+
+Receiving-machine installation and eight-GPU smoke checks are still required.
+This review does not claim a new full environment installation, formal training
+run, or a fully hash-locked simulator asset snapshot.
+
+## Joint-SFT-Full initialization release — 2026-11-01
+
+Release tag: `robocasa-mopd-joint-sft-full-v1`.
+
+The collaborator had not started training when the initialization was changed.
+All four arms now start from **Joint-SFT-Full**, the full-data joint SFT model
+trained on 50 tasks, 500 demonstrations/task, 25,000 demonstrations total, for
+60,000 updates. The previous C10 releases and historical results are preserved;
+they are not results for this new initialization.
+
+- Uploaded only the five inference files to the project HF repository under
+  `robocasa365/groot-n15/joint-sft-full/checkpoint-60000` at revision
+  `ee4d8c4a3ba01e092ed91b8bd6e452e28831026e`. Checked local SHA256 and size,
+  remote LFS SHA256/size for shards, and downloaded small-file contents.
+- Updated the checkpoint manifest with model hashes and SFT provenance. The
+  three teachers and their calibration statistics are unchanged; rerun
+  `prepare` to bind the new manifest to machine-local paths.
+- New run IDs and the W&B group identify the initialization. The baseline
+  command is `eval joint-sft-full`; every CSV row includes `initialization`.
+  The collector checks initial weight/config/metadata hashes as well as the
+  trained checkpoint identity, preventing old-baseline results from being
+  accepted as this release.
+- All **181 regression tests passed in a clean tracked-file snapshot**, without
+  private launchers, personal node env files, or email attachments. Coverage
+  includes all four recipes, initialization hash rejection, resource binding,
+  flow refresh, suite allocation/weighting, evaluation, and result collection.
+- Real Joint-SFT-Full and three teacher inputs passed complete file verification.
+  Four-arm preflight passed both in the workspace and the clean snapshot using
+  the new input manifest and machine-local teacher reference.
+- Public guides, English/Chinese READMEs, and the separate mail package use
+  the new model and fixed release. The new blank template has 25 pending rows.
+  Earlier validation sections above describe their original releases.
+
+Learning algorithms, teachers, T96/B2304/micro32, LR3e-5/warmup10, R1/R2,
+150 physical rounds, save-every-25-rounds and 50 episodes/task are unchanged.
+No new training or simulator evaluation is claimed here; receiving-machine
+installation checks and both smoke jobs remain required.
