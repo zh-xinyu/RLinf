@@ -1,6 +1,6 @@
 # RoboTwin pilot live status
 
-Updated 2026-11-01, action00. Goal remains active; pilot results are still pending.
+Updated 2026-11-01, action00. Goal remains active. Pilot hit a verified weight-sync OOM after update8; owned launcher has been signaled for scoped cleanup. Repair/restart pending.
 
 - Worktree: `outputs/worktrees/robotwin4`
 - Branch: `dev/mopd-robotwin2-four-task`; commits `8a9313fa`, `fad60d6c`.
@@ -49,3 +49,17 @@ Both queues are waiting without GPU children and never stop training or unrelate
 The official screening rule is scripted planner `plan_success AND check_success`; it does not select scenes based on learned teacher/student success. No scripted action data enter training. Current training remains unfiltered/seen. All5episode results are pilot estimates, not formal benchmark scores.
 
 New evaluation, fixed-seed adapter, queues and calibration budget accounting:35CPU tests, Ruff and git diff checks passed. Calibration records20teacher episodes,5379executed control targets, and219.39s approximate launch-manifest-to-last-result wall time; the478.01s sum of parallel episode durations is separately labeled.
+
+## Round3 update
+
+Updates5/6 completed: velocity MSE0.90990/0.47021, gradient norms2.1017/1.1633, all finite. Update6 task MSE: adjust0.37376, handover0.55558, place0.76869, stack0.18283. All four tasks show early optimization response; this alone does not establish closed-loop improvement. Round3 rollout SR1/64 was collected before these updates. Continue the unchanged20round pilot and independent evaluations.
+
+## Round4 update
+
+Updates7/8 completed: MSE0.41558/0.41516, gradient norms0.73483/0.99996. The first update uses fresh physical-rollout observations, so round3's reduction persists beyond reuse of its observation pool. Round4 rollout success remains1/64; capability gain is still unproven. Update8 task MSE: adjust0.33370, handover0.43812, place0.78303, stack0.10580. Cross-task MSE magnitudes are in distinct task-normalized action spaces and should not be interpreted directly as relative task proficiency.
+
+## Failure after update8: weight-sync peak
+
+The first four rounds/8updates completed with finite gradients. On entry to round5, rollout rank0 failed in collective IPC `tensor.clone()` while receiving a2GiB tensor. GPU0 had actor36.00GiB + environment3.58GiB + rollout7.47GiB; only284.5MiB remained. This was not backward OOM or another user's process. The collective queue thread failed while launcher remained alive, so the exact owned launcher PID2884880 was sent SIGTERM to invoke its scoped cleanup. Full traceback and operator_note.json retained. No pilot checkpoint had yet been saved (save interval20updates). Do not evaluate this as a completed40update run or silently resume from the unrelated smoke.
+
+Both downstream evaluation queues are tied to this original launcher and must stop at its FAILED gate. A repaired run will need new queue/output paths and its own launcher identity. Investigate sync tensor lifetime/staging before restarting; retain FP32 actor masters.

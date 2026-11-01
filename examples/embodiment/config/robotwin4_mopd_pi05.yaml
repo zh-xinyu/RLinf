@@ -4,7 +4,7 @@ defaults:
 - env/robotwin_four_task_clean@env.eval
 - model/pi0_5@actor.model
 - hybrid_engines/fsdp@actor.fsdp_config
-- weight_syncer/patch_syncer@weight_syncer
+- weight_syncer/bucket_syncer@weight_syncer
 - _self_
 - override hydra/job_logging: stdout
 hydra:
@@ -175,3 +175,11 @@ reward:
   use_reward_model: false
 critic:
   use_critic_model: false
+
+# Dense FP32 updates are streamed instead of one full-model sparse COO patch.
+# Individual tensors are not split; the largest embedding is about 1.96 GiB.
+weight_syncer:
+  bucket:
+    bucket_size: 134217728
+    bucket_dtype: null
+    load_instant: true
