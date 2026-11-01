@@ -59,3 +59,13 @@ T16×2 rounds：adjust 0/8、handover 0/8、place 6/8、stack 0/8，总计6/32�
 新增诊断/四GPU launcher及环境相关29项CPU测试通过，Ruff与diff check通过。根workspace的RoboCasa代码未改。
 
 更详细的仿真源码审计和微基准见 [仿真性能备忘](SIMULATION_PERFORMANCE_NOTES.md)。
+
+## 运行中快照（不是最终结论）
+
+截至4/20次更新、2轮rollout：完整teacher打分、反向、flow refresh、权重同步和下一轮rollout已通过。MSE约0.43–0.48，warmup刚结束，暂无新增任务成功。原任务训练rollout为3/4、2/4，其余任务0/4；不同场景且样本很少，不能认定遗忘。第一次同源teacher/student的place velocity MSE=5.03e-5，其他task约0.44–0.70，支持监督路由与前向匹配。
+
+单次反向约25.5秒，refresh更新准备约43.8秒（其中重采flow约10.6秒）。首轮整体429.3秒=2updates，摊销214.7秒/update；rollout242.4秒、首次teacher scoring56.7秒、训练/refresh合计94.8秒、sync35.4秒。首次加载等成本不应直接推广到所有轮次。
+
+采样训练峰值升至约47,507MiB/卡（46.4GiB），尚未OOM，但仅余约1GiB，四卡方案需要这些卡独占使用，不能再与17GB任务同卡共存。峰值仍需包含后续保存等阶段；资源采样持续运行。
+
+[W&B run](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/oipp0xze)。队列PID3565733，状态/精确启动身份以setup中的JSON为准，避免仅凭旧PID操作进程。训练20步完成后自动评测step20，比较输出目标为`outputs/robotwin4/analysis/specialist_init_comparison_20261101.json`；该文件仅在完成后生成，当前尚无final SR。代码提交`1071ad4a`。
