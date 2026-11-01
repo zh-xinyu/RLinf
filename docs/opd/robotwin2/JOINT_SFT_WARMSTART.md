@@ -42,7 +42,7 @@ x_t=t\epsilon+(1-t)a,\quad
 - 每个 global batch 对 task 等额；task 内均匀取 episode，再均匀取 frame。每次重采样 noise/time 和 seen instruction。
 - 训练使用 OpenPI 的图像增强；离线验证关闭增强，并固定 observation/frame/prompt/noise/time seed。验证 loss 和带增强的 training loss 不应直接比较绝对大小。
 - FP32 master/Adam moments、BF16 AMP、full-shard、gradient checkpointing。每个 microbatch 同步梯度，避免累计未分片 FP32 gradient；因此 microbatch 太小会增加通信次数。
-- 当前起始候选：4 GPU，B128，microbatch2，LR2.5e-5，warmup25，constant scheduler，500 updates，每100保存、每50离线验证。先验证吞吐，再决定100/200/500步预算。
+- 当前已启动方案：4 GPU，B128，microbatch4，LR2.5e-5，warmup25，constant scheduler，500 updates，每100保存、每50离线验证。microbatch4先通过2步smoke再启用；根据中间checkpoint策略评测决定是否干预长跑。
 - 文件中只绑定本次实例的 demonstration forward，复用 `get_joint_velocity`，绕过旧 `sft_forward` 禁用 checkpointing 的行为；参数名称和 MOPD checkpoint 接口不变。
 - `--verify-only` 在四 task 各一个 batch 上使用同一 observation/noise/time/augmentation RNG，比较该 forward 与原 OpenPI `PI0Pytorch.forward` 的 full-horizon loss。两者使用相同数学目标；当前 FP32 master/BF16 AMP 下是近似数值一致，不是 bit-identical。
 
@@ -75,7 +75,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc-per-node=4 --master-port=29674 \
 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc-per-node=4 --master-port=29674 \
   -m toolkits.robotwin_mopd.joint_sft \
   --data "$JOINT_DATA" --output "$JOINT_ROOT/train/joint_sft_500_pilot" \
-  --steps 500 --batch-size 128 --microbatch 2 --warmup 25 \
+  --steps 500 --batch-size 128 --microbatch 4 --warmup 25 \
   --save-interval 100 --validation-interval 50 \
   --wandb-project RoboTwin_MultiTeacher_Pilots \
   --wandb-group robotwin_joint_sft_initialization \
@@ -93,4 +93,8 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 - 数据下载、SHA256、全200episode非末动作对齐、末帧规范化记录、固定norm范围审计已完成。
 - `tests/unit_tests/test_robotwin_joint_sft.py`：11 个 CPU tests 通过，包含显式W&B开关/更新轴和跨rank峰值汇总。
 - Hydra compose 与 FP32/BF16 配置检查通过；GPU四任务 official-forward 检查通过，逐task相对loss差异为0.313%、0.169%、0.048%、0.063%。现有joint helper将embedding转为FP32，而官方forward在FP32 master时保留部分AMP产出的BF16 embedding；RMSNorm/residual路径因而存在数值差别，不能称完全相同。MSE计算本身两边均为FP32；具体归因还未通过额外GPU控制实验验证。
-- 4 GPU、B128、microbatch2的2步FSDP smoke已通过，约47秒/update，rank0 allocated峰值30.1GB，完整checkpoint保存成功。之后新增的跨rank显存日志与W&B尚待下一次GPU smoke验证；主进程可进一步测试microbatch4。不得把本文件中的候选500-step命令描述为已执行。
+- 4 GPU、B128、microbatch2的2步FSDP smoke已通过，约47秒/update，rank0 allocated峰值30.1GB，完整checkpoint保存成功；保存权重已通过 `fixed_flow_probe` 重新加载。
+- microbatch4的2步smoke也已通过：27.0 / 26.5秒/update，跨rank最大allocated 30.128GB、reserved 47.928GB；包含初始化、验证和保存的总耗时180.6秒。两步样本显示更新耗时约降低43%，尚不代表长跑或仿真训练的同等收益。
+- 500-step长跑已启动：`robotwin4_joint_sft_500_b128_micro4_pilot_20261101`，GPU0–3，W&B [33rml11k](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/33rml11k)。启动时四rank FP32 master/Adam验证通过。**状态是运行中，不是500步已完成，也没有联合策略SR提升结论。**
+- 启动后前5步检查正常：平均26.8秒/update，loss为0.1692、0.1604、0.1378、0.1609、0.1392，gradient norm均有限（1.26–1.55）。最大allocated稳定30.128GB、reserved稳定48.331GB。LR按25-step warmup从0增至4e-6；W&B已启动且内部日志无ERROR。这里只确认启动/数值健康，不把少数不同训练batch的loss变化当作验证集或SR提升。
+- 长跑状态：根workspace `outputs/robotwin4/setup/joint_sft/long_pilot_status_20261101.json`；原始训练和验证指标位于 `outputs/robotwin4/train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/`。日志和状态文件优先于本页的静态进度。
