@@ -9,8 +9,8 @@
 - Run：`robotwin4_uniform_refresh_r2_t64_b512_bucket_pilot_20261101`。
 - [W&B 当前运行](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/77se8lie)。
 - Launcher PID：2976313，create_time：1793536578.72；身份与命令：`outputs/robotwin4/setup/uniform_bucket_pilot_launch.json`。
-- 最新完成：8 rounds / 16 optimizer updates，512 trajectories，292,789 executed control targets。
-- 最新 MSE：0.09769；所有已记录梯度和 loss 有限；当前 run 无 GPU OOM。
+- 最新完成：12 rounds / 24 optimizer updates，768 trajectories，439,989 executed control targets。
+- 最新 MSE：0.06965；所有已记录梯度和 loss 有限；当前 run 无 GPU OOM。
 
 ## Setting
 
@@ -23,7 +23,7 @@
 | Global B / microbatch | 512 / 8 per GPU，8 GPUs |
 | LR / warmup | 2.5e-5 constant / 8 optimizer updates |
 | 总预算 | 20 rounds / 40 updates |
-| 保存 | 每 8 updates；已完成 step8、step16 |
+| 保存 | 每 8 updates；已完成 step8、step16、step24 |
 | 精度 | FP32 actor masters + BF16 AMP；teacher/rollout 原推理精度 |
 | 同步 | 现有 dense bucket，128 MiB target、原 dtype、即时加载 |
 | 环境 | native clean ALOHA，seen instructions，未经过 scripted expert 筛选 |
@@ -36,7 +36,7 @@ MSE 对前25个位置的全部32维 flow latent 求均值，环境执行前14维
 
 - 5个模型转换、源文件 hash、严格加载，以及 JAX/PyTorch 动作/velocity 一致性检查已完成。
 - 107项原实现测试、35项新增评测相关测试通过；bucket测试9 passed、1 GPU test skipped。真实 GPU 同步与多轮训练已执行。
-- Step8/step16 均有完整权重、8个 DCP shard、metadata、runner/allocation 状态；计数核对一致。未在当前 checkpoint 上做实际全状态恢复测试。
+- Step8/step16/step24 均有完整权重、8个 DCP shard、metadata、runner/allocation 状态；计数核对一致。未在当前 checkpoint 上做实际全状态恢复测试。
 - 已越过原 patch 同步 OOM 位置，第5轮完整 rollout 和更新通过。
 - 同步约49–53秒，训练每次更新约44秒；采样 GPU 峰值约43.4 GiB。
 - 保存 step8 约131秒，曾触发短暂 CPU reclaim：swap接近63.6 GiB，PSI full avg10约63%，随后回落。第二次保存也完成。保留为独立性能限制，不与 GPU patch OOM 混同。
@@ -57,7 +57,7 @@ MSE 对前25个位置的全部32维 flow latent 求均值，环境执行前14维
 
 - Runtime：`/localscratch2/liyifa11/XyFile/opd-robotwin4/env.sh`。W&B凭据来自 `.opd.action00.env` 的 `WANDB_ENV_FILE`；激活runtime本身不加载凭据，不打印凭据。
 - 训练：`outputs/robotwin4/train/robotwin4_uniform_refresh_r2_t64_b512_bucket_pilot_20261101/`；包含配置、源码快照、launch、JSONL指标和日志。
-- Checkpoint：上述run目录下再进入同名run子目录的 `checkpoints/global_step_16/`。
+- Checkpoint：上述run目录下再进入同名run子目录的 `checkpoints/global_step_24/`。
 - 曲线/CSV：`outputs/robotwin4/analysis/uniform_bucket_pilot/`，生成脚本 `outputs/robotwin4/analysis/plot_pilot.py`；图和metadata明确当前未完成状态。
 - [历史进度记录](experiments/progress_history_20261101.md)、[实验方案](EXPERIMENTS_20261101.md)。
 
@@ -66,3 +66,9 @@ MSE 对前25个位置的全部32维 flow latent 求均值，环境执行前14维
 ## 下一步
 
 保持当前参数完成40updates，验证最终checkpoint与两套评测；结合逐任务SR、loss、时间及预算决定是否有必要做一项小规模调参。不要仅凭loss下降宣布能力融合成功。只操作自有run；不执行全局Ray stop、不改变系统内存设置。
+
+## 待运行的小型诊断
+
+[完整 flow 诊断](FLOW_PROBE.md) 已完成代码与5项CPU测试，尚未运行GPU。它在相同student访问状态上比较完整50×32velocity与同noise endpoint，区分前后25位置和physical/padded维度；不改当前训练。训练及独立评测之后，根据实际表现使用它判断是否有必要尝试full-horizon监督或增加优化更新。
+
+只读核对：训练和评测均按task名称选择归一化；NFT与ODE采样采用相同1.0→0.1时间网格。Bucket receiver调用load_state_dict并更新版本；未发现明显代码错位，但实际执行能力仍待独立checkpoint评测。

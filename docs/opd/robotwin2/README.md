@@ -49,3 +49,5 @@ RoboTwin官方安装文档列出Python3.10、推荐CUDA12.1；现有RoboCasa固�
 不因另开分支长期复制两套actor/loss/refresh；通用逻辑共享，benchmark差异放在环境适配与配置中。
 
 评测协议：[筛选协议核对](EVALUATION_PROTOCOL_AUDIT.md)、[固定场景补充评测](FEASIBLE_EVALUATION.md)。训练进度和评测队列见 [LIVE_STATUS](LIVE_STATUS.md)。
+
+训练后可选诊断：[完整 flow 误差分解](FLOW_PROBE.md)。
