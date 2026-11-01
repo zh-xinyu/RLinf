@@ -60,7 +60,11 @@ def test_matrix_preserves_controls_and_round_budget(release_paths):
         value["runner"]["rollout_allocation"].pop("mode")
         for key in ("flow_refresh_updates", "sync_suite_loss_weights"):
             value["algorithm"].pop(key)
-        normalized.append(value)
+        normalized.append(
+            json.loads(
+                json.dumps(value).replace(cfg.runner.logger.experiment_name, "RUN")
+            )
+        )
     assert all(c == normalized[0] for c in normalized)
 
 

@@ -1,5 +1,10 @@
 # Experiment resources and transfer
 
+For the recommended path, use `experiment.py --machine <machine.json>` commands
+from the [environment guide](../../../OPD_ENVIRONMENT.md). The low-level commands
+below document the underlying tools; they assume the runtime and environment
+variables have already been configured.
+
 Git and the [fixed profile](../../../OPD_ENVIRONMENT.md) provide the software.
 Models and simulator assets are separate inputs.
 [checkpoints.json](checkpoints.json) records the SHA256 and size of every model
@@ -81,8 +86,10 @@ python -m robocasa.scripts.setup_macros
 python -m robocasa.scripts.download_kitchen_assets
 ```
 
-Alternatively, copy the agreed asset snapshot and configure its paths through
-RoboCasa macros. The installer does not bind another server's shared disk.
+Alternatively, copy the agreed asset snapshot to the pinned checkout's
+`robocasa/models/assets/` directory while preserving repository files.
+`DATASET_BASE_PATH` is a dataset setting, not an asset-directory override.
+The installer does not bind another server's shared disk.
 Record asset provenance and compare file manifests when reusing a snapshot.
 A complete asset hash manifest is not currently published in Git, so the
 repository does not claim byte-identical simulator inputs. Fix missing assets

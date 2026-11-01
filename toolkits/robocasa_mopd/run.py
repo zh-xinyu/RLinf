@@ -43,7 +43,7 @@ def training_config(experiment: str, run_id: str, smoke: bool = False):
     config_name = f"robocasa365_mopd_formal_{experiment.lower()}"
     output = REPO / "outputs" / ("smoke" if smoke else "train") / run_id
     overrides = [
-        f"runner.logger.log_path={json.dumps(str(output.parent))}",
+        f"runner.logger.log_path={json.dumps(str(output))}",
         f"runner.logger.experiment_name={run_id}",
         f"hydra.run.dir={json.dumps(str(output))}",
     ]

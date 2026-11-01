@@ -1,6 +1,6 @@
 # Multi-Teacher On-Policy Distillation for Robot Policies
 
-Built on [RLinf](https://github.com/RLinf/RLinf).
+Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffc10b67c61c8e4b73208b45).
 
 This project consolidates task-specialist vision-language-action policies into
 one flow-based student. Our current setting uses GR00T N1.5 and RoboCasa365's
@@ -25,7 +25,7 @@ We study two complementary mechanisms:
 | Understand the training implementation and metrics | [Development guide](OPD_DEVELOPMENT.md) |
 | Inspect the independent evaluation protocol | [RoboCasa365 evaluation](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-The experiment release is pinned by Git tag `robocasa-formal-150r-20261031`.
+The experiment release is pinned by Git tag `robocasa-formal-150r-handoff-20261031`.
 Use that tag for reproduction; `opd-project-main` remains the development base.
 Training uses eight 48-GB GPUs on one machine. Every arm starts from C10,
 collects 96 trajectories per rollout round, runs 150 rounds, and saves every
@@ -36,8 +36,26 @@ paths, credentials, raw runs, and working research notes are not installation
 dependencies. RoboTwin experiments will use a separate branch and environment
 profile; the current profile only covers GR00T N1.5 + RoboCasa365.
 
-Project-facing documentation is maintained in English. Email task assignments
-and local research notes are distributed separately.
+Project-facing guides are maintained in English; a [Chinese README](README.zh-CN.md)
+is also available. Email task assignments and local research notes are distributed
+separately. The inherited RLinf documentation under `docs/` has not yet been
+fully adapted to this project; use the OPD entries above for reproduction.
+
+## Reproduce an experiment
+
+The four training YAMLs are already provided. Copy
+[`machine.example.json`](toolkits/robocasa_mopd/machine.example.json) outside the
+repository and fill in your hostname, paths, and W&B team once. Every stage then
+uses the same entrypoint; no shell exports or manual runtime activation are needed:
+
+```bash
+python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json paths
+python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json install
+# Complete the resource and smoke steps in the experiment guide before training.
+python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json train m0
+python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json eval m0
+python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json summarize
+```
 
 ## Repository map
 

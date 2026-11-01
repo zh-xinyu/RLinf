@@ -1,210 +1,198 @@
-# RoboCasa365 experiment guide
+# RoboCasa365 reproduction workflow
 
-This is the versioned technical guide for collaborators and coding agents.
-Machine assignments, input download access, and delivery locations belong in the
-separately distributed email task sheet, which is not tracked in Git.
+Use tag **`robocasa-formal-150r-handoff-20261031`** for this assignment. It adds a
+single machine configuration, command entrypoint, isolated run logs, and result
+collection to the original `robocasa-formal-150r-20261031` release. Training
+algorithms, the four experiment YAMLs, the runtime profile, and input models are
+unchanged. Old tags are retained, not moved.
 
-Training code is fixed at tag **`robocasa-formal-150r-20261031`**, commit
-`42d22dd446582466c5bf0096e57d5050ceff6b91`. Subsequent documentation updates do
-not move that tag. The current assignment evaluates **every checkpoint at
-50 episodes per task**, superseding the tagged guide's smaller intermediate
-budget. No training or evaluation code change is needed for this choice.
+The private email task sheet supplies collaborator assignments and access
+information. This public guide explains how to execute them. All commands below
+run from the cloned repository root. No manual exports or activation are needed.
 
-## 1. Clone and configure the environment
+## A. Prepare this node once
 
-```bash
-git clone --branch robocasa-formal-150r-20261031 https://github.com/zh-xinyu/RLinf.git
-cd RLinf
-git rev-parse HEAD
+Follow [OPD_ENVIRONMENT.md](../../../OPD_ENVIRONMENT.md), in order:
+
+1. Clone the assigned tag and check system prerequisites.
+2. Copy [machine.example.json](../../../toolkits/robocasa_mopd/machine.example.json)
+   to `$HOME/opd-config/robocasa.json`; fill in the hostname, four paths, and W&B
+   team/mode. It contains machine settings only, not learning hyperparameters.
+3. Run `install`, `verify`, and `verify --gpu`.
+4. Run `download-teachers` and `assets`; receive C10 at the configured path.
+5. Run `prepare`, `login`, and `preflight`.
+6. Run `smoke` on eight available GPUs and check both jobs succeeded.
+
+The common command prefix is:
+
+```text
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json"
 ```
 
-Install `gr00t-n15-robocasa365-20261019` using the
-[environment guide](../../../OPD_ENVIRONMENT.md). Skip its clone commands if
-you already checked out the release. Complete software verification and the
-`--gpu` check. Personal node files, `shs/`, and `toolkits/mopd/` are not required.
-If installation fails, preserve logs rather than upgrading pinned dependencies.
+Append one subcommand below. `--dry-run` before the subcommand prints the
+commands without writes/downloads/GPU use. `preflight` actually resolves all
+four Hydra configs but does not start training. Results are stored in the
+configured `output_root`, accessed through the checkout's `outputs/` link.
 
-Follow the [resource guide](RESOURCES.md) to download teachers, receive C10,
-prepare simulator assets, verify model hashes, and bind the teacher reference.
-Use the existing calibration at 20 episodes per task; do not recalibrate
-independently on each machine.
+## B. Four ready-to-run configurations
 
-Create a trusted machine-local shell file outside the repository:
+**The YAML files are already written. Collaborators do not create or edit them.**
+Machine paths come from the JSON; fixed hyperparameters come from the YAMLs.
+Each arm inherits [formal_common](../../../examples/embodiment/config/robocasa365_mopd_formal_common.yaml)
+and changes only R, allocation/synchronization, and update/save counts.
 
-```bash
-export OPD_RUNTIME_ROOT=/absolute/path/opd-runtime
-source "$OPD_RUNTIME_ROOT/activate.sh"
-export OPD_STUDENT_CHECKPOINT=/absolute/path/C10/checkpoint-60000
-export OPD_MODEL_ROOT=/absolute/path/teachers/gr00t_n1-5/foundation_model_learning
-export OPD_TEACHER_REFERENCE=/absolute/path/inputs/teacher_reference.json
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export WANDB_MODE=online
-# Set WANDB_ENTITY to the agreed team slug; authenticate with your own account.
-```
+| ID / command | YAML | Allocation / loss weights | R | Rounds | Updates | Save every U |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `m0` | [formal_m0](../../../examples/embodiment/config/robocasa365_mopd_formal_m0.yaml) | Uniform / equal | 1 | 150 | 150 | 25 |
+| `m1` | [formal_m1](../../../examples/embodiment/config/robocasa365_mopd_formal_m1.yaml) | Uniform / equal | 2 | 150 | 300 | 50 |
+| `m2` | [formal_m2](../../../examples/embodiment/config/robocasa365_mopd_formal_m2.yaml) | Adaptive / synchronized | 2 | 150 | 300 | 50 |
+| `m3` | [formal_m3](../../../examples/embodiment/config/robocasa365_mopd_formal_m3.yaml) | Adaptive / synchronized | 1 | 150 | 150 | 25 |
 
-Source this file before launching, then enter the fixed checkout. If the
-checkout moves, correct its path in the runtime's `activate.sh`. Use
-`wandb login` for authentication; do not commit credentials.
+All configs have the full filename prefix `robocasa365_mopd_` and suffix `.yaml`
+in `examples/embodiment/config/`. Their resolved copies are saved with each run.
 
-The recipe assumes a dedicated single node with eight 48-GB GPUs, sufficient
-CPU/RAM, and storage for local checkpoints. Outputs default to `outputs/`;
-this directory can be linked to persistent storage before starting runs.
+Shared controls: C10 with a fresh optimizer; training seed0; all50 tasks with
+native horizons; T96=48 environments x2 epochs; B2304 (768/suite); eight GPUs,
+micro32/GPU, nine accumulation microbatches/update; LR3e-5, constant scheduler,
+warmup10 **updates**; M3 `analytic_local_kl`, four-step ODE, chunk16,
+noise_level0.5. Loss M3 and experiment ID M3 are separate labels.
 
-## 2. Experiment matrix
+R2 refresh samples the full observation pool, draws new noise, and regenerates
+student flows and teacher targets. All arms use the same suite-quota collector.
+Uniform allocation is32/32/32. Adaptive settings are rho0.5, epsilon0.01,
+20 uniform warmup **rounds**, window20, interval10, minimum5 episodes/task,
+minimum16 trajectories/suite, maximum quota change8. Synchronized loss weights
+are `alpha_s=3*q_s/96` using actual integer quotas, fixed for all R updates.
+Feature-only GR00T is enabled; CUDA cache retention is0 on dedicated GPUs.
 
-| ID | Rollout allocation | Suite loss weights | R | Updates U | Save interval U |
-| --- | --- | --- | ---: | ---: | ---: |
-| M0 | Uniform | Equal | 1 | 150 | 25 |
-| M1 | Uniform | Equal | 2, Refresh | 300 | 50 |
-| M2 | Adaptive | Synchronized with allocation | 2, Refresh | 300 | 50 |
-| M3 | Adaptive | Synchronized with allocation | 1 | 150 | 25 |
+The first batch has one training seed, not a multi-seed aggregate. Do not
+change hyperparameters or initialize from an old pilot optimizer.
 
-Shared controls:
+## C. Train the four arms
 
-- Fresh C10 weights and optimizer; training seed 0; all 50 tasks with native horizons.
-- **150 physical rollout rounds**, T96 = 48 environments x 2 epochs per round;
-  14,400 training trajectories per run.
-- B2304, 768 samples per suite; eight ranks, microbatch32 per GPU, nine
-  accumulation microbatches per optimizer update.
-- LR3e-5, constant scheduler, warmup10 **student updates**; M3
-  `analytic_local_kl`, four-step ODE, chunk16, noise_level0.5. The loss name M3
-  and experiment ID M3 refer to different things.
-- R2 refresh uses the full observation pool, new noise, the updated student's
-  flow trajectories, and newly queried teacher targets.
-- Every arm uses the same `suite_quota` collector. M0/M1 retain 32/32/32 quotas.
-- Adaptive settings: rho0.5, epsilon0.01, 20 uniform warmup **rounds**, a
-  20-round window, decisions every10 rounds, at least5 episodes per task,
-  minimum16 trajectories per suite, and maximum quota change8 per decision.
-  Loss weights are `alpha_s = 3*q_s/96`, fixed across the round's R updates.
-- All arms use feature-only GR00T and `cuda_cache_retention_gib=0`.
-  Do not change microbatch or other controls in only one arm.
-
-W&B project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_150r`.
-Set `WANDB_ENTITY` to the shared team supplied by the project owner. The same
-project name under different entities does not identify a shared project.
-The code explicitly supplies its project name, so `WANDB_PROJECT` alone does
-not override it. Agree any logging configuration change before running.
-The first assignment covers four runs at seed0; additional training seeds are
-scheduled separately.
-
-## 3. Verify and train
-
-Check resolved configuration without starting Ray or using GPUs:
-
-```bash
-python -m toolkits.robocasa_mopd.run train m2 --run-id check-m2 --dry-run
-```
-
-On eight available GPUs, complete two physical training rounds and a
-single-task evaluation smoke. Training smoke retains the full task collector
-and native horizons, limits training to two rounds, and disables W&B.
-
-```bash
-python -m toolkits.robocasa_mopd.run train m2 --run-id setup-m2-smoke --smoke
-python -m toolkits.robocasa_mopd.run eval --run-id setup-c10-eval-smoke --smoke
-```
-
-The launcher starts and cleans up only its own Ray processes. It refuses an
-existing cluster or busy GPUs; never stop another user's cluster. Run one
-launcher per node. For serial training in tmux:
+Run these in tmux, serially on one node, or assign separate equivalent nodes:
 
 ```bash
 set -e
-python -m toolkits.robocasa_mopd.run train m0 --run-id robocasa-M0-uniform-r1-seed0-formal
-python -m toolkits.robocasa_mopd.run train m1 --run-id robocasa-M1-uniform-r2-seed0-formal
-python -m toolkits.robocasa_mopd.run train m2 --run-id robocasa-M2-adaptive-sync-r2-seed0-formal
-python -m toolkits.robocasa_mopd.run train m3 --run-id robocasa-M3-adaptive-sync-r1-seed0-formal
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" train m0
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" train m1
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" train m2
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" train m3
 ```
 
-Equivalent nodes may run different arms concurrently. Keep the parameters
-fixed. After interruption or OOM, preserve logs and contact the project owner;
-the launcher does not silently resume, reduce the batch, or restart training.
-Resume requires checking the complete rollout boundary and interaction costs.
+Each command chooses its fixed YAML/run ID automatically. The launcher owns its
+Ray processes and refuses existing clusters, busy GPUs, dirty tracked files,
+and existing output directories. It does not stop peer jobs or silently resume.
+After an interruption, preserve logs and contact the owner; do not change batch
+size or rerun into the same directory.
 
-## 4. Independent evaluation
+Run IDs are `robocasa-M0-uniform-r1-seed0-formal`,
+`robocasa-M1-uniform-r2-seed0-formal`,
+`robocasa-M2-adaptive-sync-r2-seed0-formal`, and
+`robocasa-M3-adaptive-sync-r1-seed0-formal`.
 
-Evaluate saved rounds **25/50/75/100/125/150** and a shared C10 round0 baseline.
-Every evaluation uses all50 tasks, **50 episodes per task**, seed7, and native
-horizons. Omit `--intermediate`; successful runs have `mode=formal` and `OK`.
-There are 25 evaluations and 62,500 episodes across the four arms plus C10,
-excluding smoke and calibration. Report this cost separately from training.
+## D. Evaluate C10 and all six saved checkpoints per arm
 
-Training saves checkpoints without inline evaluation. Evaluate afterward or on
-another available node. Keep local checkpoints until their evaluations finish;
-**trained checkpoint files are not required deliverables**.
+Every checkpoint uses all50 tasks, **50 episodes/task**, seed7, native horizons,
+and the same task-native protocol. Evaluate rounds25/50/75/100/125/150.
+C10 round0 is evaluated once and shared across all arms. Teacher calibration
+stays at the existing20 episodes/task and is not rerun.
 
 ```bash
-python -m toolkits.robocasa_mopd.run eval --run-id robocasa-C10-round0
-
-# Example: M2 round25 corresponds to U50; M0/M3 round25 corresponds to U25.
-python -m toolkits.robocasa_mopd.run eval \
-  --run-id robocasa-M2-seed0-round25 \
-  --weights "$PWD/outputs/train/robocasa-M2-adaptive-sync-r2-seed0-formal/checkpoints/global_step_50/actor/model_state_dict/full_weights.pt"
-
-python -m toolkits.robocasa_mopd.run eval \
-  --run-id robocasa-M2-seed0-round150 \
-  --weights "$PWD/outputs/train/robocasa-M2-adaptive-sync-r2-seed0-formal/checkpoints/global_step_300/actor/model_state_dict/full_weights.pt"
+set -e
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval c10
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m0
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m1
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m2
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m3
 ```
 
-Use `U=R*round` for every other checkpoint. Evaluate all scheduled checkpoints,
-not only those with high training success. Independent evaluation writes local
-JSON/CSV files; it does not automatically populate the training W&B run.
+`eval mN` executes six evaluations in order and maps `U=R*round` to checkpoint
+paths automatically. `eval c10` executes one. No `--intermediate` option is used.
+There are25 evaluations and62,500 episodes in total. Training and evaluation
+costs are recorded separately. Training itself does not run inline evaluation.
 
-## 5. Deliverables
+To select one remaining checkpoint after reviewing a failed series:
 
-Deliver the following three parts. Do not upload model weights or optimizer
-states, and do not include `checkpoints/` in the training-material archive.
-No remote access to trained checkpoints is required.
+```bash
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m2 --round 75
+```
 
-### Summary table
+Existing evaluation directories are not overwritten. Completed points are not
+automatically skipped or recomputed. Preserve any failed directory for diagnosis.
+Run the remaining points explicitly after agreeing how to handle the failure.
 
-One CSV row per evaluated checkpoint: the shared C10 baseline and six rows per
-arm, for25 rows total. Include experiment/seed, round, update count, three suite
-success rates, suite-macro SR, task-macro SR, cumulative training trajectories,
-simulation steps, training time, evaluation identifier, and W&B URL.
-Use rates in [0,1] in CSV; display percentages in presentation tables.
+Each evaluation creates `outputs/eval/<eval-id>/` with `plan.json`,
+`per_task_results.csv`, `summary.json`, task metrics/logs/configs, and `status`.
+A complete result has status `OK`. Independent evaluation does not automatically
+populate the training W&B run.
 
-For suite rates a, b, c, suite-macro SR is `(a+b+c)/3` and task-macro SR is
-`(18*a+16*b+16*c)/50`. The top-level `summary.json` `success_once` is task-macro
-SR. Fifty evaluation episodes are not fifty independent training seeds.
+## E. Produce the summary table
 
-### Raw evaluation results: evidence for checkpoint performance
+```bash
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" summarize
+```
 
-Deliver `outputs/eval/<eval-id>/` for all25 evaluations, including:
+Output: **`outputs/deliverables/checkpoint_results.csv`**, with25 rows. The
+`checkpoint_results.csv` sent with the email is a **blank template**, not an
+experimental result. The collector can be run during progress: unavailable
+measurements stay blank and statuses identify pending/incomplete results.
+It recomputes scores from the exact task counts, checks the evaluation budget,
+checkpoint identity, and consistency with `summary.json`. Invalid results get
+`INVALID` and a reason; the command returns an error.
 
-- `per_task_results.csv`: task/suite, episode count, success count, and SR.
-- `summary.json`: suite and overall aggregates.
-- `plan.json`: evaluated weight hash, task/protocol settings, seed, and source provenance.
-- Per-task metrics, resolved configs, diagnostic logs, and completion status.
+| Column group | Source / interpretation |
+| --- | --- |
+| Experiment, seed, round, U, checkpoint ID | Fixed matrix and schedule |
+| Three suite SRs | Validated `per_task_results.csv`, rates in [0,1] |
+| Suite-macro SR | Equal mean of the three suite SRs |
+| Task-macro SR | Mean across all50 tasks;18/16/16 suite task counts |
+| Expected trajectories | Nominal budget `96*round`, not a measured result |
+| Training trajectories / simulation steps | Matching update in `optimizer_updates.jsonl` |
+| Training round seconds | Sum of TensorBoard `time/rollout_round` through that point; excludes startup and independent evaluation |
+| Weight hashes, eval directory | Evaluation plan and local result files |
+| W&B URL | Extracted from driver log when available; otherwise fill from the actual run |
+| Status / notes | Missing or invalid data, never fabricated zero scores |
 
-Do not drop failed tasks or return only rounded percentages/screenshots.
-Videos are not required. Checkpoint identity and weight hashes remain in the
-metadata even though model files are not transferred.
+Do not confuse `summary.json`'s task-macro SR with suite-macro SR. The latter
+is `(a+b+c)/3`; task-macro is `(18*a+16*b+16*c)/50`. Fifty evaluation episodes
+are not fifty training seeds. Full job wall time can be reported separately
+from accumulated round time.
 
-### Training materials: evidence for the learning process
+## F. Deliver results without model checkpoints
 
-Deliver non-checkpoint files from `outputs/train/<run-id>/` and
-`outputs/launches/<run-id>/`, including:
+1. **The filled25-row CSV.** Check status and notes before sending.
+2. **Raw evaluation results:** all25 `outputs/eval/<eval-id>/` directories.
+   Include per-task success counts/denominators, summary, plan, status, and logs.
+   Do not omit failed tasks or provide only rounded percentages. Videos are optional.
+3. **Training materials:** non-checkpoint files in each `outputs/train/<run-id>/`
+   plus `outputs/launches/<run-id>/`: resolved config, JSONL metrics, TensorBoard
+   and local W&B files, driver/Ray logs, and failure/restart notes. Include the
+   four W&B URLs and the node/software provenance.
 
-- Resolved config, code/profile identifiers, machine details, driver/Ray logs,
-  and interruption/restart notes.
-- `optimizer_updates.jsonl`: update-level losses and diagnostics.
-- `rollout_episodes.jsonl`: task/suite outcomes and actual interaction counts.
-- `rollout_allocation.jsonl`: quotas, controller decisions, and budgets.
-- W&B run links and available local W&B/TensorBoard metric files.
+**Do not deliver weights, optimizer states, or remote checkpoint access.**
+Exclude directories named `checkpoints` when packaging training materials.
+Keep them locally long enough to complete the required evaluation.
+The runner nests them at
+`outputs/train/<run-id>/<run-id>/checkpoints/global_step_<U>/`; the unified
+entrypoint handles this path, so collaborators do not calculate it manually.
+Each run's JSONL/TensorBoard/W&B metrics are isolated in `outputs/train/<run-id>/`.
 
-A shared W&B workspace is useful for monitoring loss, per-suite success,
-allocation/weights, LR, time, and interaction counts. It does not replace the
-raw files. Large collections of manually exported screenshots are unnecessary.
+The paper's main performance axis is **rollout rounds**. Retain simulation
+steps and time for secondary comparisons. Training W&B steps are optimizer
+updates; equal U is not equal rollout budget across R1/R2. `time/step` means one
+rollout plus R updates, while `time/amortized_update` divides that time by R.
+Training success is a controller signal, not independent evaluation performance.
 
-Main performance plots use **rollout rounds**; retain actual simulation steps
-and wall time for secondary comparisons. W&B training steps count optimizer
-updates, so equal update counts are not equal rollout budgets across R1/R2.
-`time/step` is one rollout plus R updates; `time/amortized_update` divides by R.
-Training success is a controller/diagnostic signal, not independent evaluation.
+## W&B and validation
 
-## Validation boundary
+Fixed project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_150r`.
+The machine JSON selects the shared team via `wandb_entity`. The same project
+name under another entity is a different project. Use personal authentication
+with appropriate team permissions, not a shared token. `WANDB_PROJECT` alone
+does not override the explicit YAML project. Agree any project rename centrally.
 
-See [VALIDATION.md](VALIDATION.md). Receiving-machine GPU smoke checks are
-required before long runs. RoboTwin development uses a separate branch/profile
-and does not modify the frozen training release or upgrade this runtime.
+A shared workspace is useful for live loss/success/allocation/time comparison;
+raw files remain the result record. See [VALIDATION.md](VALIDATION.md) for checks
+already performed. A receiving-machine eight-GPU smoke is required. RoboTwin
+uses a separate branch/profile and does not change this reproduction bundle.

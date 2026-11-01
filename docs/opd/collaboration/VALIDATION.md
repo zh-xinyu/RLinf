@@ -32,3 +32,35 @@ Before long runs, follow the handoff's runtime `--gpu` check, two-round training
 smoke, and single-task independent evaluation smoke. Keep the resulting logs.
 The repository locks software versions and model contents; the full simulator
 asset tree is not yet identified by a published hash manifest.
+
+## Unified reproduction entrypoint
+
+The `robocasa-formal-150r-handoff-20261031` bundle adds `experiment.py`, a
+machine JSON template, and the result collector. It fixes per-run JSONL and
+TensorBoard isolation by assigning a separate logger directory per run. The
+existing runner consequently stores local checkpoints under the nested run-name
+directory; the new evaluation command resolves that path automatically.
+
+- Confirmed the RLinf fork point from Git history:
+  `e7609d4c9e2f33c5ffc10b67c61c8e4b73208b45`, the parent of the first OPD commit.
+- Compared `rlinf/`, the training YAMLs, `requirements/`, and evaluation code
+  against the original formal tag: no changes to algorithms, hyperparameters,
+  pinned software, or evaluation semantics.
+- Passed **180 relevant regressions**, repeated successfully in a clean snapshot
+  exported from tracked files without private launchers or node profiles,
+  including machine/hostname validation,
+  output protection, per-run logging, all25 evaluation budgets, task-count score
+  reconstruction, incorrect-checkpoint rejection, and TensorBoard timer reading.
+- Invoked the new entrypoint from host Python3.9 without activating the runtime:
+  the281-package verification and actual FlashAttention GPU operation passed.
+- Verified real C10/teacher files through `prepare`; all four `preflight`
+  configurations resolved and passed validation. Train/evaluation dry-runs
+  selected the expected configs, six checkpoint paths, and50-episode mode.
+- The clean snapshot also passed real-resource four-arm preflight and generated
+  a25-row pending table through the same public entrypoint.
+- Checked documentation links, shell syntax, and Ruff. The mail-only template
+  has25 pending rows and keeps expected budgets separate from measured values.
+
+This entrypoint validation did not reinstall the full runtime or run new
+multi-GPU simulator training. The receiving machine must still complete the
+installation/resource checks and the documented eight-GPU smoke sequence.
