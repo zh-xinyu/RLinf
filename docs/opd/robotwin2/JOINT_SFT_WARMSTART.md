@@ -98,3 +98,9 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 - 500-step长跑已启动：`robotwin4_joint_sft_500_b128_micro4_pilot_20261101`，GPU0–3，W&B [33rml11k](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/33rml11k)。启动时四rank FP32 master/Adam验证通过。**状态是运行中，不是500步已完成，也没有联合策略SR提升结论。**
 - 启动后前5步检查正常：平均26.8秒/update，loss为0.1692、0.1604、0.1378、0.1609、0.1392，gradient norm均有限（1.26–1.55）。最大allocated稳定30.128GB、reserved稳定48.331GB。LR按25-step warmup从0增至4e-6；W&B已启动且内部日志无ERROR。这里只确认启动/数值健康，不把少数不同训练batch的loss变化当作验证集或SR提升。
 - 长跑状态：根workspace `outputs/robotwin4/setup/joint_sft/long_pilot_status_20261101.json`；原始训练和验证指标位于 `outputs/robotwin4/train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/`。日志和状态文件优先于本页的静态进度。
+
+## 运行中的第50步离线验证
+
+固定留出观测、prompt、noise/time（每task16个样本，关闭图像增强）的CFM loss：0.16748→0.01600，下降90.4%。四task都改善：adjust0.1690→0.01056，handover0.2015→0.01647，place0.1180→0.02194，stack0.1813→0.01504。physical14也均下降，改善并非仅来自padded坐标。
+
+这是示范条件flow matching拟合证据；它与MOPD在student flow上计算的teacher velocity MSE目标不同，**不能横向比较绝对loss，也不能据此宣称成功率改善**。策略rollout尚待checkpoint测评。结构化记录：根`outputs/robotwin4/analysis/joint_sft_step50_validation_20261101.json`。
