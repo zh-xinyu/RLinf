@@ -1,5 +1,7 @@
 # RoboTwin 2.0：训练 rollout 验证与初始化调试
 
+**最新状态：20-update pilot及测评已完成，MSE下降但SR从6/32降至1/32；见 [完成结果](SPECIALIST_INIT_RESULTS_20261101.md)。以下运行中状态为历史记录。**
+
 更新：2026-11-01，action00。状态：teacher和shared-specialist step0验证完成，20-update MOPD pilot训练中。
 
 ## 问题与顺序
