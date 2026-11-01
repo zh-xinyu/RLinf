@@ -1,65 +1,68 @@
-# RoboTwin pilot live status
+# RoboTwin 四 teacher pilot：当前状态
 
-Updated 2026-11-01, action00. Goal remains active. Pilot hit a verified weight-sync OOM after update8; owned launcher has been signaled for scoped cleanup. Repair/restart pending.
+更新：2026-11-01，action00。目标仍进行中；训练、独立评测及最终分析尚未完成。
 
-- Worktree: `outputs/worktrees/robotwin4`
-- Branch: `dev/mopd-robotwin2-four-task`; commits `8a9313fa`, `fad60d6c`.
-- Root remains `opd-project-main`; existing RoboCasa code/runtime/outputs untouched.
-- Activate `/localscratch2/liyifa11/XyFile/opd-robotwin4/env.sh`.
-- Online W&B auth uses existing `WANDB_ENV_FILE` from `.opd.action00.env`; source its file without printing credentials. Isolated runtime alone does not load authentication.
-- Active run: `outputs/robotwin4/train/robotwin4_uniform_refresh_r2_t64_b512_pilot_20261101_retry`.
-- Launcher PID 2884880, recorded in `outputs/robotwin4/setup/uniform_pilot_active.pid`.
-- W&B: https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/f6ve12mw
-- T64/B512/R2/micro8; LR2.5e-5, constant, warmup8updates; base student; FP32 actor masters + BF16 AMP. Initial 20 rounds / 40 updates; save every20 updates. NUMA interleave applies only to this job and descendants.
+## 当前运行
 
-## Completed checks
+- 分支：`dev/mopd-robotwin2-four-task`；worktree：`outputs/worktrees/robotwin4`。
+- 原根目录仍为 `opd-project-main`；RoboCasa 代码、runtime 和实验输出未改动。
+- Run：`robotwin4_uniform_refresh_r2_t64_b512_bucket_pilot_20261101`。
+- [W&B 当前运行](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/77se8lie)。
+- Launcher PID：2976313，create_time：1793536578.72；身份与命令：`outputs/robotwin4/setup/uniform_bucket_pilot_launch.json`。
+- 最新完成：8 rounds / 16 optimizer updates，512 trajectories，292,789 executed control targets。
+- 最新 MSE：0.09769；所有已记录梯度和 loss 有限；当前 run 无 GPU OOM。
 
-- Four specialists actual successes in pilot calibration: adjust3/5, handover4/5, place5/5, stack4/5. Base reference0/3 each (small sample).
-- Teacher source hashes, 5 conversions, strict loading, JAX/PyTorch agreement verified.
-- 107 tests + Ruff passed.
-- `robotwin4_fp32_r2_smoke_20261101` COMPLETE: 1round/2updates, MSE1.0939/1.1246, finite gradients, second LR3.125e-6. Peak~41.5GiB/GPU. Exact rollout/mask step accounting passed.
-- Snapshot comparison verified actual FP32 updates in VLM, action expert and projections.
-- Smoke checkpoint successfully loaded for native closed-loop evaluation.
-- Old mixed-master smoke intentionally stopped after first rollout; original pilot failed only at W&B auth before training. Both have retained diagnostic artifacts; neither is an effectiveness result.
+## Setting
 
-## Next autonomous work
+四任务：adjust_bottle、handover_mic、place_container_plate、stack_bowls_two。四个独立 PACE specialist，student 从官方 π0.5 base 开始。
 
-1. Monitor `status`, `driver.log`, `optimizer_updates.jsonl`, `rollout_episodes.jsonl`; use `python -m toolkits.robotwin_mopd.summarize RUN_DIR`.
-2. First two T64 rounds passed with finite losses/gradients. Monitor rounds3–5 and first save for host/GPU memory stability. Do not increase microbatch8; no global Ray stop or system memory changes.
-3. Let initial20rounds finish if stable. Checkpoint folder is nested: `RUN_DIR/RUN_NAME/checkpoints/global_step_40/`.
-4. Independently evaluate the trained student on all four tasks (small5episode/task pilot, explicit counts); compare to initial base and teachers. Use `toolkits.robotwin_mopd.evaluate --checkpoint PATH`, one GPU/task, only after training releases GPUs.
-5. Based on learning/SR trends decide one useful continuation: extend uniform to80updates with round-boundary resume if still undertrained, or matched-budget Adaptive-Sync-R2 from base if capability gain and task differences are evident. No broad parameter scan. Pilot calibration lives in `outputs/robotwin4/eval/teacher_reference_pilot.json` (5episodes/task; not formal).
-6. Update EXPERIMENTS_20261101.md and results. Do not mark active goal complete merely because the job was launched.
+| 项目 | 当前值 |
+|---|---|
+| T / 每任务轨迹 | 64 / 16 |
+| R | Refresh-R2，完整观测池，重新采样 noise |
+| Global B / microbatch | 512 / 8 per GPU，8 GPUs |
+| LR / warmup | 2.5e-5 constant / 8 optimizer updates |
+| 总预算 | 20 rounds / 40 updates |
+| 保存 | 每 8 updates；已完成 step8、step16 |
+| 精度 | FP32 actor masters + BF16 AMP；teacher/rollout 原推理精度 |
+| 同步 | 现有 dense bucket，128 MiB target、原 dtype、即时加载 |
+| 环境 | native clean ALOHA，seen instructions，未经过 scripted expert 筛选 |
 
-Actor cache has4teachers per rank; smoke host reclaim pressure was high around teacher/save, despite available RAM. NUMA interleave was applied for pilot; monitor actual timings before further memory changes. All checkpoints/outputs stay isolated.
+原生 horizon：400/600/400/900。预测50步、执行25步、10步ODE；不提前缩短任务 horizon。
 
-## First two T64 rounds verified
+MSE 对前25个位置的全部32维 flow latent 求均值，环境执行前14维。它不是物理14维 action error，下降也不等于任务成功率提高。各任务还有独立归一化，不能用跨任务 MSE 大小直接比较能力。当前训练成功案例仍仅来自 adjust_bottle；独立能力收益未验证。
 
-Rounds1–2 / updates1–4 completed: raw velocity MSE1.14665 →1.12782 →1.08153 →1.07384; finite gradient norms3.23/2.93/2.97/2.88. Cumulative128episodes and73,085actual control targets. Per-round success3/64 then1/64, all adjust_bottle. These early small counts are not evidence of success-rate improvement. Round2 took about12m10s; roughly4h is a provisional20round estimate, excluding final evaluation.
+## 已通过与限制
 
-NUMA interleave kept swap around6.6GiB with no sustained reclaim pressure; actor0 VmSwap0. GPU sampled peak43.35GiB. Host available fell257→204GiB across the first two round boundaries, so rounds3–5 still need memory-growth checks.
+- 5个模型转换、源文件 hash、严格加载，以及 JAX/PyTorch 动作/velocity 一致性检查已完成。
+- 107项原实现测试、35项新增评测相关测试通过；bucket测试9 passed、1 GPU test skipped。真实 GPU 同步与多轮训练已执行。
+- Step8/step16 均有完整权重、8个 DCP shard、metadata、runner/allocation 状态；计数核对一致。未在当前 checkpoint 上做实际全状态恢复测试。
+- 已越过原 patch 同步 OOM 位置，第5轮完整 rollout 和更新通过。
+- 同步约49–53秒，训练每次更新约44秒；采样 GPU 峰值约43.4 GiB。
+- 保存 step8 约131秒，曾触发短暂 CPU reclaim：swap接近63.6 GiB，PSI full avg10约63%，随后回落。第二次保存也完成。保留为独立性能限制，不与 GPU patch OOM 混同。
+- 初始 teacher 校准为3/5、4/5、5/5、4/5；base各0/3，均仅小样本 pilot。
 
-## Queued independent evaluations
+## 自动接续评测
 
-Both queues are waiting without GPU children and never stop training or unrelated processes.
+两条队列均等待，当前不占 GPU；必须先确认本 run 的实际 launcher 退出、COMPLETE 和 step40 checkpoint。
 
-- Matching unfiltered/seen queue PID2910670: `outputs/robotwin4/eval/uniform_r2_step40/queue.json`. Waits for actual launcher exit+COMPLETE+step40 checkpoint, then student4×5episodes and base4×2extensionepisodes. Existing base3/task and teachers5/task are preserved. Seed overlap is explicit; adjust teacher starts at a shifted seed.
-- Supplementary fixed feasible/unseen queue PID2933622: `outputs/robotwin4/eval/feasible_unseen_step40/queue.json`. Waits for the first queue to finish. Builds5scripted-expert-accepted scenes/task, then evaluates teacher/base/student on exactly the same seeds and prompts. Separate attempt paths and pool content hashes are retained. See [protocol audit](EVALUATION_PROTOCOL_AUDIT.md) and [evaluation details](FEASIBLE_EVALUATION.md).
+1. PID2982573：`outputs/robotwin4/eval/uniform_bucket_r2_step40/queue.json`。沿用未筛选/seen协议，student每任务5次，base补2次形成每任务5次；保留原teacher5次。记录实际seed重合情况。
+2. PID2982576：`outputs/robotwin4/eval/feasible_unseen_bucket_step40/queue.json`。前一队列完成后，按 scripted expert 成功规则筛出每任务5个场景；teacher/base/student共享相同seed和unseen prompt。单独报告，不与第一套混用。
 
-The official screening rule is scripted planner `plan_success AND check_success`; it does not select scenes based on learned teacher/student success. No scripted action data enter training. Current training remains unfiltered/seen. All5episode results are pilot estimates, not formal benchmark scores.
+见 [评测协议](FEASIBLE_EVALUATION.md) 和 [协议核对](EVALUATION_PROTOCOL_AUDIT.md)。5 episodes/task 不足以支持正式论文统计结论。
 
-New evaluation, fixed-seed adapter, queues and calibration budget accounting:35CPU tests, Ruff and git diff checks passed. Calibration records20teacher episodes,5379executed control targets, and219.39s approximate launch-manifest-to-last-result wall time; the478.01s sum of parallel episode durations is separately labeled.
+## 复现与产物
 
-## Round3 update
+以下路径均相对原 workspace 根目录，而非 worktree：
 
-Updates5/6 completed: velocity MSE0.90990/0.47021, gradient norms2.1017/1.1633, all finite. Update6 task MSE: adjust0.37376, handover0.55558, place0.76869, stack0.18283. All four tasks show early optimization response; this alone does not establish closed-loop improvement. Round3 rollout SR1/64 was collected before these updates. Continue the unchanged20round pilot and independent evaluations.
+- Runtime：`/localscratch2/liyifa11/XyFile/opd-robotwin4/env.sh`。W&B凭据来自 `.opd.action00.env` 的 `WANDB_ENV_FILE`；激活runtime本身不加载凭据，不打印凭据。
+- 训练：`outputs/robotwin4/train/robotwin4_uniform_refresh_r2_t64_b512_bucket_pilot_20261101/`；包含配置、源码快照、launch、JSONL指标和日志。
+- Checkpoint：上述run目录下再进入同名run子目录的 `checkpoints/global_step_16/`。
+- 曲线/CSV：`outputs/robotwin4/analysis/uniform_bucket_pilot/`，生成脚本 `outputs/robotwin4/analysis/plot_pilot.py`；图和metadata明确当前未完成状态。
+- [历史进度记录](experiments/progress_history_20261101.md)、[实验方案](EXPERIMENTS_20261101.md)。
 
-## Round4 update
+旧 `_retry` run 完成4轮/8updates后，在第5轮整包patch权重同步时OOM，已确认失败并清理自有进程。其日志、现场及旧W&B run `f6ve12mw` 保留；没有checkpoint，未与新run拼接。旧评测队列在FAILED gate停止。新的bucket配置提交为 `fb4d714a`。
 
-Updates7/8 completed: MSE0.41558/0.41516, gradient norms0.73483/0.99996. The first update uses fresh physical-rollout observations, so round3's reduction persists beyond reuse of its observation pool. Round4 rollout success remains1/64; capability gain is still unproven. Update8 task MSE: adjust0.33370, handover0.43812, place0.78303, stack0.10580. Cross-task MSE magnitudes are in distinct task-normalized action spaces and should not be interpreted directly as relative task proficiency.
+## 下一步
 
-## Failure after update8: weight-sync peak
-
-The first four rounds/8updates completed with finite gradients. On entry to round5, rollout rank0 failed in collective IPC `tensor.clone()` while receiving a2GiB tensor. GPU0 had actor36.00GiB + environment3.58GiB + rollout7.47GiB; only284.5MiB remained. This was not backward OOM or another user's process. The collective queue thread failed while launcher remained alive, so the exact owned launcher PID2884880 was sent SIGTERM to invoke its scoped cleanup. Full traceback and operator_note.json retained. No pilot checkpoint had yet been saved (save interval20updates). Do not evaluate this as a completed40update run or silently resume from the unrelated smoke.
-
-Both downstream evaluation queues are tied to this original launcher and must stop at its FAILED gate. A repaired run will need new queue/output paths and its own launcher identity. Investigate sync tensor lifetime/staging before restarting; retain FP32 actor masters.
+保持当前参数完成40updates，验证最终checkpoint与两套评测；结合逐任务SR、loss、时间及预算决定是否有必要做一项小规模调参。不要仅凭loss下降宣布能力融合成功。只操作自有run；不执行全局Ray stop、不改变系统内存设置。

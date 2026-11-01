@@ -80,3 +80,7 @@ T32只用于短 smoke：8 ranks下每任务每rank一个slot，没有动态分�
 - Smoke两步MSE约1.094/1.125、第二步非零LR3.125e-6；参数快照确认VLM/动作expert/投影均有有限更新。两步不能用于判断学习趋势。
 - 首次pilot启动仅因未加载本地W&B认证而失败，尚未训练；retry使用现有机器凭据，已在线同步。
 - 后续先检查首两轮loss/梯度/显存及T64采样；完成20轮后独立评测。若仍在稳定学习可延长至40轮；若已出现明显收益与任务差异，再做相同预算Adaptive-Sync-R2。暂不做大规模参数扫描。
+
+## 运行修正：同步显存峰值
+
+首个T64 pilot完成4rounds/8updates，MSE1.14665→0.41516；下一次weight sync因整包稀疏patch占用过高OOM。失败现场保留，尚无最终评测。改用现有dense bucket同步（128MiB target、原dtype、即时load），其余学习参数不变；从base重新启动 `robotwin4_uniform_refresh_r2_t64_b512_bucket_pilot_20261101`，仍40updates，保存改为每8updates。不要把失败run的8updates接到新run曲线上。最新身份和后续评测队列见LIVE_STATUS.md。
