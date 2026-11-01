@@ -104,3 +104,15 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 固定留出观测、prompt、noise/time（每task16个样本，关闭图像增强）的CFM loss：0.16748→0.01600，下降90.4%。四task都改善：adjust0.1690→0.01056，handover0.2015→0.01647，place0.1180→0.02194，stack0.1813→0.01504。physical14也均下降，改善并非仅来自padded坐标。
 
 这是示范条件flow matching拟合证据；它与MOPD在student flow上计算的teacher velocity MSE目标不同，**不能横向比较绝对loss，也不能据此宣称成功率改善**。策略rollout尚待checkpoint测评。结构化记录：根`outputs/robotwin4/analysis/joint_sft_step50_validation_20261101.json`。
+
+## 已固定的下游测评与 MOPD 队列
+
+入口：`toolkits/robotwin_mopd/joint_sft_followup.py`；本机wrapper为根`outputs/robotwin4/setup/run_sft_then_mopd_queue.py`。等待正在运行的joint20→60及其测评完全退出，再依次测评SFT100/200；SFT500需训练正常完成并退出后测评。全部使用原训练推理链路，T16×2 rounds、seed200000，每任务8episodes。
+
+固定选SFT500作为后续初始化，100/200仅用于观察过程，不挑选成绩最高的checkpoint。探索性可行性筛查要求四任务均有完整8episodes，至少两个任务出现成功；不满足时停止为`REVIEW_REQUIRED`，先复查初始化。这不是统计显著性标准。
+
+通过后，须8GPU均空闲且无compute进程，才启动新optimizer的uniform MOPD：T32/R4/B128/micro8，LR1e-5、warmup4、full50×32，80updates，每20保存；再冻结测评40/80。不会恢复SFT optimizer，不改teacher、loss或task norm。源checkpoint固定500，run名含pilot，W&B group=`robotwin_joint_sft_mopd_pilots`。
+
+状态：根`outputs/robotwin4/setup/joint_sft_followup_queue_20261101.json`。GPU忙时停止待review，不终止他人进程；整个队列限时10h，异常仅清理本队列启动的子进程。启动防重、精确PID/create_time和完整episode校验有CPU测试。
+
+评测限制：实际重试可能产生重复seed。目前adjust的8episodes仅6个unique scene seeds，其余三任务8个；新summary会分别记录episode数/唯一场景数，不能称所有任务都有8个独立场景。比较报告明确actual scene seed序列是否匹配，action noise未固定。该小样本队列用于pilot判断，若出现收益还需独立、更充分的确认。

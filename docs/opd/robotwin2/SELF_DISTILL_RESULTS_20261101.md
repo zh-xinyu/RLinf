@@ -34,3 +34,7 @@ student 与 teacher 均从 place_container_plate 的同一 PACE SFT checkpoint �
 若全8GPU空闲，候选为T32/R4/B128/micro8、80updates，每20保存，LR1e-5/warmup4，从选定SFT权重重新开始MOPD optimizer。当前allocator要求每env rank至少覆盖4tasks，T16/8不支持；T32/8每rank4slots有效。新初始化不应复用SFT optimizer。
 
 T32/R4与此前T16/R2都是每optimizer update平均8条轨迹；但rollout轮次、局部数据池、硬件及初始化不同，不能作为单因素消融。两种最小覆盖配置均没有adaptive非均匀allocation余量。本阶段只验证uniform多teacher融合及rollout复用。
+
+实际续训验证：四actor optimizer/scheduler/sample counters均恢复为20，LR1e-5；第一轮新更新为21/22、rollout round11，MSE0.185135/0.220879、gradient norm0.65913/0.93870均finite，累计环境步数86558→95136。证据为续训run的`resume_metadata.json`与`optimizer_updates.jsonl`。已验证完整恢复后的实际更新，不仅是配置检查；rollout RNG重启，仍非bitwise replay。
+
+场景数补充：本轮place的8个actual seed互不重复；adjust因为native reset重试，8episodes仅6个unique actual seeds。该事实不改变place控制的逐场景保留结论；所有task的8episodes不能统一称为8个独立场景。
