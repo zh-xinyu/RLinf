@@ -1,48 +1,53 @@
-# OPD 固定环境
+# Fixed OPD environment
 
-本页及 `requirements/profiles/` 随 `opd-project-main` 版本化。
-新 clone 使用这里的入口；不需要 `.opd.*.env`、`shs/`、`toolkits/mopd/` 或
-个人研究草稿。正式实验入口见 [合作者交接指南](docs/opd/collaboration/README.md)。
+This guide and `requirements/profiles/` are versioned with `opd-project-main`.
+A fresh clone does not require personal `.opd.*.env` files, `shs/`,
+`toolkits/mopd/`, or local research notes. See the
+[experiment guide](docs/opd/collaboration/README.md) for training and evaluation.
 
-## 默认 profile
+## Supported profile
 
-**`gr00t-n15-robocasa365-20261019`**：GR00T N1.5 + RoboCasa365，
-面向 Linux x86_64 / NVIDIA GPU。Python 3.11.14、Torch 2.6.0（CUDA 12.4、
-旧 C++ ABI）、FlashAttention 2.7.4.post1、Transformers 4.51.3、
-MuJoCo 3.3.1、NumPy 2.2.5、Ray 2.56.1。
+**`gr00t-n15-robocasa365-20261019`** covers GR00T N1.5 + RoboCasa365 on
+Linux x86_64 with NVIDIA GPUs. It pins Python 3.11.14, Torch 2.6.0 (CUDA 12.4,
+old C++ ABI), FlashAttention 2.7.4.post1, Transformers 4.51.3, MuJoCo 3.3.1,
+NumPy 2.2.5, and Ray 2.56.1. RoboTwin will use a separate environment profile.
 
-| 文件 | 固定的内容 |
+| File | Purpose |
 | --- | --- |
-| [profile.json](requirements/profiles/gr00t-n15-robocasa365-20261019/profile.json) | Python、uv、4个上游仓库的完整 commit、FlashAttention wheel / ABI |
-| [requirements.txt](requirements/profiles/gr00t-n15-robocasa365-20261019/requirements.txt) | 已运行环境的275个 Python 包精确版本 |
-| [build-constraints.txt](requirements/profiles/gr00t-n15-robocasa365-20261019/build-constraints.txt) | 源码包构建工具的独立版本约束 |
-| [opd_profile.py](requirements/opd_profile.py) | 全新安装、版本与源码检查、关键导入、可选 GPU 检查 |
+| [profile.json](requirements/profiles/gr00t-n15-robocasa365-20261019/profile.json) | Python, uv, four upstream Git revisions, and FlashAttention wheel/ABI |
+| [requirements.txt](requirements/profiles/gr00t-n15-robocasa365-20261019/requirements.txt) | Exact versions of 275 runtime packages |
+| [build-constraints.txt](requirements/profiles/gr00t-n15-robocasa365-20261019/build-constraints.txt) | Build-tool constraints |
+| [opd_profile.py](requirements/opd_profile.py) | Installation, version/source checks, imports, and optional GPU verification |
 
-这是已运行环境的**版本快照**，不是最小依赖集。上游 GR00T/RoboCasa/LeRobot
-的依赖声明相互冲突，历史安装也使用了 `--no-deps` 和版本覆盖；此入口显式恢复
-快照，避免重新解析后悄悄改变训练环境。`uv pip check` 会报告这些已有冲突，
-不能据此称整个上游软件栈的全部功能都兼容。检查范围是本项目的 GR00T/RoboCasa365 路径。
+This is a snapshot of a working environment, not a minimal dependency set.
+Upstream GR00T, RoboCasa, and LeRobot dependency declarations conflict; historical
+installation used `--no-deps` and explicit version overrides. The installer
+restores that snapshot instead of resolving a different environment. `uv pip
+check` can report these known conflicts; the supported scope is this project's
+GR00T/RoboCasa365 path, not every upstream feature.
 
-普通 `requirements/install.sh embodied --model gr00t --env robocasa365`
-仍是 RLinf 的通用安装器，**不承诺恢复这个固定 profile**。
+The upstream `requirements/install.sh embodied --model gr00t --env robocasa365`
+installer does **not** promise to reproduce this fixed profile.
 
-## 从 clone 安装
+## Install from a clone
 
-前置条件：Linux x86_64、Git、编译工具及 EGL/OpenGL 系统库；GPU 检查和训练需要
-支持 CUDA 12.4 的 NVIDIA 驱动。当前参考机器为 Ubuntu 24.04。
-系统依赖由已有的 `requirements/sys_deps.sh nvidia` 安装（需要管理员权限）；
-profile 安装器不自动修改系统包。需能访问 PyPI、GitHub 和 Python 下载源。
+Prerequisites: Linux x86_64, Git, build tools, EGL/OpenGL libraries, and an NVIDIA
+driver supporting CUDA 12.4 for GPU checks and training. The reference OS is
+Ubuntu 24.04. `requirements/sys_deps.sh nvidia` installs system dependencies
+with administrator privileges; the profile installer does not change system
+packages. Installation needs access to PyPI, GitHub, and Python download hosts.
 
 ```bash
+# Skip cloning again if you already checked out the experiment release.
 git clone --branch opd-project-main https://github.com/zh-xinyu/RLinf.git
 cd RLinf
 
-# bootstrap 与训练 runtime 分开；也可使用已经安装的相同版本 uv。
+# Keep bootstrap tooling separate from the training runtime.
 python3 -m venv /absolute/path/opd-bootstrap
 /absolute/path/opd-bootstrap/bin/python -m pip install 'uv==0.12.0'
 export PATH="/absolute/path/opd-bootstrap/bin:$PATH"
 
-# 必须指定尚不存在的绝对目录。dry-run 不写入文件。
+# Use a new absolute directory. Dry-run does not write files.
 python3 requirements/opd_profile.py install \
   --runtime /absolute/path/opd-runtime --dry-run
 python3 requirements/opd_profile.py install \
@@ -50,57 +55,60 @@ python3 requirements/opd_profile.py install \
 source /absolute/path/opd-runtime/activate.sh
 ```
 
-安装器使用独立的 Python 下载目录、uv cache、venv 和源码 checkouts；不读取
-个人节点配置，不覆盖已有 runtime。失败后保留目录与终端错误用于排查；修复后
-选择新的空路径重试。不要对已有训练环境运行升级或重新解析依赖。
+The installer creates isolated Python downloads, a uv cache, a venv, and source
+checkouts. It does not read personal node profiles or overwrite an existing
+runtime. After a failure, retain its directory and error logs; retry in a new
+empty path after resolving the cause. Do not upgrade an active training runtime.
 
-安装结束检查全部固定包版本、4个源码 commit / 已跟踪文件修改、实际安装来源、
-Torch CUDA/ABI、关键模块和本地 Eagle processor。`activate.sh` 绑定生成时的
-RLinf checkout，启动 Ray **之前** source；移动 checkout 后需调整该路径。
+Verification checks package versions, all four upstream revisions and tracked
+source modifications, installed source locations, Torch CUDA/ABI, required
+imports, and the local Eagle processor. `activate.sh` records the original
+project checkout: source it **before starting Ray**, and update its repository
+path if the checkout moves.
 
 ```bash
-# 可重复运行的软件检查（从 clone 的仓库根目录）
+# Repeatable software checks, run from the repository root.
 PYTHONPATH="$PWD" /absolute/path/opd-runtime/venv/bin/python \
   requirements/opd_profile.py verify --runtime /absolute/path/opd-runtime
 
-# 在空闲 GPU 上增加一次真实 FlashAttention CUDA 运算
+# Also execute a real FlashAttention CUDA operation on an available GPU.
 PYTHONPATH="$PWD" /absolute/path/opd-runtime/venv/bin/python \
   requirements/opd_profile.py verify --runtime /absolute/path/opd-runtime --gpu
 ```
 
-## 软件之外的实验输入
+## External experiment inputs
 
-clone 不包含 RoboCasa 大型资产、C10 student 或三个 teacher checkpoints。
-它们必须另行准备，不能把“软件安装通过”等同于“完整实验已复现”。
+A clone does not include simulator assets, C10, or the three teachers. Passing
+software verification alone does not establish experiment reproducibility.
+Follow the [resource guide](docs/opd/collaboration/RESOURCES.md):
 
-1. 在新环境中按固定 RoboCasa checkout 的说明准备资产：
+1. Prepare RoboCasa assets with the pinned checkout's setup/download scripts,
+   or copy the agreed asset snapshot. Record asset provenance and checksums when
+   available; upstream asset contents are not locked by this software profile.
+2. Set `OPD_STUDENT_CHECKPOINT` to C10 and `OPD_MODEL_ROOT` to the directory
+   containing `target_posttraining/{atomic_seen,composite_seen,composite_unseen}/checkpoint-60000`.
+   Preserve each model's weights, `config.json`, and `experiment_cfg/metadata.json`.
+3. Configure output storage, GPUs, and W&B authentication, then follow the
+   [experiment guide](docs/opd/collaboration/README.md). Record the code commit,
+   profile, input hashes, and resolved Hydra config.
 
-   ```bash
-   python -m robocasa.scripts.setup_macros
-   python -m robocasa.scripts.download_kitchen_assets
-   ```
+Personal server profiles such as `.opd.action00.env` and `.opd.action10.env`
+remain local. They explicitly select node-specific paths and are neither
+published nor required on collaborators' machines.
 
-   复现已有实验时优先使用同一份已归档资产，并记录校验和；上游下载服务内容
-   不由本 profile 锁定。下载会占用额外磁盘空间。
-2. 提供 `OPD_STUDENT_CHECKPOINT`（C10）和 `OPD_MODEL_ROOT`，后者包含
-   `target_posttraining/{atomic_seen,composite_seen,composite_unseen}/checkpoint-60000`。
-   每个 checkpoint 保留权重、`config.json`、`experiment_cfg/metadata.json` 等完整目录。
-3. 设置输出路径、GPU 分配、W&B 认证，再按
-   [训练入口](OPD_DEVELOPMENT.md#在已配置的单机环境运行)启动。
-   正式比较时记录 RLinf commit、profile ID、checkpoint 与资产校验和，以及最终 Hydra config。
+## Validation and update policy
 
-个人已有服务器仍用显式 `.opd.action00.env` / `.opd.action10.env` 指定路径和节点。
-这些文件与通用 profile 分离，不进入 GitHub，也不作为新机器安装的前置条件。
+The 2026-10-19 isolated installation and clean-checkout verification passed
+76 CPU regressions; see its [validation record](requirements/profiles/gr00t-n15-robocasa365-20261019/VALIDATION.md).
+The subsequent experiment release has a separate
+[validation record](docs/opd/collaboration/VALIDATION.md). Neither record replaces
+GPU training/evaluation smoke tests on the receiving machine.
 
-## 验证边界与更新规则
-
-2026-10-19：全新隔离安装、软件检查和公开 checkout 的 **76 项 CPU 回归通过**。
-详细范围见 [验证记录](requirements/profiles/gr00t-n15-robocasa365-20261019/VALIDATION.md)。
-本轮 GPU 正忙，没有中断训练或执行 GPU 端到端试验。
-
-- 软件版本与 Git commit 固定；操作系统、驱动及外部资产不是完整镜像锁定。
-- Python 包固定版本，当前未提供所有构建产物的 SHA256 清单或离线 wheelhouse；
-  不承诺逐字节或数值完全相同。公共源下架会使安装明确失败，不自动升级版本。
-- 此 profile 更新应创建新的日期目录，保留旧版本供实验追溯；同步修改默认入口并
-  在空目录重跑安装、软件检查、GPU smoke 和项目回归。
-- 检查通过只覆盖明确执行的检查，不替代完整 rollout / 优化更新验证。
+- Software versions and upstream commits are pinned; OS, drivers, and external
+  assets are not a fully locked machine image.
+- There is no complete wheel hash manifest or offline wheelhouse. Byte-identical
+  builds and numerical determinism are not guaranteed. Missing upstream files
+  cause explicit failures rather than automatic upgrades.
+- Update the profile by creating a new dated directory, retaining old versions,
+  and repeating fresh installation, software/GPU checks, and regressions.
+- Verification claims apply only to the checks actually performed.

@@ -24,7 +24,6 @@ We study two complementary mechanisms:
 | Obtain and verify C10, teachers, and simulator assets | [Resources](docs/opd/collaboration/RESOURCES.md) |
 | Understand the training implementation and metrics | [Development guide](OPD_DEVELOPMENT.md) |
 | Inspect the independent evaluation protocol | [RoboCasa365 evaluation](evaluations/robocasa365/FORMAL_EVAL.md) |
-| Read this overview in Chinese | [中文说明](README.zh-CN.md) |
 
 The experiment release is pinned by Git tag `robocasa-formal-150r-20261031`.
 Use that tag for reproduction; `opd-project-main` remains the development base.
@@ -36,6 +35,9 @@ Checkpoints and simulator assets are distributed separately. Personal node
 paths, credentials, raw runs, and working research notes are not installation
 dependencies. RoboTwin experiments will use a separate branch and environment
 profile; the current profile only covers GR00T N1.5 + RoboCasa365.
+
+Project-facing documentation is maintained in English. Email task assignments
+and local research notes are distributed separately.
 
 ## Repository map
 
