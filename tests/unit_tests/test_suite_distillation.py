@@ -346,3 +346,40 @@ def test_distributed_sums_handle_unequal_rank_counts(tmp_path):
         4.0,
         2.0,
     ]
+
+
+def test_full_horizon_m3_counts_masks_and_backpropagates_only_tail_error():
+    student = torch.zeros(3, 50, 32, requires_grad=True)
+    teacher = torch.zeros_like(student)
+    teacher[:, 25:] = 1
+    teacher.requires_grad_(True)
+    mask = torch.tensor([[True], [False], [True]])
+    loss, metrics = compute_analytic_local_kl_loss(
+        student,
+        teacher,
+        kl_weight=torch.tensor([2.0, 99.0, 4.0]),
+        loss_mask=mask,
+        teacher_ids=torch.tensor([0, 0, 1]),
+        num_teachers=2,
+        sample_weights=torch.tensor([0.5, 0.5, 1.5]),
+    )
+    # Half the coordinates have unit error; mean-one suite weights scale numerators.
+    assert loss.item() == pytest.approx(1.75)
+    assert metrics["actor/velocity_mse"] == pytest.approx(0.5)
+    assert metrics["actor/analytic_kl"] == pytest.approx(1.5)
+    stats = metrics[SUITE_STATS_KEY]
+    torch.testing.assert_close(
+        stats[:, 2], torch.tensor([1600.0, 1600.0], dtype=torch.float64)
+    )
+    loss.backward()
+    assert teacher.grad is None
+    assert student.grad[:, :25].count_nonzero() == 0
+    assert student.grad[1].count_nonzero() == 0
+    assert student.grad[[0, 2], 25:].abs().sum() > 0
+    old_loss, _ = compute_analytic_local_kl_loss(
+        student[:, :25],
+        teacher[:, :25],
+        kl_weight=torch.ones(3),
+        loss_mask=mask,
+    )
+    assert old_loss.item() == 0

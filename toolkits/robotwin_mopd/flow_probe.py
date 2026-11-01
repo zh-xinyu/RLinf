@@ -307,21 +307,36 @@ def collect_probe_observations(
     max_probes: int,
     flow_indices: list[int],
     on_progress=None,
+    strict_pool: bool = True,
+    on_reset=None,
 ):
     """Inspect at most max_probes decision states, never execute the final chunk."""
     probes, executed = [], 0
     terminal = {"terminated": False, "truncated": False}
-    obs, _ = env.reset(evaluation_episode=scene)
-    if env.rollout_episode_records()[0]["actual_reset_seed"] != scene["scene_seed"]:
-        raise RuntimeError("Fixed evaluation scene changed")
+    obs, _ = env.reset(evaluation_episode=scene) if strict_pool else env.reset()
+    actual_seed = env.rollout_episode_records()[0]["actual_reset_seed"]
+    prompt = obs["task_descriptions"][0]
+    if strict_pool:
+        if actual_seed != scene["scene_seed"]:
+            raise RuntimeError("Fixed evaluation scene changed")
+        if prompt != scene["instruction"]:
+            raise RuntimeError("Fixed prompt changed")
+    provenance = {
+        "requested_scene_seed": scene["scene_seed"],
+        "actual_reset_seed": actual_seed,
+        "scene_seed": actual_seed,
+        "instruction": prompt,
+    }
+    if on_reset is not None:
+        on_reset(provenance)
     for index in range(max_probes):
-        if obs["task_descriptions"] != [scene["instruction"]]:
+        if obs["task_descriptions"] != [prompt]:
             raise RuntimeError("Fixed prompt changed")
         probe, actions = probe_observation(
             student,
             teacher,
             obs,
-            scene_seed=scene["scene_seed"],
+            scene_seed=actual_seed,
             probe_index=index,
             flow_indices=flow_indices,
         )
@@ -347,13 +362,20 @@ def collect_probe_observations(
     return probes, executed, terminal
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Build mutually exclusive scene-source options without initializing CUDA."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", required=True, choices=list(TASK_HORIZONS))
     parser.add_argument(
         "--checkpoint", required=True, help="Student checkpoint directory or base"
     )
-    parser.add_argument("--evaluation-pool", required=True, type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--evaluation-pool", type=Path)
+    source.add_argument(
+        "--scene-seed",
+        type=int,
+        help="Ordinary unfiltered reset with seen language; records any reset retry",
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--probes",
@@ -364,7 +386,14 @@ def main() -> None:
     parser.add_argument("--flow-indices", nargs="+", type=int, default=[0, 4, 9])
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument("--config-name", default="robotwin4_mopd_pi05")
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
+    if args.scene_seed is not None and (args.scene_seed < 0 or args.episode_index != 0):
+        parser.error("scene-seed must be nonnegative and cannot use episode-index")
     if (
         args.probes < 1
         or args.episode_index < 0
@@ -392,10 +421,14 @@ def main() -> None:
         version_base=None, config_dir=str(repo / "examples/embodiment/config")
     ):
         cfg = compose(config_name=args.config_name)
-    pool, entries = read_evaluation_pool(
-        args.evaluation_pool, args.task, args.episode_index + 1, cfg
-    )
-    scene = entries[args.episode_index]
+    pool = None
+    if args.evaluation_pool is not None:
+        pool, entries = read_evaluation_pool(
+            args.evaluation_pool, args.task, args.episode_index + 1, cfg
+        )
+        scene = entries[args.episode_index]
+    else:
+        scene = {"scene_seed": args.scene_seed}
     student_cfg = copy.deepcopy(cfg.actor.model)
     if args.checkpoint != "base":
         student_cfg.model_path = str(Path(args.checkpoint).expanduser().resolve())
@@ -406,17 +439,19 @@ def main() -> None:
         "task": args.task,
         "student_checkpoint": str(student_cfg.model_path),
         "teacher_checkpoint": str(teacher_cfg.model_path),
-        "evaluation_pool": str(args.evaluation_pool.resolve()),
-        "pool_content_sha256": pool["pool_content_sha256"],
-        "protocol": pool["protocol"],
+        "evaluation_pool": str(args.evaluation_pool.resolve()) if pool else None,
+        "pool_content_sha256": pool["pool_content_sha256"] if pool else None,
+        "protocol": pool["protocol"] if pool else "unfiltered_seen",
+        "requested_scene_seed": scene["scene_seed"],
+        "actual_reset_seed": None,
         "scene_seed": scene["scene_seed"],
-        "instruction": scene["instruction"],
+        "instruction": scene.get("instruction"),
         "episode_index": args.episode_index,
         "requested_observation_probes": args.probes,
         "flow_indices": args.flow_indices,
         "truncated_diagnostic": True,
         "episode_outcome_evaluated": False,
-        "sampling_scope": "Initial student-visited observations of one fixed unseen scene, selected ODE times only; not an estimator of the training-MSE distribution.",
+        "sampling_scope": "Initial student-visited observations of one scene under the recorded protocol, selected ODE times only; not an estimator of the training-MSE distribution.",
         "coordinate_system": "normalized full flow latent; velocity evaluated on the same student-path x_t",
         "causal_interpretation": "Descriptive diagnostic only; does not establish why success rate changes or stagnates.",
         "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -455,9 +490,10 @@ def main() -> None:
     env_cfg.task_names = [args.task]
     env_cfg.total_num_envs = 1
     env_cfg.video_cfg.save_video = False
-    env_cfg.instruction_type = "unseen"
-    for key, value in pool["protocol"]["screening_overrides"].items():
-        OmegaConf.update(env_cfg.task_config, key, value, force_add=True)
+    env_cfg.instruction_type = "unseen" if pool else "seen"
+    if pool:
+        for key, value in pool["protocol"]["screening_overrides"].items():
+            OmegaConf.update(env_cfg.task_config, key, value, force_add=True)
     env = RoboTwinMultiTaskEnv(env_cfg, 1, 0, 1, None)
     env.set_rollout_tasks(
         [
@@ -479,6 +515,8 @@ def main() -> None:
             scene,
             max_probes=args.probes,
             flow_indices=args.flow_indices,
+            strict_pool=pool is not None,
+            on_reset=metadata.update,
             on_progress=lambda observations, count, flags: save_report(
                 args.output,
                 metadata,

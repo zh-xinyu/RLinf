@@ -78,3 +78,32 @@ def test_checkpointed_openpi_requires_joint_training_path(pilot_cfg):
     pilot_cfg.actor.model.openpi.nft_joint_forward = False
     with pytest.raises(ValueError, match="nft_joint_forward"):
         validate_flow_refresh_cfg(pilot_cfg)
+
+
+def test_full_horizon_opt_in_keeps_execution_config(pilot_cfg):
+    assert pilot_cfg.actor.model.openpi.get("nft_full_horizon", False) is False
+    OmegaConf.update(
+        pilot_cfg, "actor.model.openpi.nft_full_horizon", True, force_add=True
+    )
+    validate_flow_refresh_cfg(pilot_cfg)
+    assert pilot_cfg.actor.model.openpi.action_horizon == 50
+    assert pilot_cfg.actor.model.openpi.action_chunk == 25
+    assert pilot_cfg.actor.model.num_action_chunks == 25
+    assert pilot_cfg.actor.model.openpi.action_env_dim == 14
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("algorithm.reward_type", "action_level"),
+        ("algorithm.loss_type", "nft"),
+        ("actor.model.openpi.nft_full_horizon", "yes"),
+    ],
+)
+def test_full_horizon_rejects_incompatible_masks_or_loss(pilot_cfg, key, value):
+    OmegaConf.update(
+        pilot_cfg, "actor.model.openpi.nft_full_horizon", True, force_add=True
+    )
+    OmegaConf.update(pilot_cfg, key, value)
+    with pytest.raises(ValueError, match="nft_full_horizon"):
+        validate_flow_refresh_cfg(pilot_cfg)

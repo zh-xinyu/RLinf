@@ -176,3 +176,70 @@ def test_native_terminal_stops_diagnostic_without_padding(monkeypatch):
     )
     assert len(results) == 1 and env.calls == 1 and executed == 25
     assert flags["terminated"]
+
+
+def test_scene_source_cli_requires_exactly_one_mode():
+    parser = probe.build_parser()
+    common = ["--task", "adjust_bottle", "--checkpoint", "base", "--output", "x.json"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(common)
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            common + ["--scene-seed", "42", "--evaluation-pool", "p.json"]
+        )
+    args = parser.parse_args(common + ["--scene-seed", "42"])
+    assert args.scene_seed == 42 and args.evaluation_pool is None
+    args = parser.parse_args(common + ["--evaluation-pool", "p.json"])
+    assert args.scene_seed is None and str(args.evaluation_pool) == "p.json"
+
+
+def test_unfiltered_reset_uses_actual_seed_and_seen_prompt(monkeypatch):
+    class RetryingEnv(FakeEnv):
+        def reset(self):
+            self.scene = {"scene_seed": 200001, "instruction": "actual seen prompt"}
+            return {"task_descriptions": [self.scene["instruction"]]}, {}
+
+    received, provenance = [], {}
+
+    def fake_probe(_student, _teacher, obs, **kwargs):
+        received.append((kwargs["scene_seed"], obs["task_descriptions"][0]))
+        return {"velocity_samples": []}, torch.zeros(1, 25, 14)
+
+    monkeypatch.setattr(probe, "probe_observation", fake_probe)
+    results, executed, _ = probe.collect_probe_observations(
+        None,
+        None,
+        RetryingEnv(),
+        {"scene_seed": 200000},
+        max_probes=4,
+        flow_indices=[0, 4, 9],
+        strict_pool=False,
+        on_reset=provenance.update,
+    )
+    assert len(results) == 4 and executed == 75
+    assert received == [(200001, "actual seen prompt")] * 4
+    assert provenance == {
+        "requested_scene_seed": 200000,
+        "actual_reset_seed": 200001,
+        "scene_seed": 200001,
+        "instruction": "actual seen prompt",
+    }
+
+
+@pytest.mark.parametrize("changed", ["scene_seed", "instruction"])
+def test_pool_mode_still_rejects_changed_seed_or_prompt(changed):
+    class ChangedEnv(FakeEnv):
+        def reset(self, evaluation_episode):
+            self.scene = dict(evaluation_episode)
+            self.scene[changed] = 43 if changed == "scene_seed" else "different"
+            return {"task_descriptions": [self.scene["instruction"]]}, {}
+
+    with pytest.raises(RuntimeError, match="Fixed"):
+        probe.collect_probe_observations(
+            None,
+            None,
+            ChangedEnv(),
+            {"scene_seed": 42, "instruction": "fixed"},
+            max_probes=4,
+            flow_indices=[0, 4, 9],
+        )

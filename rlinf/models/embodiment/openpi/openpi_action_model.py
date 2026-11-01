@@ -88,6 +88,9 @@ class OpenPi0Config(Pi0Config):
     # ===== NFT-specific parameters =====
     is_nft: bool = False
     nft_joint_forward: bool = False
+    nft_full_horizon: bool = (
+        False  # Supervise all latent positions; execution unchanged.
+    )
 
     # ===== RLT SFT parameters =====
     use_rlt: bool = False
@@ -840,7 +843,8 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             v_theta, suffix_out = self.get_velocity(
                 state, x_t, t, prefix_pad_masks, past_key_values
             )
-        v_theta = v_theta[:, : self.config.action_chunk, :]
+        if not getattr(self.config, "nft_full_horizon", False):
+            v_theta = v_theta[:, : self.config.action_chunk, :]
         # result
         result: dict[str, Any] = {"v_theta": v_theta, "x_t": x_t, "timesteps": t}
         if compute_values and self.config.add_value_head:

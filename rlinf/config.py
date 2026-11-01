@@ -917,6 +917,17 @@ def validate_suite_distillation_cfg(cfg: DictConfig) -> None:
 
 def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
     """Reject unsupported combinations for GR00T/OpenPI ODE refresh."""
+    full_horizon = cfg.actor.model.get("openpi", {}).get("nft_full_horizon", False)
+    if not isinstance(full_horizon, bool):
+        raise ValueError("openpi.nft_full_horizon must be a boolean.")
+    if full_horizon and (
+        cfg.actor.model.model_type != "openpi"
+        or cfg.algorithm.loss_type not in ("velocity_distill", "analytic_local_kl")
+        or cfg.algorithm.get("reward_type") != "chunk_level"
+    ):
+        raise ValueError(
+            "OpenPI nft_full_horizon requires M1/M3 with chunk_level validity masks."
+        )
     repeats = cfg.algorithm.get("flow_refresh_updates", 1)
     if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
         raise ValueError("algorithm.flow_refresh_updates must be a positive integer.")

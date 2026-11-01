@@ -131,11 +131,16 @@ def test_joint_checkpointed_training_preserves_values_and_finite_gradients():
     assert not torch.equal(before, policy.prefix_proj.weight)
 
 
-def test_nft_routes_joint_training_and_cached_evaluation(monkeypatch):
+@pytest.mark.parametrize("full_horizon", [False, True])
+def test_nft_routes_joint_training_and_cached_evaluation(monkeypatch, full_horizon):
     policy = tiny_policy()
     policy.config.nft_joint_forward = True
+    policy.config.nft_full_horizon = full_horizon
     policy.config.add_value_head = False
-    batch = inputs()
+    policy.config.action_horizon = 50
+    policy.config.action_chunk = 25
+    batch = list(inputs())
+    batch[5] = torch.randn(2, 50, 32)
     observation = {"image": {}, "image_mask": {}, "state": batch[4]}
     monkeypatch.setattr(policy, "input_transform", lambda obs, transpose: obs)
     monkeypatch.setattr(policy, "_preprocess_observation", lambda obs, train: batch[:5])
@@ -160,6 +165,23 @@ def test_nft_routes_joint_training_and_cached_evaluation(monkeypatch):
     policy.eval()
     evaluation = policy.nft_forward(observation, **kwargs)
     assert calls == ["joint", "cached"]
+    assert training["v_theta"].shape == (2, 50 if full_horizon else 25, 32)
+    assert training["x_t"].shape == (2, 50, 32)
+    monkeypatch.setattr(policy, "_opd_transform_ids", lambda *_: None)
+    monkeypatch.setattr(
+        policy,
+        "_output_transform",
+        lambda sample: {"actions": sample["actions"][:, :14]},
+        raising=False,
+    )
+    executed = policy.output_transform({"actions": torch.zeros(2, 50, 32)})
+    assert executed["actions"].shape == (2, 25, 14)
     torch.testing.assert_close(
         training["v_theta"], evaluation["v_theta"], rtol=2e-5, atol=2e-6
     )
+
+
+def test_full_horizon_defaults_off():
+    from rlinf.models.embodiment.openpi.openpi_action_model import OpenPi0Config
+
+    assert OpenPi0Config.__dataclass_fields__["nft_full_horizon"].default is False
