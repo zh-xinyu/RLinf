@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Compose the isolated pilot without launching Ray or loading model weights."""
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -43,6 +45,41 @@ def test_pilot_config_matches_task_routing_and_refresh_contract(pilot_cfg):
     assert pilot_cfg.actor.model.openpi.action_horizon == 50
     assert pilot_cfg.actor.model.openpi.action_chunk == 25
     assert pilot_cfg.actor.model.openpi.action_env_dim == 14
+
+
+def test_subset_launcher_replaces_all_physical_gpu_placement(
+    pilot_cfg, monkeypatch, tmp_path
+):
+    """Composed child config must not schedule the other physical GPUs."""
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5,6,7")
+    monkeypatch.setenv("ROBOTWIN_RUNTIME_ROOT", str(Path(sys.prefix).parent))
+    # run.py intentionally enforces the isolated runtime path contract.
+    if Path(sys.prefix).name != "venv":
+        pytest.skip("Launcher integration requires the isolated runtime venv")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "toolkits.robotwin_mopd.run",
+            "--run-id",
+            "subset_check",
+            "--output-root",
+            str(tmp_path),
+            "--num-gpus",
+            "4",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    cfg = OmegaConf.create(result.stdout)
+    assert dict(cfg.cluster.component_placement) == {
+        "actor": "4,5,6,7",
+        "env": "4,5,6,7",
+        "rollout": "4,5,6,7",
+    }
+    assert not (tmp_path / "subset_check").exists()
 
 
 def test_smoke_overrides_retain_valid_round_boundaries(pilot_cfg):

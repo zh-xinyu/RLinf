@@ -54,14 +54,19 @@ def run_command(command, log, env):
 
 
 def main():
-    """Record exact configuration/code and launch a fresh eight-GPU pilot."""
+    """Record exact configuration/code and launch an isolated GPU pilot."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--num-gpus", type=int, default=8)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
+    if args.num_gpus < 1:
+        parser.error("--num-gpus must be positive")
+    if args.num_gpus != 8 and not os.environ.get("CUDA_VISIBLE_DEVICES"):
+        parser.error("Set CUDA_VISIBLE_DEVICES explicitly for a GPU subset")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,100}", args.run_id):
         parser.error("Invalid run ID")
     runtime = Path(os.environ["ROBOTWIN_RUNTIME_ROOT"]).resolve()
@@ -85,7 +90,27 @@ def main():
     env.setdefault("RAY_DASHBOARD_SUBPROCESS_MODULE_WAIT_READY_TIMEOUT", "180")
     env.pop(OWNER_KEY, None)
     os.environ.update(env)
-    overrides = [f"runner.logger.experiment_name={args.run_id}", *args.overrides]
+    placement_overrides = []
+    if args.num_gpus != 8:
+        selected = env["CUDA_VISIBLE_DEVICES"].split(",")
+        if len(selected) != args.num_gpus or not all(x.isdigit() for x in selected):
+            parser.error("GPU subset requires exactly --num-gpus numeric physical IDs")
+        if len(set(selected)) != len(selected):
+            parser.error("GPU IDs must be distinct")
+        # RLinf discovers physical devices independently of Ray/CUDA's mask.
+        # Replace 'all' explicitly so a subset never schedules other GPUs.
+        ranks = ",".join(selected)
+        placement_overrides = [
+            "~cluster.component_placement",
+            f'+cluster.component_placement={{actor:"{ranks}",env:"{ranks}",rollout:"{ranks}"}}',
+        ]
+        if any("cluster.component_placement" in item for item in args.overrides):
+            parser.error("Do not override component placement with --num-gpus subset")
+    overrides = [
+        f"runner.logger.experiment_name={args.run_id}",
+        *placement_overrides,
+        *args.overrides,
+    ]
     if args.smoke:
         overrides += [
             "runner.max_steps=2",
@@ -118,7 +143,7 @@ def main():
     with open(f"/tmp/opd-single-job-{os.getuid()}.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         require_free_ray()
-        check_gpus(8, env)
+        check_gpus(args.num_gpus, env)
         output.mkdir(parents=True)
         OmegaConf.save(cfg, output / "resolved_config.yaml")
         (output / "code.diff").write_bytes(
@@ -151,6 +176,8 @@ def main():
                     "host": socket.gethostname(),
                     "owner": owner,
                     "runtime": str(runtime),
+                    "num_gpus": args.num_gpus,
+                    "cuda_visible_devices": env["CUDA_VISIBLE_DEVICES"],
                     "numa_policy": env.get("ROBOTWIN_NUMA_POLICY", "default"),
                     "commit": subprocess.check_output(
                         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
@@ -165,7 +192,7 @@ def main():
             "--head",
             "--port=6379",
             "--num-cpus=48",
-            "--num-gpus=8",
+            f"--num-gpus={args.num_gpus}",
             "--include-dashboard=true",
             "--dashboard-host=127.0.0.1",
             "--dashboard-port=8265",

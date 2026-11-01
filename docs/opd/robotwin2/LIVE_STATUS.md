@@ -1,6 +1,8 @@
 # RoboTwin 四 teacher pilot：收尾状态
 
-更新：2026-11-01，action00。两段训练、两套未筛选/seen测评、13份flow/数值诊断均已完成。所有自有训练、评测和诊断进程已退出；检查时无GPU compute进程。没有继续排训练。
+更新：2026-11-01，action00。**后续调试已开始：teacher训练路径21/32成功，shared-specialist step0为6/32，20-update MOPD pilot运行中，见 [训练路径调试](TRAIN_PATH_DEBUG_20261101.md)。** 以下是上一阶段收尾存档：
+
+两段训练、两套未筛选/seen测评、13份flow/数值诊断均已完成。所有自有训练、评测和诊断进程已退出；检查时无GPU compute进程。没有继续排训练。
 
 **结果：两个student均0/20，base1/20，teacher16/20。管线跑通，但本预算下没有展示能力融合收益。** 完整证据、复现入口与限制见 [PILOT_RESULTS_20261101](PILOT_RESULTS_20261101.md)。
 

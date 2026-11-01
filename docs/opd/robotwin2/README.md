@@ -1,6 +1,6 @@
 # RoboTwin 2.0 四任务 MOPD
 
-更新：2026-11-01。四teacher管线和两段pilot训练已完成；两个student独立测评均0/20，未显示可用的任务能力融合收益。全部计划内任务已收尾。入口是 [结果与交接](PILOT_RESULTS_20261101.md)，具体进度见 [LIVE_STATUS](LIVE_STATUS.md)。
+更新：2026-11-01。后续训练路径验证与初始化调试已启动，见 [本轮调试](TRAIN_PATH_DEBUG_20261101.md)。此前阶段：四teacher管线和两段pilot训练已完成；两个student独立测评均0/20，未显示可用的任务能力融合收益。全部计划内任务已收尾。入口是 [结果与交接](PILOT_RESULTS_20261101.md)，具体进度见 [LIVE_STATUS](LIVE_STATUS.md)。
 
 ## 已固定的 setting
 
@@ -30,4 +30,4 @@
 | [补充筛选设计](FEASIBLE_EVALUATION.md) | 未验证路线；MPLib筛选已停止，不能直接用于正式成绩 |
 | [初始设计存档](experiments/initial_design_20261020.md) | 保留早期计划，不代表当前状态 |
 
-本轮不合并RoboTwin依赖到RoboCasa profile，也不继续扩大参数扫描。后续是否推进正式实验应以任务成功率为依据。
+RoboTwin依赖继续与RoboCasa profile隔离。后续调试以训练路径验证和有限初始化试验为范围。后续是否推进正式实验应以任务成功率为依据。
