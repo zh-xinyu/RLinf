@@ -108,4 +108,4 @@ Bucket run完成20 rounds / 40updates，1,280 trajectories，734,389 control tar
 
 这是温启动、监督范围和效率参数共同调整的**可行性调参**，不是full-horizon的因果消融，也不能将新旧训练MSE直接连成一条曲线。固定B时，完整50均值会把前25的单元素梯度系数减半；后续比较使用固定first25/last25 probe和SR。累计预算须在前一run的40updates / 1,280 trajectories / 734,389 controls上另加新run预算。
 
-当前状态：准备中，需通过开关与形状/梯度测试后启动。不会在此轮增加adaptive allocation或修改planner依赖。
+当前状态：配置dry-run和73项相关CPU测试通过，已启动 `robotwin4_fullflow_refresh_r4_t32_b256_warmstart_pilot_20261101`；W&B run `02bn5rjr`。首轮4次真实更新已完成，full50 loss/gradient有限；每任务102,400监督元素，rollout178.33秒。不会在此轮增加adaptive allocation或修改planner依赖。

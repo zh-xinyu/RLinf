@@ -1,8 +1,18 @@
 # RoboTwin 四 teacher pilot：当前状态
 
-更新：2026-11-01，action00。目标仍进行中；首轮训练及未筛选/seen独立评测已完成，完整flow诊断已完成，正在准备一组有界的full-horizon跟进实验。
+更新：2026-11-01，action00。目标仍进行中；首轮训练及未筛选/seen独立评测已完成，完整flow诊断已完成，一组有界的full-horizon跟进实验已启动。
 
-## 当前运行
+## 当前跟进运行
+
+- Run：`robotwin4_fullflow_refresh_r4_t32_b256_warmstart_pilot_20261101`。
+- [W&B follow-up](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/02bn5rjr)，group=`robotwin4_followup_pilots`。
+- Launcher PID3332924，create_time1793552925.86；`outputs/robotwin4/setup/fullflow_warmstart_pilot_launch.json`保存身份、完整命令和前序预算。
+- 从首轮step40仅加载权重，fresh optimizer/计数；T32/R4/B256、micro8、LR2.5e-5/warmup4、完整50×32监督，仍执行25×14。新增40updates/10rounds，保存20/40。
+- 已完成首轮4updates，状态RUNNING，完整50监督的loss/gradient均有限。新run MSE0.10893，grad norm0.32782；每任务64×50×32=102,400监督元素。T32首轮rollout178.33秒，32轨迹/18,400 controls；实际执行仍25步chunk。代码commit `c468dc66`。
+- 自动未筛选/seen评测队列PID3341569，create_time1793552969.19，等待本launcher退出+COMPLETE+最终step40：`outputs/robotwin4/eval/fullflow_r4_step40/queue.json`。没有再排planner筛选。
+- 本run是效率与监督范围的联合可行性调参，不是单因素因果消融。累计预算在首轮基础上另加。
+
+## 首轮已完成运行
 
 - 分支：`dev/mopd-robotwin2-four-task`；worktree：`outputs/worktrees/robotwin4`。
 - 原根目录仍为 `opd-project-main`；RoboCasa 代码、runtime 和实验输出未改动。
@@ -73,7 +83,7 @@ MSE 对前25个位置的全部32维 flow latent 求均值，环境执行前14维
 
 新增默认关闭的`openpi.nft_full_horizon`开关，启用后仅扩大M1/M3 velocity监督到完整50×32，实际执行仍25×14。73项相关CPU测试通过（含RoboCasa配置回归），另外unfiltered probe入口9项测试通过，8份真实GPU诊断完成。旧默认不变。
 
-准备单组温启动follow-up：step40权重、fresh optimizer，T32/R4/B256、micro8、LR2.5e-5/warmup4，新增40updates/10rounds，保存20/40。完整参数、累计预算和非因果消融限制见 [实验方案](EXPERIMENTS_20261101.md)。
+已启动单组温启动follow-up：step40权重、fresh optimizer，T32/R4/B256、micro8、LR2.5e-5/warmup4，新增40updates/10rounds，保存20/40。完整参数、累计预算和非因果消融限制见 [实验方案](EXPERIMENTS_20261101.md)。
 
 只读核对：训练和评测按task名称选择归一化；NFT与ODE采样采用相同1.0→0.1时间网格。Bucket receiver调用load_state_dict并更新版本，已完成真实多轮训练与最终checkpoint评测。
 
