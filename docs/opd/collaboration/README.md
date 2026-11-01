@@ -1,10 +1,14 @@
 # RoboCasa365 reproduction workflow
 
-Use tag **`robocasa-formal-150r-handoff-20261101`** for this assignment. This revision makes
-W&B optional and documents the public C10 download. It retains the unified
-machine configuration, isolated run logs, and result collection from the
-2026-10-31 handoff. Training algorithms, the four experiment YAMLs, the runtime
-profile, and input model contents are unchanged. Old tags are retained, not moved.
+Use tag **`robocasa-formal-joint-sft-full-150r-20261101`** for this assignment. This revision switches
+all four arms and the round-0 evaluation to full-data joint SFT (Joint-SFT-Full).
+Model hashes, run IDs, and the W&B group identify the new initialization. The
+software profile, teachers, learning hyperparameters, and evaluation protocol
+remain unchanged; W&B remains optional. Old tags are retained, not moved.
+Use a fresh checkout/output directory and regenerate the machine-local teacher
+reference with `prepare`; the previous reference is bound to the old input manifest.
+If an older preparation already created `teacher_reference.json`, choose a new
+`resource_root` for this recipe rather than overwriting that historical file.
 
 The private email task sheet supplies collaborator assignments and access
 information. This public guide explains how to execute them. All commands below
@@ -19,7 +23,7 @@ Follow [OPD_ENVIRONMENT.md](../../../OPD_ENVIRONMENT.md), in order:
    to `$HOME/opd-config/robocasa.json`; fill in the hostname, four paths, and W&B
    preference (disabled by default). It contains machine settings only, not learning hyperparameters.
 3. Run `install`, `verify`, and `verify --gpu`.
-4. Run `download-teachers` and `assets`; download the pinned public C10 from [RESOURCES.md](RESOURCES.md#c10-input).
+4. Run `download-teachers` and `assets`; download the pinned public Joint-SFT-Full from [RESOURCES.md](RESOURCES.md#joint-sft-full-input).
 5. Run `prepare`, `login`, and `preflight`.
 6. Run `smoke` on eight available GPUs and check both jobs succeeded.
 
@@ -51,7 +55,7 @@ and changes only R, allocation/synchronization, and update/save counts.
 All configs have the full filename prefix `robocasa365_mopd_` and suffix `.yaml`
 in `examples/embodiment/config/`. Their resolved copies are saved with each run.
 
-Shared controls: C10 with a fresh optimizer; training seed0; all50 tasks with
+Shared controls: Joint-SFT-Full with a fresh optimizer; training seed0; all50 tasks with
 native horizons; T96=48 environments x2 epochs; B2304 (768/suite); eight GPUs,
 micro32/GPU, nine accumulation microbatches/update; LR3e-5, constant scheduler,
 warmup10 **updates**; M3 `analytic_local_kl`, four-step ODE, chunk16,
@@ -86,21 +90,21 @@ and existing output directories. It does not stop peer jobs or silently resume.
 After an interruption, preserve logs and contact the owner; do not change batch
 size or rerun into the same directory.
 
-Run IDs are `robocasa-M0-uniform-r1-seed0-formal`,
-`robocasa-M1-uniform-r2-seed0-formal`,
-`robocasa-M2-adaptive-sync-r2-seed0-formal`, and
-`robocasa-M3-adaptive-sync-r1-seed0-formal`.
+Run IDs are `robocasa-M0-uniform-r1-joint-sft-full-seed0-formal`,
+`robocasa-M1-uniform-r2-joint-sft-full-seed0-formal`,
+`robocasa-M2-adaptive-sync-r2-joint-sft-full-seed0-formal`, and
+`robocasa-M3-adaptive-sync-r1-joint-sft-full-seed0-formal`.
 
-## D. Evaluate C10 and all six saved checkpoints per arm
+## D. Evaluate Joint-SFT-Full and all six saved checkpoints per arm
 
 Every checkpoint uses all50 tasks, **50 episodes/task**, seed7, native horizons,
 and the same task-native protocol. Evaluate rounds25/50/75/100/125/150.
-C10 round0 is evaluated once and shared across all arms. Teacher calibration
+Joint-SFT-Full round0 is evaluated once and shared across all arms. Teacher calibration
 stays at the existing20 episodes/task and is not rerun.
 
 ```bash
 set -e
-python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval c10
+python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval joint-sft-full
 python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m0
 python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m1
 python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" eval m2
@@ -108,7 +112,7 @@ python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocas
 ```
 
 `eval mN` executes six evaluations in order and maps `U=R*round` to checkpoint
-paths automatically. `eval c10` executes one. No `--intermediate` option is used.
+paths automatically. `eval joint-sft-full` executes one. No `--intermediate` option is used.
 There are25 evaluations and62,500 episodes in total. Training and evaluation
 costs are recorded separately. Training itself does not run inline evaluation.
 
@@ -138,12 +142,13 @@ Output: **`outputs/deliverables/checkpoint_results.csv`**, with25 rows. The
 experimental result. The collector can be run during progress: unavailable
 measurements stay blank and statuses identify pending/incomplete results.
 It recomputes scores from the exact task counts, checks the evaluation budget,
-checkpoint identity, and consistency with `summary.json`. Invalid results get
+checkpoint identity, the pinned initialization weight/config/metadata hashes,
+and consistency with `summary.json`. Invalid results get
 `INVALID` and a reason; the command returns an error.
 
 | Column group | Source / interpretation |
 | --- | --- |
-| Experiment, seed, round, U, checkpoint ID | Fixed matrix and schedule |
+| Experiment, initialization, seed, round, U, checkpoint ID | Fixed matrix and schedule; initialization is Joint-SFT-Full |
 | Three suite SRs | Validated `per_task_results.csv`, rates in [0,1] |
 | Suite-macro SR | Equal mean of the three suite SRs |
 | Task-macro SR | Mean across all50 tasks;18/16/16 suite task counts |
@@ -191,7 +196,7 @@ W&B is optional. The template uses `wandb_mode: "disabled"` and
 W&B login or backend. Offline mode keeps local W&B records without logging in.
 For online mode, choose your own username or any team you can write to and log
 in with your own account. Joining the project owner's team is not required.
-Online project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_150r`.
+Online project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_joint_sft_full_150r`.
 `WANDB_PROJECT` alone does not override the explicit YAML project.
 
 The same CSV schema and raw-file requirements apply to all modes. A missing

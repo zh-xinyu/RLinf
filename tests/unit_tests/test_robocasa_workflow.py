@@ -21,7 +21,7 @@ def machine_file(tmp_path):
         "hostname": socket.gethostname().split(".")[0],
         "runtime_root": str(tmp_path / "runtime"),
         "resource_root": str(tmp_path / "resources"),
-        "student_checkpoint": str(tmp_path / "C10"),
+        "student_checkpoint": str(tmp_path / "Joint-SFT-Full"),
         "output_root": str(tmp_path / "output"),
         "wandb_entity": "team",
         "wandb_mode": "offline",
@@ -156,7 +156,7 @@ def test_matrix_entry_and_checkpoint_schedule(tmp_path, monkeypatch, arm):
 def test_all_twenty_five_evaluations_and_template_budgets(tmp_path):
     machine = experiment.load_machine(machine_file(tmp_path))
     command = experiment.commands_for(
-        argparse.Namespace(command="eval", arm="c10", round=None), machine
+        argparse.Namespace(command="eval", arm="joint-sft-full", round=None), machine
     )[0]
     assert "--weights" not in command and "--intermediate" not in command
     rows = results.template_rows()
@@ -179,6 +179,9 @@ def fake_eval(folder, monkeypatch):
         for suite, entries in manifest.items()
         for name, horizon in entries.items()
     ]
+    inputs = json.loads(
+        (experiment.REPO / "docs/opd/collaboration/checkpoints.json").read_text()
+    )["checkpoints"][experiment.INITIALIZATION]
     plan = {
         "mode": "formal",
         "protocol": "rlinf-robocasa365-target50-native-v1",
@@ -186,7 +189,13 @@ def fake_eval(folder, monkeypatch):
         "episodes_per_task": 50,
         "tasks": tasks,
         "weights": None,
-        "base_model_sha256": {"weights": "hash"},
+        "base_model_sha256": {
+            name: record["sha256"]
+            for name, record in inputs.items()
+            if name.endswith((".safetensors", ".safetensors.index.json"))
+        },
+        "base_config_sha256": inputs["config.json"]["sha256"],
+        "base_metadata_sha256": inputs["experiment_cfg/metadata.json"]["sha256"],
     }
     (folder / "plan.json").write_text(json.dumps(plan))
     with (folder / "per_task_results.csv").open("w", newline="") as stream:
@@ -245,6 +254,18 @@ def test_result_rejects_twenty_episode_or_wrong_checkpoint(tmp_path, monkeypatch
     plan["episodes_per_task"] = 20
     (folder / "plan.json").write_text(json.dumps(plan))
     with pytest.raises(ValueError, match="50 episodes"):
+        results.evaluation_scores(folder, None)
+
+
+@pytest.mark.parametrize(
+    "field", ["base_model_sha256", "base_config_sha256", "base_metadata_sha256"]
+)
+def test_result_rejects_different_initialization(tmp_path, monkeypatch, field):
+    folder = tmp_path / "eval"
+    plan = fake_eval(folder, monkeypatch)
+    plan[field] = {"old-model": "hash"} if field == "base_model_sha256" else "old-hash"
+    (folder / "plan.json").write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="initialization"):
         results.evaluation_scores(folder, None)
 
 
@@ -312,11 +333,15 @@ def test_complete_result_without_wandb(tmp_path, monkeypatch):
         + "\n"
     )
     monkeypatch.setattr(experiment, "REPO", tmp_path)
-    # The collector needs only the public task manifest, not model files or W&B.
-    manifest = tmp_path / "evaluations/robocasa365/target50_manifest.json"
-    manifest.parent.mkdir(parents=True)
-    original = Path(__file__).resolve().parents[2] / manifest.relative_to(tmp_path)
-    manifest.write_bytes(original.read_bytes())
+    # Public manifests identify tasks and initialization without model files or W&B.
+    for relative in (
+        "evaluations/robocasa365/target50_manifest.json",
+        "docs/opd/collaboration/checkpoints.json",
+    ):
+        manifest = tmp_path / relative
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        original = Path(__file__).resolve().parents[2] / relative
+        manifest.write_bytes(original.read_bytes())
     row = next(
         r
         for r in results.collect()

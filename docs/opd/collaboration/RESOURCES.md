@@ -30,12 +30,17 @@ Each teacher must retain its own `config.json` and
 checkpoint or share normalization metadata across teachers. The manifest was
 checked against this HF revision, using LFS SHA256 for weight files.
 
-## C10 input
+## Joint-SFT-Full input
 
-C10 is `checkpoint-60000` from joint SFT on 10% of demonstrations across the
-three task suites. It is separate from the released specialist teachers.
+Joint-SFT-Full is `checkpoint-60000` from joint SFT on all available target
+demonstrations across the three task suites: 50 tasks, 500 demonstrations per
+task, 25,000 demonstrations total. It is separate from the released specialist teachers.
+The source run started from foundation pretraining checkpoint-80000 and used
+60,000 SFT updates, batch128, LR3e-5, cosine decay, and 3,000 warmup updates.
+The LLM and visual backbone were frozen; projector and diffusion model were tuned.
 All four experiments start with these weights and a fresh optimizer; they do
-not restore the SFT optimizer, scheduler, or RNG state.
+not restore the SFT optimizer, scheduler, or RNG state. Full-data describes
+demonstration coverage, not a claim of optimal SFT convergence.
 
 ```text
 checkpoint-60000/
@@ -47,18 +52,18 @@ checkpoint-60000/
 ```
 
 Public repository: [theo-zhou/vla-mopd-checkpoints](https://huggingface.co/theo-zhou/vla-mopd-checkpoints).
-Pinned revision: `6d74e06da27996ae7802fb9b83b6697e07590a1f`.
-No HF login is required. Download only C10 with the installed runtime CLI:
+Pinned revision: `ee4d8c4a3ba01e092ed91b8bd6e452e28831026e`.
+No HF login is required. Download only Joint-SFT-Full with the installed runtime CLI:
 
 ```bash
 /absolute/path/opd-runtime/venv/bin/hf download theo-zhou/vla-mopd-checkpoints \
-  --revision 6d74e06da27996ae7802fb9b83b6697e07590a1f \
-  --include "robocasa365/groot-n15/c10/checkpoint-60000/*" \
+  --revision ee4d8c4a3ba01e092ed91b8bd6e452e28831026e \
+  --include "robocasa365/groot-n15/joint-sft-full/checkpoint-60000/*" \
   --local-dir /absolute/path/project-checkpoints
 ```
 
 Set `student_checkpoint` in the machine JSON to
-`/absolute/path/project-checkpoints/robocasa365/groot-n15/c10/checkpoint-60000`.
+`/absolute/path/project-checkpoints/robocasa365/groot-n15/joint-sft-full/checkpoint-60000`.
 The five inference files total approximately 7.59 GB. Both uploaded weight hashes
 and downloaded configuration/metadata hashes match [checkpoints.json](checkpoints.json).
 The `prepare` step verifies the received contents again; directory names alone
@@ -72,7 +77,7 @@ semantics, and original provenance are retained; checkpoint paths are portable
 placeholders. Verify model contents before generating a machine-local copy:
 
 ```bash
-export OPD_STUDENT_CHECKPOINT=/absolute/path/C10/checkpoint-60000
+export OPD_STUDENT_CHECKPOINT=/absolute/path/joint-sft-full/checkpoint-60000
 python -m toolkits.robocasa_mopd.resources prepare \
   --output /absolute/path/inputs/teacher_reference.json
 export OPD_TEACHER_REFERENCE=/absolute/path/inputs/teacher_reference.json

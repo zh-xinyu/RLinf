@@ -13,12 +13,13 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+INITIALIZATION = "Joint-SFT-Full"
 ROUNDS = (25, 50, 75, 100, 125, 150)
 ARMS = {
-    "m0": ("robocasa-M0-uniform-r1-seed0-formal", 1),
-    "m1": ("robocasa-M1-uniform-r2-seed0-formal", 2),
-    "m2": ("robocasa-M2-adaptive-sync-r2-seed0-formal", 2),
-    "m3": ("robocasa-M3-adaptive-sync-r1-seed0-formal", 1),
+    "m0": ("robocasa-M0-uniform-r1-joint-sft-full-seed0-formal", 1),
+    "m1": ("robocasa-M1-uniform-r2-joint-sft-full-seed0-formal", 2),
+    "m2": ("robocasa-M2-adaptive-sync-r2-joint-sft-full-seed0-formal", 2),
+    "m3": ("robocasa-M3-adaptive-sync-r1-joint-sft-full-seed0-formal", 1),
 }
 
 
@@ -143,8 +144,8 @@ def weights_path(arm: str, round_number: int) -> Path:
 def eval_id(arm: str, round_number: int = 0) -> str:
     """Return stable evaluation identifiers used by the collector and email template."""
     return (
-        "robocasa-C10-round0"
-        if arm == "c10"
+        "robocasa-Joint-SFT-Full-round0"
+        if arm == "joint-sft-full"
         else f"{ARMS[arm][0]}-round{round_number}-eval50"
     )
 
@@ -193,15 +194,17 @@ def commands_for(args, machine: dict) -> list[list[str]]:
     if args.command == "smoke":
         return [
             launch + ["train", "m2", "--run-id", "setup-m2-smoke", "--smoke"],
-            launch + ["eval", "--run-id", "setup-c10-eval-smoke", "--smoke"],
+            launch + ["eval", "--run-id", "setup-joint-sft-full-eval-smoke", "--smoke"],
         ]
     if args.command == "train":
         return [launch + ["train", args.arm, "--run-id", ARMS[args.arm][0]]]
     if args.command == "eval":
-        if args.arm == "c10":
+        if args.arm == "joint-sft-full":
             if args.round is not None:
-                raise ValueError("C10 is evaluated once at round0; omit --round")
-            return [launch + ["eval", "--run-id", eval_id("c10")]]
+                raise ValueError(
+                    "Joint-SFT-Full is evaluated once at round0; omit --round"
+                )
+            return [launch + ["eval", "--run-id", eval_id("joint-sft-full")]]
         return [
             launch
             + [
@@ -288,7 +291,7 @@ def main() -> None:
     sub.add_parser("verify").add_argument("--gpu", action="store_true")
     sub.add_parser("train").add_argument("arm", choices=list(ARMS))
     evaluate = sub.add_parser("eval")
-    evaluate.add_argument("arm", choices=["c10", *ARMS])
+    evaluate.add_argument("arm", choices=["joint-sft-full", *ARMS])
     evaluate.add_argument("--round", type=int, choices=ROUNDS)
     args = parser.parse_args()
     machine = load_machine(args.machine)

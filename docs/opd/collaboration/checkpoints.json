@@ -4,26 +4,26 @@
   "teacher_hf_revision": "c484448aba1a9b60a04c9b0ca117241518ea69f3",
   "teacher_hf_prefix": "gr00t_n1-5/foundation_model_learning",
   "checkpoints": {
-    "C10": {
+    "Joint-SFT-Full": {
       "config.json": {
         "sha256": "6713ae6e9ee07ebf30f18a231bedcf9c06f8c64595d62529b6eb175498ef0526",
         "bytes": 1706
       },
-      "experiment_cfg/metadata.json": {
-        "sha256": "956a3899fbcfab65605a91bf90a6c7cd86146ae92e126f7efdc20d2123f720a4",
-        "bytes": 14141
-      },
-      "model-00001-of-00002.safetensors": {
-        "sha256": "a77916e473fb57e5396e2a6fdfc786a8953414b478355b4449b727a4508680e3",
-        "bytes": 4999367032
-      },
-      "model-00002-of-00002.safetensors": {
-        "sha256": "07fc373116abec1c6d023f370e105eeb0a55433d89de2d4929e6922eb612adca",
-        "bytes": 2586705312
-      },
       "model.safetensors.index.json": {
         "sha256": "bec674fcd06f1c6c29e5ab0f057d148a5c76e7ef92d1688d6b4b8f838afc9746",
         "bytes": 104606
+      },
+      "model-00001-of-00002.safetensors": {
+        "sha256": "3031f5ec03a70894900ed41f676cdbe67bc97f7c06ccf6f1466ac2568dd1c03c",
+        "bytes": 4999367032
+      },
+      "model-00002-of-00002.safetensors": {
+        "sha256": "4b7fb1a338f7f35d6475e64b23a0ab8852651b33395f53fa0e4072de0a7938d7",
+        "bytes": 2586705312
+      },
+      "experiment_cfg/metadata.json": {
+        "sha256": "63737191b2193cd2f83ed0d5ec12c487bfe2ae78b541436a914e946902f2b923",
+        "bytes": 14146
       }
     },
     "atomic_seen": {
@@ -91,6 +91,27 @@
         "sha256": "bec674fcd06f1c6c29e5ab0f057d148a5c76e7ef92d1688d6b4b8f838afc9746",
         "bytes": 104606
       }
+    }
+  },
+  "student_initialization": {
+    "id": "Joint-SFT-Full",
+    "hf_repo": "theo-zhou/vla-mopd-checkpoints",
+    "hf_revision": "ee4d8c4a3ba01e092ed91b8bd6e452e28831026e",
+    "hf_prefix": "robocasa365/groot-n15/joint-sft-full/checkpoint-60000",
+    "training": {
+      "base_model": "RoboCasa365 GR00T N1.5 foundation pretraining checkpoint-80000",
+      "task_count": 50,
+      "demonstrations_per_task": 500,
+      "total_demonstrations": 25000,
+      "sft_steps": 60000,
+      "global_batch_size": 128,
+      "learning_rate": 3e-05,
+      "lr_scheduler": "cosine",
+      "warmup_steps": 3000,
+      "tune_llm": false,
+      "tune_visual": false,
+      "tune_projector": true,
+      "tune_diffusion_model": true
     }
   }
 }

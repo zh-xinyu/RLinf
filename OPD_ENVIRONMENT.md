@@ -23,7 +23,7 @@ provides the public training and evaluation commands.
   must remain available until their independent evaluations finish.
 
 ```bash
-git clone --branch robocasa-formal-150r-handoff-20261101 https://github.com/zh-xinyu/RLinf.git
+git clone --branch robocasa-formal-joint-sft-full-150r-20261101 https://github.com/zh-xinyu/RLinf.git
 cd RLinf
 ```
 
@@ -47,7 +47,7 @@ Edit all placeholder values in that JSON:
 | `hostname` | Exact output of `hostname -s`; the tool rejects the wrong node |
 | `runtime_root` | New absolute directory for the fixed Python environment and upstream checkouts |
 | `resource_root` | Absolute directory for downloaded teachers and the bound calibration reference |
-| `student_checkpoint` | Absolute path to the received C10 `checkpoint-60000` directory |
+| `student_checkpoint` | Absolute path to the received Joint-SFT-Full `checkpoint-60000` directory |
 | `output_root` | Absolute directory for this checkout's experiment outputs |
 | `wandb_entity` | Your own W&B username or chosen team slug for online logging; otherwise may be empty |
 | `wandb_mode` | `disabled` (default: TensorBoard/JSONL only), `offline`, or `online` |
@@ -104,8 +104,8 @@ asset snapshot, place it at that expected location while retaining repository
 files; do not point `DATASET_BASE_PATH` at assets (that macro controls datasets).
 Asset-source contents are not fully hash-locked by the software profile.
 
-Download C10 from the public, fixed HF revision in
-[RESOURCES.md](docs/opd/collaboration/RESOURCES.md#c10-input) and set
+Download Joint-SFT-Full from the public, fixed HF revision in
+[RESOURCES.md](docs/opd/collaboration/RESOURCES.md#joint-sft-full-input) and set
 `student_checkpoint` to its complete local directory, retaining weights and metadata.
 The email task sheet includes a download command using the machine JSON. Then run:
 
@@ -115,7 +115,7 @@ python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocas
 python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" preflight
 ```
 
-`prepare` checks SHA256 for C10 and all teachers and creates
+`prepare` checks SHA256 for Joint-SFT-Full and all teachers and creates
 `<resource_root>/teacher_reference.json`. It refuses an existing reference;
 if already prepared, use `preflight` rather than preparing again. `login` uses
 your own W&B account only in `online` mode; it is a no-op in `offline` and

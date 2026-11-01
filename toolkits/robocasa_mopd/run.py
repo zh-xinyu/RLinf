@@ -128,7 +128,7 @@ def main() -> None:
     )
     evaluate = sub.add_parser("eval")
     evaluate.add_argument(
-        "--weights", type=Path, help="Omit only for the shared C10 baseline"
+        "--weights", type=Path, help="Omit only for the shared Joint-SFT-Full baseline"
     )
     evaluate.add_argument(
         "--intermediate", action="store_true", help="20 episodes/task; otherwise 50"

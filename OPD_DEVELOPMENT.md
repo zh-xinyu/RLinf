@@ -36,7 +36,7 @@ email task assignments, and local research notes are not runtime dependencies.
 | `robocasa365_mopd_refresh_r2_t96_gr00t_full` | 96 | 2048 | 2 | 200 | 40 |
 
 These differ only in `algorithm.flow_refresh_updates`. Both use an explicitly
-provided C10, three specialists, LR3e-5, constant scheduling, warmup10 student
+provided Joint-SFT-Full, three specialists, LR3e-5, constant scheduling, warmup10 student
 updates, micro32, eight actor ranks, four-step ODE, noise_level0.5, and native
 horizons. T96 is48 environments x2 epochs, with32 trajectory slots per suite.
 For exactly768 samples per suite, set B2304 in both arms. Keep T/B/LR aligned.
@@ -107,7 +107,7 @@ export REPO_PATH="$PWD"
 export EMBODIED_PATH="$REPO_PATH/examples/embodiment"
 export PYTHONPATH="$REPO_PATH${PYTHONPATH:+:$PYTHONPATH}"
 export OPD_MODEL_ROOT=/absolute/path/to/foundation_model_learning
-export OPD_STUDENT_CHECKPOINT=/absolute/path/to/C10/checkpoint-60000
+export OPD_STUDENT_CHECKPOINT=/absolute/path/to/joint-sft-full/checkpoint-60000
 export OPD_RUN_DIR=/absolute/path/to/new-run-directory
 export MUJOCO_GL=egl
 export RLINF_NODE_RANK=0
