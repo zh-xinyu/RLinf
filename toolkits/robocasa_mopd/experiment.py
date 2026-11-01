@@ -35,19 +35,23 @@ def load_machine(path: Path) -> dict:
         "wandb_mode",
     }
     if set(value) != required or any(
-        not isinstance(v, str) or not v for v in value.values()
+        not isinstance(v, str) or (not v and k != "wandb_entity")
+        for k, v in value.items()
     ):
         raise ValueError(
-            f"Machine JSON requires exactly these nonempty string keys: {sorted(required)}"
+            f"Machine JSON requires exactly these string keys: {sorted(required)}; "
+            "only wandb_entity may be empty"
         )
     if value["hostname"] != socket.gethostname().split(".")[0]:
         raise ValueError(
             "Machine hostname does not match; select the correct machine JSON"
         )
-    if value["wandb_mode"] not in {"online", "offline"}:
-        raise ValueError("wandb_mode must be online or offline")
+    if value["wandb_mode"] not in {"online", "offline", "disabled"}:
+        raise ValueError("wandb_mode must be online, offline, or disabled")
     if value["wandb_entity"].startswith("REPLACE_"):
-        raise ValueError("Fill in the agreed W&B team slug")
+        raise ValueError("Choose your W&B username/team slug, or leave it empty")
+    if value["wandb_mode"] == "online" and not value["wandb_entity"].strip():
+        raise ValueError("Online logging requires your W&B username or team slug")
     for key in ("runtime_root", "resource_root", "student_checkpoint", "output_root"):
         path = Path(value[key]).expanduser()
         if not path.is_absolute() or str(path).startswith("/absolute/path"):
@@ -75,6 +79,8 @@ def environment(machine: dict) -> dict[str, str]:
         "HF_HUB_OFFLINE",
         "TRANSFORMERS_OFFLINE",
         "GPU_FREE_MB",
+        "WANDB_ENTITY",
+        "WANDB_DISABLED",
     ):
         env.pop(key, None)
     runtime = Path(machine["runtime_root"])
@@ -97,10 +103,11 @@ def environment(machine: dict) -> dict[str, str]:
         CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7",
         HF_HOME=str(runtime / "cache/huggingface"),
         HF_MODULES_CACHE=str(runtime / "cache/huggingface/modules"),
-        WANDB_ENTITY=machine["wandb_entity"],
         WANDB_MODE=machine["wandb_mode"],
         NO_ALBUMENTATIONS_UPDATE="1",
     )
+    if machine["wandb_entity"] and machine["wandb_mode"] != "disabled":
+        env["WANDB_ENTITY"] = machine["wandb_entity"]
     return env
 
 
@@ -159,6 +166,8 @@ def commands_for(args, machine: dict) -> list[list[str]]:
             ]
         ]
     if args.command == "login":
+        if machine["wandb_mode"] != "online":
+            return []
         return [[str(Path(machine["runtime_root"]) / "venv/bin/wandb"), "login"]]
     if args.command == "download-teachers":
         return [

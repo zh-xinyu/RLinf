@@ -59,6 +59,58 @@ def test_machine_rejects_wrong_host_and_unknown_keys(tmp_path):
         experiment.load_machine(path)
 
 
+@pytest.mark.parametrize("mode", ["disabled", "offline"])
+def test_local_logging_needs_no_account_or_login(tmp_path, monkeypatch, mode):
+    path = machine_file(tmp_path)
+    value = json.loads(path.read_text())
+    value.update(wandb_entity="", wandb_mode=mode)
+    path.write_text(json.dumps(value))
+    machine = experiment.load_machine(path)
+    monkeypatch.setenv("WANDB_ENTITY", "unrelated-team")
+    monkeypatch.setenv("WANDB_DISABLED", "true")
+    env = experiment.environment(machine)
+    assert "WANDB_ENTITY" not in env and "WANDB_DISABLED" not in env
+    assert env["WANDB_MODE"] == mode
+    assert experiment.commands_for(argparse.Namespace(command="login"), machine) == []
+
+
+def test_online_logging_uses_collaborator_account(tmp_path):
+    path = machine_file(tmp_path)
+    value = json.loads(path.read_text())
+    value.update(wandb_entity="", wandb_mode="online")
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="username or team"):
+        experiment.load_machine(path)
+    value["wandb_entity"] = "collaborator-account"
+    path.write_text(json.dumps(value))
+    machine = experiment.load_machine(path)
+    assert experiment.environment(machine)["WANDB_ENTITY"] == "collaborator-account"
+    assert experiment.commands_for(argparse.Namespace(command="login"), machine) == [
+        [str(Path(machine["runtime_root"]) / "venv/bin/wandb"), "login"]
+    ]
+
+
+@pytest.mark.parametrize("arm", list(experiment.ARMS))
+def test_disabling_wandb_only_changes_logger_backend(tmp_path, monkeypatch, arm):
+    from omegaconf import OmegaConf
+
+    machine = experiment.load_machine(machine_file(tmp_path))
+    for key, value in experiment.environment(machine).items():
+        if key.startswith(("OPD_", "EMBODIED_")):
+            monkeypatch.setenv(key, value)
+    monkeypatch.setenv("WANDB_MODE", "online")
+    online = run.training_config(arm, "logger-test")[0]
+    monkeypatch.setenv("WANDB_MODE", "disabled")
+    local, _, command = run.training_config(arm, "logger-test")
+    assert local.runner.logger.logger_backends == ["tensorboard"]
+    assert "runner.logger.logger_backends=[tensorboard]" in command
+    assert "wandb" in online.runner.logger.logger_backends
+    online.runner.logger.logger_backends = ["tensorboard"]
+    assert OmegaConf.to_container(online, resolve=True) == OmegaConf.to_container(
+        local, resolve=True
+    )
+
+
 def test_outputs_binding_never_replaces_existing_data(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -232,3 +284,45 @@ def test_round_time_uses_completed_update_steps(tmp_path, monkeypatch):
         writer.add_scalar("time/rollout_round", 20.0, 2)
         writer.add_scalar("time/rollout_round", 30.0, 4)
     assert results.round_times("m1") == {2: 20.0, 4: 30.0}
+
+
+def test_complete_result_without_wandb(tmp_path, monkeypatch):
+    from torch.utils.tensorboard import SummaryWriter
+
+    directory = tmp_path / "outputs/eval" / experiment.eval_id("m0", 25)
+    directory.parent.mkdir(parents=True)
+    plan = fake_eval(directory, monkeypatch)
+    plan["weights"] = str(experiment.weights_path("m0", 25))
+    plan["weights_sha256"] = "checkpoint-hash"
+    (directory / "plan.json").write_text(json.dumps(plan))
+    (directory / "status").write_text("OK\n")
+    folder = tmp_path / "outputs/train" / experiment.ARMS["m0"][0]
+    with SummaryWriter(str(folder / "tensorboard")) as writer:
+        for update in range(1, 26):
+            writer.add_scalar("time/rollout_round", 10.0, update)
+    (folder / "optimizer_updates.jsonl").write_text(
+        json.dumps(
+            {
+                "update_step": 25,
+                "interaction/rollout_rounds": 25,
+                "interaction/rollout_trajectories": 2400,
+                "interaction/simulation_steps": 123456,
+            }
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(experiment, "REPO", tmp_path)
+    # The collector needs only the public task manifest, not model files or W&B.
+    manifest = tmp_path / "evaluations/robocasa365/target50_manifest.json"
+    manifest.parent.mkdir(parents=True)
+    original = Path(__file__).resolve().parents[2] / manifest.relative_to(tmp_path)
+    manifest.write_bytes(original.read_bytes())
+    row = next(
+        r
+        for r in results.collect()
+        if r["experiment"] == "M0" and r["rollout_round"] == 25
+    )
+    assert row["status"] == "COMPLETE"
+    assert not row.get("wandb_url") and not row["notes"]
+    assert row["training_round_seconds"] == 250.0
+    assert row["suite_macro_sr"] == pytest.approx(1 / 3)

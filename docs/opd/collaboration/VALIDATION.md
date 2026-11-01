@@ -64,3 +64,34 @@ directory; the new evaluation command resolves that path automatically.
 This entrypoint validation did not reinstall the full runtime or run new
 multi-GPU simulator training. The receiving machine must still complete the
 installation/resource checks and the documented eight-GPU smoke sequence.
+
+## Handoff review — 2026-11-01
+
+Release tag: `robocasa-formal-150r-handoff-20261101`.
+
+- W&B is optional: the machine template defaults to disabled logging, online
+  users choose their own username/team, and offline/disabled modes skip login.
+  Disabled mode removes the W&B backend while retaining TensorBoard and JSONL.
+- Passed **178 targeted tests**, including all four formal configurations,
+  flow losses/refresh, suite allocation/weighting, profile contracts, independent
+  evaluation, and result collection. New tests check that disabling W&B changes
+  only the logger backend and that a result with no W&B URL can be complete.
+- C10 is available from the public project HF repository at revision
+  `6d74e06da27996ae7802fb9b83b6697e07590a1f`. All five input file sizes and SHA256
+  values match the existing checkpoint manifest; no model contents changed.
+- Reviewed the current tracked tree (1,961 files): no matches in the scanned
+  HF/GitHub/AWS credential, private-key, or literal API-token patterns; no tracked
+  model weights, raw outputs, personal node env files, meeting documents, or mail
+  handoff files; no individual tracked file larger than 10 MiB. This is a bounded
+  current-tree scan, not a full-history or comprehensive security audit.
+- RLinf attribution and Apache-2.0 license remain present. Third-party models,
+  assets, and source repositories retain their own licenses. Historical mechanism
+  study records remain tracked as provenance; their old machine paths are not
+  installation inputs. Public pi0.5 config paths are environment inputs.
+- The learning code, YAML recipes, runtime profile, evaluation protocol, and
+  result CSV schema are unchanged by this handoff revision. The private task
+  sheet and blank CSV remain outside Git and are sent separately.
+
+Receiving-machine installation and eight-GPU smoke checks are still required.
+This review does not claim a new full environment installation, formal training
+run, or a fully hash-locked simulator asset snapshot.

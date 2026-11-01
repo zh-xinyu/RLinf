@@ -24,7 +24,7 @@ unseen），共 50 个操作任务、3 个 specialist teachers；student 从使�
 | 理解训练实现与指标 | [开发说明](OPD_DEVELOPMENT.md) |
 | 独立评测 | [评测协议](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-固定实验 tag：`robocasa-formal-150r-handoff-20261031`；`opd-project-main` 继续作为开发基线。
+固定实验 tag：`robocasa-formal-150r-handoff-20261101`；`opd-project-main` 继续作为开发基线。
 正式配方使用单机 8×48GB GPU；四组均从 C10 开始，每轮 96 条轨迹，训练 150 轮，
 每 25 轮保存。完整参数和结果交付要求见交接指南。
 
@@ -35,7 +35,7 @@ unseen），共 50 个操作任务、3 个 specialist teachers；student 从使�
 
 四组训练 YAML 已提供；合作者只需复制
 [machine.example.json](toolkits/robocasa_mopd/machine.example.json) 到仓库外，
-一次填写机器名、路径与 W&B team。之后全部使用
+一次填写机器名和路径。W&B 可选、默认关闭；本地 TensorBoard/JSONL 日志与汇总 CSV 必须保留。之后全部使用
 `python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json <command>`。
 完整顺序是安装、资源、验证、训练、评测、汇总；无需分散设置 export 或手动激活环境。
 

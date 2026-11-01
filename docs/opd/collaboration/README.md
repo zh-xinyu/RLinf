@@ -1,10 +1,10 @@
 # RoboCasa365 reproduction workflow
 
-Use tag **`robocasa-formal-150r-handoff-20261031`** for this assignment. It adds a
-single machine configuration, command entrypoint, isolated run logs, and result
-collection to the original `robocasa-formal-150r-20261031` release. Training
-algorithms, the four experiment YAMLs, the runtime profile, and input models are
-unchanged. Old tags are retained, not moved.
+Use tag **`robocasa-formal-150r-handoff-20261101`** for this assignment. This revision makes
+W&B optional and documents the public C10 download. It retains the unified
+machine configuration, isolated run logs, and result collection from the
+2026-10-31 handoff. Training algorithms, the four experiment YAMLs, the runtime
+profile, and input model contents are unchanged. Old tags are retained, not moved.
 
 The private email task sheet supplies collaborator assignments and access
 information. This public guide explains how to execute them. All commands below
@@ -17,9 +17,9 @@ Follow [OPD_ENVIRONMENT.md](../../../OPD_ENVIRONMENT.md), in order:
 1. Clone the assigned tag and check system prerequisites.
 2. Copy [machine.example.json](../../../toolkits/robocasa_mopd/machine.example.json)
    to `$HOME/opd-config/robocasa.json`; fill in the hostname, four paths, and W&B
-   team/mode. It contains machine settings only, not learning hyperparameters.
+   preference (disabled by default). It contains machine settings only, not learning hyperparameters.
 3. Run `install`, `verify`, and `verify --gpu`.
-4. Run `download-teachers` and `assets`; receive C10 at the configured path.
+4. Run `download-teachers` and `assets`; download the pinned public C10 from [RESOURCES.md](RESOURCES.md#c10-input).
 5. Run `prepare`, `login`, and `preflight`.
 6. Run `smoke` on eight available GPUs and check both jobs succeeded.
 
@@ -151,7 +151,7 @@ checkpoint identity, and consistency with `summary.json`. Invalid results get
 | Training trajectories / simulation steps | Matching update in `optimizer_updates.jsonl` |
 | Training round seconds | Sum of TensorBoard `time/rollout_round` through that point; excludes startup and independent evaluation |
 | Weight hashes, eval directory | Evaluation plan and local result files |
-| W&B URL | Extracted from driver log when available; otherwise fill from the actual run |
+| W&B URL | Optional; extracted when available, otherwise leave blank |
 | Status / notes | Missing or invalid data, never fabricated zero scores |
 
 Do not confuse `summary.json`'s task-macro SR with suite-macro SR. The latter
@@ -167,8 +167,8 @@ from accumulated round time.
    Do not omit failed tasks or provide only rounded percentages. Videos are optional.
 3. **Training materials:** non-checkpoint files in each `outputs/train/<run-id>/`
    plus `outputs/launches/<run-id>/`: resolved config, JSONL metrics, TensorBoard
-   and local W&B files, driver/Ray logs, and failure/restart notes. Include the
-   four W&B URLs and the node/software provenance.
+   files, driver/Ray logs, node/software provenance, and failure/restart notes.
+   Include local W&B files or accessible run URLs only if W&B was used.
 
 **Do not deliver weights, optimizer states, or remote checkpoint access.**
 Exclude directories named `checkpoints` when packaging training materials.
@@ -186,13 +186,15 @@ Training success is a controller signal, not independent evaluation performance.
 
 ## W&B and validation
 
-Fixed project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_150r`.
-The machine JSON selects the shared team via `wandb_entity`. The same project
-name under another entity is a different project. Use personal authentication
-with appropriate team permissions, not a shared token. `WANDB_PROJECT` alone
-does not override the explicit YAML project. Agree any project rename centrally.
+W&B is optional. The template uses `wandb_mode: "disabled"` and
+`wandb_entity: ""`; training then uses only TensorBoard and JSONL, without a
+W&B login or backend. Offline mode keeps local W&B records without logging in.
+For online mode, choose your own username or any team you can write to and log
+in with your own account. Joining the project owner's team is not required.
+Online project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_150r`.
+`WANDB_PROJECT` alone does not override the explicit YAML project.
 
-A shared workspace is useful for live loss/success/allocation/time comparison;
-raw files remain the result record. See [VALIDATION.md](VALIDATION.md) for checks
-already performed. A receiving-machine eight-GPU smoke is required. RoboTwin
+The same CSV schema and raw-file requirements apply to all modes. A missing
+`wandb_url` does not prevent a result from being marked `COMPLETE`.
+See [VALIDATION.md](VALIDATION.md) for checks already performed. A receiving-machine eight-GPU smoke is required. RoboTwin
 uses a separate branch/profile and does not change this reproduction bundle.

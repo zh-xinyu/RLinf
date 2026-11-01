@@ -23,7 +23,7 @@ provides the public training and evaluation commands.
   must remain available until their independent evaluations finish.
 
 ```bash
-git clone --branch robocasa-formal-150r-handoff-20261031 https://github.com/zh-xinyu/RLinf.git
+git clone --branch robocasa-formal-150r-handoff-20261101 https://github.com/zh-xinyu/RLinf.git
 cd RLinf
 ```
 
@@ -49,8 +49,8 @@ Edit all placeholder values in that JSON:
 | `resource_root` | Absolute directory for downloaded teachers and the bound calibration reference |
 | `student_checkpoint` | Absolute path to the received C10 `checkpoint-60000` directory |
 | `output_root` | Absolute directory for this checkout's experiment outputs |
-| `wandb_entity` | Agreed shared team slug, not a project URL; use your own account to authenticate |
-| `wandb_mode` | `online`, or `offline` if explicitly agreed |
+| `wandb_entity` | Your own W&B username or chosen team slug for online logging; otherwise may be empty |
+| `wandb_mode` | `disabled` (default: TensorBoard/JSONL only), `offline`, or `online` |
 
 Do not put access tokens in this file. JSON values are read as data, not shell
 commands. The template contains no training hyperparameters.
@@ -104,8 +104,10 @@ asset snapshot, place it at that expected location while retaining repository
 files; do not point `DATASET_BASE_PATH` at assets (that macro controls datasets).
 Asset-source contents are not fully hash-locked by the software profile.
 
-Receive C10 separately from the project owner and place it at the configured
-`student_checkpoint`, retaining weights and metadata. Then run:
+Download C10 from the public, fixed HF revision in
+[RESOURCES.md](docs/opd/collaboration/RESOURCES.md#c10-input) and set
+`student_checkpoint` to its complete local directory, retaining weights and metadata.
+The email task sheet includes a download command using the machine JSON. Then run:
 
 ```bash
 python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocasa.json" prepare
@@ -116,7 +118,10 @@ python3 toolkits/robocasa_mopd/experiment.py --machine "$HOME/opd-config/robocas
 `prepare` checks SHA256 for C10 and all teachers and creates
 `<resource_root>/teacher_reference.json`. It refuses an existing reference;
 if already prepared, use `preflight` rather than preparing again. `login` uses
-your own W&B account. The shared project name is fixed by the experiment YAML.
+your own W&B account only in `online` mode; it is a no-op in `offline` and
+`disabled` modes. A shared team is not required. The optional online project
+name is fixed by the experiment YAML. TensorBoard/JSONL logs remain available
+with W&B disabled, and result collection does not require W&B links.
 `preflight` resolves and validates all four configs without starting Ray or a GPU
 job. See [RESOURCES.md](docs/opd/collaboration/RESOURCES.md) for input provenance.
 

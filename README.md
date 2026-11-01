@@ -25,7 +25,7 @@ We study two complementary mechanisms:
 | Understand the training implementation and metrics | [Development guide](OPD_DEVELOPMENT.md) |
 | Inspect the independent evaluation protocol | [RoboCasa365 evaluation](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-The experiment release is pinned by Git tag `robocasa-formal-150r-handoff-20261031`.
+The experiment release is pinned by Git tag `robocasa-formal-150r-handoff-20261101`.
 Use that tag for reproduction; `opd-project-main` remains the development base.
 Training uses eight 48-GB GPUs on one machine. Every arm starts from C10,
 collects 96 trajectories per rollout round, runs 150 rounds, and saves every
@@ -45,8 +45,10 @@ fully adapted to this project; use the OPD entries above for reproduction.
 
 The four training YAMLs are already provided. Copy
 [`machine.example.json`](toolkits/robocasa_mopd/machine.example.json) outside the
-repository and fill in your hostname, paths, and W&B team once. Every stage then
-uses the same entrypoint; no shell exports or manual runtime activation are needed:
+repository and fill in your hostname and paths once. W&B is optional and disabled
+by default; local TensorBoard/JSONL logs and the summary CSV are always required.
+Every stage uses the same entrypoint; no shell exports or manual runtime activation
+are needed:
 
 ```bash
 python3 toolkits/robocasa_mopd/experiment.py --machine /path/to/machine.json paths

@@ -46,13 +46,23 @@ checkpoint-60000/
   experiment_cfg/metadata.json
 ```
 
-The project owner supplies the download location separately. Google Drive,
-rsync/scp, or Hugging Face are all acceptable; verify contents against the
-manifest rather than trusting a directory name. Drive is sufficient for a
-one-time transfer. Repeated deployments can use a pinned HF revision plus
-content verification. For restricted HF collaboration, use an organization
-repository accessible to both parties; do not share personal access tokens.
-The repository does not upload C10 or store download credentials.
+Public repository: [theo-zhou/vla-mopd-checkpoints](https://huggingface.co/theo-zhou/vla-mopd-checkpoints).
+Pinned revision: `6d74e06da27996ae7802fb9b83b6697e07590a1f`.
+No HF login is required. Download only C10 with the installed runtime CLI:
+
+```bash
+/absolute/path/opd-runtime/venv/bin/hf download theo-zhou/vla-mopd-checkpoints \
+  --revision 6d74e06da27996ae7802fb9b83b6697e07590a1f \
+  --include "robocasa365/groot-n15/c10/checkpoint-60000/*" \
+  --local-dir /absolute/path/project-checkpoints
+```
+
+Set `student_checkpoint` in the machine JSON to
+`/absolute/path/project-checkpoints/robocasa365/groot-n15/c10/checkpoint-60000`.
+The five inference files total approximately 7.59 GB. Both uploaded weight hashes
+and downloaded configuration/metadata hashes match [checkpoints.json](checkpoints.json).
+The `prepare` step verifies the received contents again; directory names alone
+are not proof of checkpoint identity. Credentials are never stored in this repository.
 
 ## Bind the shared teacher calibration
 
