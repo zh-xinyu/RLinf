@@ -2,11 +2,10 @@
 
 This directory defines the frozen, sole protocol for future GR00T N1.5
 RoboCasa365 target-task evaluations: `rlinf-robocasa365-target50-native-v1`.
-Run it from this RLinf checkout, not from a cold-start repository. Two seeded
-GPU integration checks passed, but a complete 50-task run is still pending;
-no checkpoint has a formal score under this protocol yet. Earlier v1 and
-v1-compat scores are historical exploratory results, not comparable formal
-scores under the new protocol.
+Run it from this checkout, not from a cold-start repository. Keep each score
+with its plan and protocol metadata; earlier v1/v1-compat exploratory scores
+are not interchangeable with this task-native protocol. Portable setup and
+launch commands are in the [collaborator guide](../../docs/opd/collaboration/README.md).
 
 ## Protocol
 
@@ -38,6 +37,14 @@ commits enforced in `formal_eval.py`. The entrypoint reads the node-local
 supplies GR00T architecture and normalization metadata. Use `--weights` for
 an RLinf `full_weights.pt` policy; omit it only when evaluating the base HF
 checkpoint itself.
+
+## Intermediate checkpoints
+
+`plan --intermediate` keeps the same 50 tasks, native horizons, seed, and model
+semantics, but uses 20 episodes per task (five environments, four epochs). It
+records `mode=intermediate` and `OK_INTERMEDIATE`; the default final protocol
+remains 50 episodes with `mode=formal`. Do not pool these budgets without
+labeling them. Both modes validate their exact task and episode counts.
 
 ## Run
 
@@ -75,5 +82,6 @@ only after all 50 tasks pass episode-count, native-horizon, and metric checks.
 For a short integration check, append `--smoke-task OpenDrawer
 --smoke-episodes 1` to `plan`. This writes under `outputs/smoke/` and finishes
 with `OK_SMOKE`; it is never a formal score. A change to tasks, budget,
-environment semantics, model sampling, or metrics requires a new protocol
-version and a fresh evaluation of every checkpoint being compared.
+environment semantics, model sampling, or metrics requires an explicitly named
+mode/protocol and a fresh evaluation of every checkpoint being compared. Only
+the documented intermediate mode may use the smaller 20-episode budget.

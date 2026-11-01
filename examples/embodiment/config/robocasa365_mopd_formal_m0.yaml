@@ -1,0 +1,14 @@
+# M0: uniform, R=1, synchronized suite loss weights=false.
+defaults:
+  - robocasa365_mopd_formal_common
+  - _self_
+
+runner:
+  max_steps: 150
+  save_interval: 25
+  rollout_allocation:
+    mode: uniform
+
+algorithm:
+  flow_refresh_updates: 1
+  sync_suite_loss_weights: false

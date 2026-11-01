@@ -1,0 +1,576 @@
+{
+  "schema_version": 1,
+  "status": "COMPLETE",
+  "training_signature": {
+    "env": {
+      "env_type": "robocasa365",
+      "task_source": "dataset_registry",
+      "dataset_source": "human",
+      "split": "target",
+      "task_soup": [
+        "atomic_seen",
+        "composite_seen",
+        "composite_unseen"
+      ],
+      "task_filter": null,
+      "task_mode": null,
+      "episode_horizon_source": "task_horizon",
+      "auto_reset": false,
+      "ignore_terminations": false,
+      "init_params": {
+        "camera_heights": 256,
+        "camera_widths": 256
+      },
+      "observation": {
+        "main_camera_key": "robot0_agentview_left_image",
+        "wrist_camera_key": "robot0_eye_in_hand_image",
+        "extra_camera_keys": [
+          "robot0_agentview_right_image"
+        ],
+        "flip_images_vertical": true,
+        "state_layout": [
+          "base_pos",
+          "base_quat",
+          "base_to_eef_pos",
+          "base_to_eef_quat",
+          "gripper_qpos"
+        ],
+        "state_key_map": {
+          "eef_pos": "robot0_eef_pos",
+          "eef_quat": "robot0_eef_quat",
+          "gripper_qpos": "robot0_gripper_qpos",
+          "gripper_qvel": "robot0_gripper_qvel",
+          "base_to_eef_pos": "robot0_base_to_eef_pos",
+          "base_to_eef_quat": "robot0_base_to_eef_quat",
+          "base_pos": "robot0_base_pos",
+          "base_quat": "robot0_base_quat"
+        }
+      },
+      "action_space": {
+        "env_action_dim": 12,
+        "openpi_valid_action_slice": [
+          0,
+          12
+        ],
+        "disable_base_control": false,
+        "base_mode_index": 11,
+        "binarize_gripper_control": true
+      }
+    },
+    "model": {
+      "model_type": "gr00t",
+      "precision": "bf16",
+      "action_head_precision": "bf16",
+      "num_action_chunks": 16,
+      "action_dim": 12,
+      "denoising_steps": 4,
+      "obs_converter_type": "robocasa365",
+      "embodiment_tag": "new_embodiment",
+      "policy_setup": "robocasa_panda_omron",
+      "rl_head_config": {
+        "joint_logprob": true,
+        "noise_method": "flow_ode",
+        "ignore_last": false,
+        "safe_get_logprob": false,
+        "noise_anneal": false,
+        "noise_params": [
+          0.7,
+          0.3,
+          400
+        ],
+        "noise_level": 0.5,
+        "add_value_head": false,
+        "chunk_critic_input": false,
+        "detach_critic_input": true,
+        "disable_dropout": true,
+        "use_vlm_value": false,
+        "value_vlm_mode": "mean_token",
+        "padding_value": 1024
+      }
+    },
+    "teacher_action_head_precision": {
+      "atomic_seen": "bf16",
+      "composite_seen": "bf16",
+      "composite_unseen": "bf16"
+    }
+  },
+  "teacher_checkpoints": {
+    "atomic_seen": "target_posttraining/atomic_seen/checkpoint-60000",
+    "composite_seen": "target_posttraining/composite_seen/checkpoint-60000",
+    "composite_unseen": "target_posttraining/composite_unseen/checkpoint-60000"
+  },
+  "tasks": [
+    {
+      "task_id": 34,
+      "task": "ArrangeBreadBasket",
+      "suite": "composite_unseen",
+      "horizon": 4350,
+      "episodes": 20,
+      "successes": 14,
+      "simulation_steps": 41128
+    },
+    {
+      "task_id": 35,
+      "task": "ArrangeTea",
+      "suite": "composite_unseen",
+      "horizon": 2250,
+      "episodes": 20,
+      "successes": 10,
+      "simulation_steps": 33937
+    },
+    {
+      "task_id": 36,
+      "task": "BreadSelection",
+      "suite": "composite_unseen",
+      "horizon": 1950,
+      "episodes": 20,
+      "successes": 14,
+      "simulation_steps": 21270
+    },
+    {
+      "task_id": 37,
+      "task": "CategorizeCondiments",
+      "suite": "composite_unseen",
+      "horizon": 1650,
+      "episodes": 20,
+      "successes": 1,
+      "simulation_steps": 32164
+    },
+    {
+      "task_id": 0,
+      "task": "CloseBlenderLid",
+      "suite": "atomic_seen",
+      "horizon": 900,
+      "episodes": 20,
+      "successes": 4,
+      "simulation_steps": 16435
+    },
+    {
+      "task_id": 1,
+      "task": "CloseFridge",
+      "suite": "atomic_seen",
+      "horizon": 900,
+      "episodes": 20,
+      "successes": 16,
+      "simulation_steps": 8744
+    },
+    {
+      "task_id": 2,
+      "task": "CloseToasterOvenDoor",
+      "suite": "atomic_seen",
+      "horizon": 450,
+      "episodes": 20,
+      "successes": 19,
+      "simulation_steps": 3959
+    },
+    {
+      "task_id": 3,
+      "task": "CoffeeSetupMug",
+      "suite": "atomic_seen",
+      "horizon": 600,
+      "episodes": 20,
+      "successes": 12,
+      "simulation_steps": 7533
+    },
+    {
+      "task_id": 38,
+      "task": "CuttingToolSelection",
+      "suite": "composite_unseen",
+      "horizon": 1200,
+      "episodes": 20,
+      "successes": 8,
+      "simulation_steps": 18311
+    },
+    {
+      "task_id": 18,
+      "task": "DeliverStraw",
+      "suite": "composite_seen",
+      "horizon": 2550,
+      "episodes": 20,
+      "successes": 1,
+      "simulation_steps": 50277
+    },
+    {
+      "task_id": 39,
+      "task": "GarnishPancake",
+      "suite": "composite_unseen",
+      "horizon": 2700,
+      "episodes": 20,
+      "successes": 14,
+      "simulation_steps": 33280
+    },
+    {
+      "task_id": 40,
+      "task": "GatherTableware",
+      "suite": "composite_unseen",
+      "horizon": 2250,
+      "episodes": 20,
+      "successes": 7,
+      "simulation_steps": 42173
+    },
+    {
+      "task_id": 19,
+      "task": "GetToastedBread",
+      "suite": "composite_seen",
+      "horizon": 3000,
+      "episodes": 20,
+      "successes": 0,
+      "simulation_steps": 60000
+    },
+    {
+      "task_id": 41,
+      "task": "HeatKebabSandwich",
+      "suite": "composite_unseen",
+      "horizon": 2700,
+      "episodes": 20,
+      "successes": 5,
+      "simulation_steps": 47472
+    },
+    {
+      "task_id": 20,
+      "task": "KettleBoiling",
+      "suite": "composite_seen",
+      "horizon": 1500,
+      "episodes": 20,
+      "successes": 16,
+      "simulation_steps": 15261
+    },
+    {
+      "task_id": 21,
+      "task": "LoadDishwasher",
+      "suite": "composite_seen",
+      "horizon": 1800,
+      "episodes": 20,
+      "successes": 13,
+      "simulation_steps": 25013
+    },
+    {
+      "task_id": 42,
+      "task": "MakeIceLemonade",
+      "suite": "composite_unseen",
+      "horizon": 3000,
+      "episodes": 20,
+      "successes": 9,
+      "simulation_steps": 47794
+    },
+    {
+      "task_id": 4,
+      "task": "NavigateKitchen",
+      "suite": "atomic_seen",
+      "horizon": 450,
+      "episodes": 20,
+      "successes": 13,
+      "simulation_steps": 5382
+    },
+    {
+      "task_id": 5,
+      "task": "OpenCabinet",
+      "suite": "atomic_seen",
+      "horizon": 1050,
+      "episodes": 20,
+      "successes": 18,
+      "simulation_steps": 8738
+    },
+    {
+      "task_id": 6,
+      "task": "OpenDrawer",
+      "suite": "atomic_seen",
+      "horizon": 750,
+      "episodes": 20,
+      "successes": 18,
+      "simulation_steps": 5746
+    },
+    {
+      "task_id": 7,
+      "task": "OpenStandMixerHead",
+      "suite": "atomic_seen",
+      "horizon": 450,
+      "episodes": 20,
+      "successes": 19,
+      "simulation_steps": 2528
+    },
+    {
+      "task_id": 22,
+      "task": "PackIdenticalLunches",
+      "suite": "composite_seen",
+      "horizon": 3900,
+      "episodes": 20,
+      "successes": 2,
+      "simulation_steps": 75533
+    },
+    {
+      "task_id": 43,
+      "task": "PanTransfer",
+      "suite": "composite_unseen",
+      "horizon": 1800,
+      "episodes": 20,
+      "successes": 7,
+      "simulation_steps": 26516
+    },
+    {
+      "task_id": 8,
+      "task": "PickPlaceCounterToCabinet",
+      "suite": "atomic_seen",
+      "horizon": 750,
+      "episodes": 20,
+      "successes": 15,
+      "simulation_steps": 7635
+    },
+    {
+      "task_id": 9,
+      "task": "PickPlaceCounterToStove",
+      "suite": "atomic_seen",
+      "horizon": 600,
+      "episodes": 20,
+      "successes": 13,
+      "simulation_steps": 7406
+    },
+    {
+      "task_id": 10,
+      "task": "PickPlaceDrawerToCounter",
+      "suite": "atomic_seen",
+      "horizon": 750,
+      "episodes": 20,
+      "successes": 9,
+      "simulation_steps": 11442
+    },
+    {
+      "task_id": 11,
+      "task": "PickPlaceSinkToCounter",
+      "suite": "atomic_seen",
+      "horizon": 900,
+      "episodes": 20,
+      "successes": 17,
+      "simulation_steps": 9961
+    },
+    {
+      "task_id": 12,
+      "task": "PickPlaceToasterToCounter",
+      "suite": "atomic_seen",
+      "horizon": 600,
+      "episodes": 20,
+      "successes": 15,
+      "simulation_steps": 7806
+    },
+    {
+      "task_id": 44,
+      "task": "PortionHotDogs",
+      "suite": "composite_unseen",
+      "horizon": 2250,
+      "episodes": 20,
+      "successes": 3,
+      "simulation_steps": 42226
+    },
+    {
+      "task_id": 23,
+      "task": "PreSoakPan",
+      "suite": "composite_seen",
+      "horizon": 2400,
+      "episodes": 20,
+      "successes": 14,
+      "simulation_steps": 27292
+    },
+    {
+      "task_id": 24,
+      "task": "PrepareCoffee",
+      "suite": "composite_seen",
+      "horizon": 1800,
+      "episodes": 20,
+      "successes": 2,
+      "simulation_steps": 34413
+    },
+    {
+      "task_id": 45,
+      "task": "RecycleBottlesByType",
+      "suite": "composite_unseen",
+      "horizon": 2850,
+      "episodes": 20,
+      "successes": 17,
+      "simulation_steps": 24904
+    },
+    {
+      "task_id": 25,
+      "task": "RinseSinkBasin",
+      "suite": "composite_seen",
+      "horizon": 1350,
+      "episodes": 20,
+      "successes": 13,
+      "simulation_steps": 17344
+    },
+    {
+      "task_id": 26,
+      "task": "ScrubCuttingBoard",
+      "suite": "composite_seen",
+      "horizon": 1200,
+      "episodes": 20,
+      "successes": 16,
+      "simulation_steps": 14987
+    },
+    {
+      "task_id": 27,
+      "task": "SearingMeat",
+      "suite": "composite_seen",
+      "horizon": 4350,
+      "episodes": 20,
+      "successes": 3,
+      "simulation_steps": 79696
+    },
+    {
+      "task_id": 46,
+      "task": "SeparateFreezerRack",
+      "suite": "composite_unseen",
+      "horizon": 2400,
+      "episodes": 20,
+      "successes": 1,
+      "simulation_steps": 47445
+    },
+    {
+      "task_id": 28,
+      "task": "SetUpCuttingStation",
+      "suite": "composite_seen",
+      "horizon": 2400,
+      "episodes": 20,
+      "successes": 9,
+      "simulation_steps": 37340
+    },
+    {
+      "task_id": 13,
+      "task": "SlideDishwasherRack",
+      "suite": "atomic_seen",
+      "horizon": 450,
+      "episodes": 20,
+      "successes": 17,
+      "simulation_steps": 3986
+    },
+    {
+      "task_id": 29,
+      "task": "StackBowlsCabinet",
+      "suite": "composite_seen",
+      "horizon": 2100,
+      "episodes": 20,
+      "successes": 19,
+      "simulation_steps": 12292
+    },
+    {
+      "task_id": 30,
+      "task": "SteamInMicrowave",
+      "suite": "composite_seen",
+      "horizon": 2100,
+      "episodes": 20,
+      "successes": 5,
+      "simulation_steps": 37276
+    },
+    {
+      "task_id": 31,
+      "task": "StirVegetables",
+      "suite": "composite_seen",
+      "horizon": 2400,
+      "episodes": 20,
+      "successes": 6,
+      "simulation_steps": 41192
+    },
+    {
+      "task_id": 32,
+      "task": "StoreLeftoversInBowl",
+      "suite": "composite_seen",
+      "horizon": 2550,
+      "episodes": 20,
+      "successes": 9,
+      "simulation_steps": 36896
+    },
+    {
+      "task_id": 14,
+      "task": "TurnOffStove",
+      "suite": "atomic_seen",
+      "horizon": 750,
+      "episodes": 20,
+      "successes": 11,
+      "simulation_steps": 9935
+    },
+    {
+      "task_id": 15,
+      "task": "TurnOnElectricKettle",
+      "suite": "atomic_seen",
+      "horizon": 450,
+      "episodes": 20,
+      "successes": 13,
+      "simulation_steps": 5202
+    },
+    {
+      "task_id": 16,
+      "task": "TurnOnMicrowave",
+      "suite": "atomic_seen",
+      "horizon": 450,
+      "episodes": 20,
+      "successes": 17,
+      "simulation_steps": 4452
+    },
+    {
+      "task_id": 17,
+      "task": "TurnOnSinkFaucet",
+      "suite": "atomic_seen",
+      "horizon": 600,
+      "episodes": 20,
+      "successes": 14,
+      "simulation_steps": 6745
+    },
+    {
+      "task_id": 47,
+      "task": "WaffleReheat",
+      "suite": "composite_unseen",
+      "horizon": 4050,
+      "episodes": 20,
+      "successes": 16,
+      "simulation_steps": 35450
+    },
+    {
+      "task_id": 48,
+      "task": "WashFruitColander",
+      "suite": "composite_unseen",
+      "horizon": 3150,
+      "episodes": 20,
+      "successes": 9,
+      "simulation_steps": 49271
+    },
+    {
+      "task_id": 33,
+      "task": "WashLettuce",
+      "suite": "composite_seen",
+      "horizon": 1650,
+      "episodes": 20,
+      "successes": 15,
+      "simulation_steps": 18096
+    },
+    {
+      "task_id": 49,
+      "task": "WeighIngredients",
+      "suite": "composite_unseen",
+      "horizon": 3000,
+      "episodes": 20,
+      "successes": 9,
+      "simulation_steps": 39891
+    }
+  ],
+  "seed": 10000000,
+  "trajectories": 1000,
+  "simulation_steps": 1299775,
+  "wall_seconds": 6602.119424343109,
+  "provenance": {
+    "git_commit": "fdde9522eeec14bac7dde24a7f0714efad7812d8",
+    "profile": "gr00t-n15-robocasa365-20261019",
+    "sources": {
+      "rlinf/envs/robocasa365/robocasa365_env.py": "82175d0c092cf611883306a86a6032818c0f42de7739cb37ff627fef89f91d87",
+      "rlinf/envs/robocasa/venv.py": "241fbb4018a41e857b613e1b789763d364780a3a2f559a6934e91ea5ee40d723",
+      "rlinf/envs/action_utils.py": "d97eebe4c9cf962d38f95443e8bb80933135f5b7fb2140afdb01dba448df8901",
+      "rlinf/models/embodiment/gr00t/gr00t_n1d5/gr00t_action_model.py": "b03e5a9cb6b0c4c1e3ae3e770adefc925d8855b71e48ad5198bc3d41b3458587",
+      "evaluations/robocasa365/calibrate_teachers.py": "e3abcc4b44c7ab9332428b3ce11f750a2c1cd40b991d67ed26837fa8b9c2097e"
+    }
+  },
+  "signature_normalization": {
+    "reason": "Include effective actor+rollout model settings from the calibration frozen config.",
+    "original_reference_sha256": "258a44aaf7b8380d6cd9e128eaa820e0c4f065482e667b65446bc0b9e0e358dc",
+    "frozen_config_sha256": "ae4f911a369f9a57df1de301b574c9c0fd412ca18ba43b04e2c2e549777698e0",
+    "git_commit": "fed828278b24c191d7e0da7400255ca1412270b7"
+  },
+  "portability_note": "Paths are relative placeholders. Bind only after verifying checkpoints.json; task counts and training signature are unchanged."
+}

@@ -57,6 +57,7 @@ EXPECTED_PACKAGES = {
 }
 SUITE_COUNTS = {"atomic_seen": 18, "composite_seen": 16, "composite_unseen": 16}
 EPISODES_PER_TASK = 50
+INTERMEDIATE_EPISODES_PER_TASK = 20
 ENVS_PER_TASK = 5
 SEED = 7
 CHUNK = 16
@@ -261,8 +262,13 @@ def validate_plan(plan: dict) -> None:
     if plan["seed"] != SEED:
         raise RuntimeError("Formal evaluation seed changed")
     expected = manifest_tasks()
-    if plan["mode"] == "formal":
-        if plan["tasks"] != expected or plan["episodes_per_task"] != EPISODES_PER_TASK:
+    if plan["mode"] in {"formal", "intermediate"}:
+        budget = (
+            EPISODES_PER_TASK
+            if plan["mode"] == "formal"
+            else INTERMEDIATE_EPISODES_PER_TASK
+        )
+        if plan["tasks"] != expected or plan["episodes_per_task"] != budget:
             raise RuntimeError("Formal task/episode budget changed")
         if plan["envs_per_task"] != ENVS_PER_TASK:
             raise RuntimeError("Formal env count changed")
@@ -306,6 +312,9 @@ def make_plan(args: argparse.Namespace) -> Path:
     weights = args.weights.resolve(strict=True) if args.weights else None
     check_checkpoint(base, weights)
     smoke = args.smoke_task is not None
+    intermediate = getattr(args, "intermediate", False)
+    if smoke and intermediate:
+        raise ValueError("Smoke and intermediate evaluation are mutually exclusive")
     if smoke:
         tasks = [task for task in tasks if task["task"] == args.smoke_task]
         if len(tasks) != 1:
@@ -318,7 +327,7 @@ def make_plan(args: argparse.Namespace) -> Path:
     output = root / args.run_id
     plan = {
         "protocol": PROTOCOL,
-        "mode": "smoke" if smoke else "formal",
+        "mode": "smoke" if smoke else ("intermediate" if intermediate else "formal"),
         "output": str(output),
         "hostname": socket.gethostname(),
         "rlinf_git_commit": git_output(REPO, "rev-parse", "HEAD"),
@@ -332,7 +341,11 @@ def make_plan(args: argparse.Namespace) -> Path:
         "weights": str(weights) if weights else None,
         "weights_sha256": sha256(weights) if weights else None,
         "tasks": tasks,
-        "episodes_per_task": args.smoke_episodes if smoke else EPISODES_PER_TASK,
+        "episodes_per_task": (
+            args.smoke_episodes
+            if smoke
+            else (INTERMEDIATE_EPISODES_PER_TASK if intermediate else EPISODES_PER_TASK)
+        ),
         "envs_per_task": 1 if smoke else ENVS_PER_TASK,
         "seed": SEED,
         "gpus": parse_gpus(args.gpus),
@@ -564,7 +577,11 @@ def run(plan: dict, plan_path: Path) -> None:
                     future.result()
         print(json.dumps(summarize(plan), indent=2), flush=True)
         (output / "status").write_text(
-            "OK\n" if plan["mode"] == "formal" else "OK_SMOKE\n"
+            {
+                "formal": "OK\n",
+                "intermediate": "OK_INTERMEDIATE\n",
+                "smoke": "OK_SMOKE\n",
+            }[plan["mode"]]
         )
     except BaseException:
         (output / "status").write_text("FAILED\n")
@@ -581,6 +598,11 @@ def main() -> None:
     prep.add_argument("--weights", type=Path)
     prep.add_argument("--gpus", default="0")
     prep.add_argument("--save-video", action="store_true")
+    prep.add_argument(
+        "--intermediate",
+        action="store_true",
+        help="Evaluate all 50 tasks with 20 episodes each; final defaults to 50",
+    )
     prep.add_argument("--smoke-task")
     prep.add_argument("--smoke-episodes", type=int, default=1)
     for name in ("run", "task", "summarize"):
