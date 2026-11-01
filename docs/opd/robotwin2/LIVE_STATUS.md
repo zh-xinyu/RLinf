@@ -1,0 +1,51 @@
+# RoboTwin pilot live status
+
+Updated 2026-11-01, action00. Goal remains active; pilot results are still pending.
+
+- Worktree: `outputs/worktrees/robotwin4`
+- Branch: `dev/mopd-robotwin2-four-task`; commits `8a9313fa`, `fad60d6c`.
+- Root remains `opd-project-main`; existing RoboCasa code/runtime/outputs untouched.
+- Activate `/localscratch2/liyifa11/XyFile/opd-robotwin4/env.sh`.
+- Online W&B auth uses existing `WANDB_ENV_FILE` from `.opd.action00.env`; source its file without printing credentials. Isolated runtime alone does not load authentication.
+- Active run: `outputs/robotwin4/train/robotwin4_uniform_refresh_r2_t64_b512_pilot_20261101_retry`.
+- Launcher PID 2884880, recorded in `outputs/robotwin4/setup/uniform_pilot_active.pid`.
+- W&B: https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/f6ve12mw
+- T64/B512/R2/micro8; LR2.5e-5, constant, warmup8updates; base student; FP32 actor masters + BF16 AMP. Initial 20 rounds / 40 updates; save every20 updates. NUMA interleave applies only to this job and descendants.
+
+## Completed checks
+
+- Four specialists actual successes in pilot calibration: adjust3/5, handover4/5, place5/5, stack4/5. Base reference0/3 each (small sample).
+- Teacher source hashes, 5 conversions, strict loading, JAX/PyTorch agreement verified.
+- 107 tests + Ruff passed.
+- `robotwin4_fp32_r2_smoke_20261101` COMPLETE: 1round/2updates, MSE1.0939/1.1246, finite gradients, second LR3.125e-6. Peak~41.5GiB/GPU. Exact rollout/mask step accounting passed.
+- Snapshot comparison verified actual FP32 updates in VLM, action expert and projections.
+- Smoke checkpoint successfully loaded for native closed-loop evaluation.
+- Old mixed-master smoke intentionally stopped after first rollout; original pilot failed only at W&B auth before training. Both have retained diagnostic artifacts; neither is an effectiveness result.
+
+## Next autonomous work
+
+1. Monitor `status`, `driver.log`, `optimizer_updates.jsonl`, `rollout_episodes.jsonl`; use `python -m toolkits.robotwin_mopd.summarize RUN_DIR`.
+2. First two T64 rounds passed with finite losses/gradients. Monitor rounds3–5 and first save for host/GPU memory stability. Do not increase microbatch8; no global Ray stop or system memory changes.
+3. Let initial20rounds finish if stable. Checkpoint folder is nested: `RUN_DIR/RUN_NAME/checkpoints/global_step_40/`.
+4. Independently evaluate the trained student on all four tasks (small5episode/task pilot, explicit counts); compare to initial base and teachers. Use `toolkits.robotwin_mopd.evaluate --checkpoint PATH`, one GPU/task, only after training releases GPUs.
+5. Based on learning/SR trends decide one useful continuation: extend uniform to80updates with round-boundary resume if still undertrained, or matched-budget Adaptive-Sync-R2 from base if capability gain and task differences are evident. No broad parameter scan. Pilot calibration lives in `outputs/robotwin4/eval/teacher_reference_pilot.json` (5episodes/task; not formal).
+6. Update EXPERIMENTS_20261101.md and results. Do not mark active goal complete merely because the job was launched.
+
+Actor cache has4teachers per rank; smoke host reclaim pressure was high around teacher/save, despite available RAM. NUMA interleave was applied for pilot; monitor actual timings before further memory changes. All checkpoints/outputs stay isolated.
+
+## First two T64 rounds verified
+
+Rounds1–2 / updates1–4 completed: raw velocity MSE1.14665 →1.12782 →1.08153 →1.07384; finite gradient norms3.23/2.93/2.97/2.88. Cumulative128episodes and73,085actual control targets. Per-round success3/64 then1/64, all adjust_bottle. These early small counts are not evidence of success-rate improvement. Round2 took about12m10s; roughly4h is a provisional20round estimate, excluding final evaluation.
+
+NUMA interleave kept swap around6.6GiB with no sustained reclaim pressure; actor0 VmSwap0. GPU sampled peak43.35GiB. Host available fell257→204GiB across the first two round boundaries, so rounds3–5 still need memory-growth checks.
+
+## Queued independent evaluations
+
+Both queues are waiting without GPU children and never stop training or unrelated processes.
+
+- Matching unfiltered/seen queue PID2910670: `outputs/robotwin4/eval/uniform_r2_step40/queue.json`. Waits for actual launcher exit+COMPLETE+step40 checkpoint, then student4×5episodes and base4×2extensionepisodes. Existing base3/task and teachers5/task are preserved. Seed overlap is explicit; adjust teacher starts at a shifted seed.
+- Supplementary fixed feasible/unseen queue PID2933622: `outputs/robotwin4/eval/feasible_unseen_step40/queue.json`. Waits for the first queue to finish. Builds5scripted-expert-accepted scenes/task, then evaluates teacher/base/student on exactly the same seeds and prompts. Separate attempt paths and pool content hashes are retained. See [protocol audit](EVALUATION_PROTOCOL_AUDIT.md) and [evaluation details](FEASIBLE_EVALUATION.md).
+
+The official screening rule is scripted planner `plan_success AND check_success`; it does not select scenes based on learned teacher/student success. No scripted action data enter training. Current training remains unfiltered/seen. All5episode results are pilot estimates, not formal benchmark scores.
+
+New evaluation, fixed-seed adapter, queues and calibration budget accounting:35CPU tests, Ruff and git diff checks passed. Calibration records20teacher episodes,5379executed control targets, and219.39s approximate launch-manifest-to-last-result wall time; the478.01s sum of parallel episode durations is separately labeled.

@@ -141,3 +141,89 @@ def test_reject_invalid_quota_identity_and_slots(env):
         env.set_rollout_tasks(invalid)
     with pytest.raises(ValueError, match="every local slot"):
         env.set_rollout_tasks(rows()[:-1])
+
+
+def test_native_fixed_seed_refuses_unstable_replacement(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from rlinf.envs.robotwin.multitask_env import NativeTaskSlot
+
+    class Unstable(Exception):
+        pass
+
+    calls = []
+
+    class Task:
+        def setup_demo(self, **kwargs):
+            calls.append(kwargs["seed"])
+            raise Unstable("unstable scene")
+
+        def close_env(self, **kwargs):
+            pass
+
+    monkeypatch.setitem(
+        sys.modules,
+        "description.utils.generate_episode_instructions",
+        SimpleNamespace(generate_episode_descriptions=lambda *_: None),
+    )
+    monkeypatch.setitem(
+        sys.modules, "envs.utils.create_actor", SimpleNamespace(UnStableError=Unstable)
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "robotwin.envs.vector_env",
+        SimpleNamespace(class_decorator=lambda _: Task()),
+    )
+    slot = NativeTaskSlot.__new__(NativeTaskSlot)
+    slot.task = None
+    slot.task_name = "adjust_bottle"
+    slot.args = {}
+    with pytest.raises(RuntimeError, match="refusing reseed"):
+        slot.reset(42, instruction="fixed unseen instruction", strict_seed=True)
+    assert calls == [42]
+
+
+def test_native_fixed_prompt_bypasses_instruction_generation(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from rlinf.envs.robotwin.multitask_env import NativeTaskSlot
+
+    class Task:
+        def setup_demo(self, **kwargs):
+            self.seed = kwargs["seed"]
+
+        def set_instruction(self, instruction):
+            self.instruction = instruction
+
+        def close_env(self, **kwargs):
+            pass
+
+    def forbidden_generation(*_):
+        raise AssertionError("Must use cached expert-derived prompt")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "description.utils.generate_episode_instructions",
+        SimpleNamespace(generate_episode_descriptions=forbidden_generation),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "envs.utils.create_actor",
+        SimpleNamespace(UnStableError=RuntimeError),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "robotwin.envs.vector_env",
+        SimpleNamespace(class_decorator=lambda _: Task()),
+    )
+    slot = NativeTaskSlot.__new__(NativeTaskSlot)
+    slot.task = None
+    slot.task_name = "adjust_bottle"
+    slot.args = {}
+    slot.horizon = 400
+    slot.observe = lambda: {"instruction": slot.task.instruction}
+    obs = slot.reset(42, instruction="cached unseen prompt", strict_seed=True)
+    assert obs["instruction"] == "cached unseen prompt"
+    assert slot.actual_seed == 42

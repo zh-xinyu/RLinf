@@ -23,6 +23,7 @@ Example after sourcing the isolated runtime env.sh::
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import random
@@ -44,6 +45,7 @@ def write_summary(path: Path, metadata: dict, episodes: list[dict]) -> None:
     result = dict(
         metadata,
         completed_episodes=count,
+        finished_unix=time.time() if count == metadata["requested_episodes"] else None,
         successes=sum(row["success_once"] for row in episodes),
         success_rate=sum(row["success_once"] for row in episodes) / count
         if count
@@ -57,12 +59,36 @@ def write_summary(path: Path, metadata: dict, episodes: list[dict]) -> None:
     temporary.replace(path)
 
 
+def read_evaluation_pool(path: Path, task: str, episodes: int, cfg):
+    """Validate a fixed pool against this evaluator's runtime before model loading."""
+    from toolkits.robotwin_mopd.feasible_pool import load_pool, validate_pool_protocol
+
+    pool = load_pool(path)
+    validate_pool_protocol(
+        pool,
+        task_config=OmegaConf.to_container(cfg.env.eval.task_config, resolve=True),
+        task_horizons=OmegaConf.to_container(cfg.env.eval.task_horizons, resolve=True),
+        robotwin_root=Path(os.environ["ROBOTWIN_PATH"]),
+    )
+    if task not in pool["protocol"]["task_names"] or task not in pool["tasks"]:
+        raise ValueError(f"Task {task} is not part of the evaluation pool")
+    entries = pool["tasks"][task][:episodes]
+    if len(entries) != episodes:
+        raise ValueError(f"Requested {episodes} episodes but the pool has fewer scenes")
+    return pool, entries
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", required=True, choices=list(TASK_HORIZONS))
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--seed", type=int, default=200000)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--evaluation-pool",
+        type=Path,
+        help="Optional fixed expert-screened unseen protocol pool",
+    )
     parser.add_argument(
         "--checkpoint", default="teacher", help="base, teacher, or checkpoint directory"
     )
@@ -84,17 +110,30 @@ def main() -> None:
         version_base=None, config_dir=str(repo / "examples/embodiment/config")
     ):
         cfg = compose(config_name=args.config_name, overrides=args.override)
+    pool, pool_entries = None, None
+    if args.evaluation_pool is not None:
+        args.evaluation_pool = args.evaluation_pool.resolve()
+        pool, pool_entries = read_evaluation_pool(
+            args.evaluation_pool, args.task, args.episodes, cfg
+        )
     model_cfg = copy.deepcopy(cfg.actor.model)
     if args.checkpoint == "teacher":
         model_cfg.model_path = cfg.rollout.expert_models[args.task].model_path
     elif args.checkpoint != "base":
         model_cfg.model_path = str(Path(args.checkpoint).expanduser().resolve())
     metadata = {
+        "started_unix": time.time(),
         "task": args.task,
         "checkpoint": str(model_cfg.model_path),
         "requested_episodes": args.episodes,
         "initial_seed": args.seed,
         "config_name": args.config_name,
+        "evaluator_source_sha256": hashlib.sha256(
+            Path(__file__).read_bytes()
+        ).hexdigest(),
+        "env_adapter_source_sha256": hashlib.sha256(
+            (repo / "rlinf/envs/robotwin/multitask_env.py").read_bytes()
+        ).hexdigest(),
         "hydra_overrides": args.override,
         "chunk_length": int(model_cfg.num_action_chunks),
         "denoising_steps": int(model_cfg.num_steps),
@@ -104,6 +143,19 @@ def main() -> None:
         ),
         "reset_filter": "unstable_scene_only; no planner or success filtering",
     }
+    if pool is not None:
+        metadata["reset_filter"] = "expert-screened fixed pool; no evaluation reseeding"
+        metadata["initial_seed"] = pool_entries[0]["scene_seed"]
+        metadata["evaluation_pool"] = {
+            "path": str(args.evaluation_pool),
+            "pool_content_sha256": pool["pool_content_sha256"],
+            "file_sha256": hashlib.sha256(
+                args.evaluation_pool.read_bytes()
+            ).hexdigest(),
+            "protocol": pool["protocol"],
+            "selected_scene_seeds": [entry["scene_seed"] for entry in pool_entries],
+            "selected_instructions": [entry["instruction"] for entry in pool_entries],
+        }
     episodes = []
     write_summary(args.output, metadata, episodes)
     # Use the identical loader, task normalization, and native control path as
@@ -116,11 +168,18 @@ def main() -> None:
     env_cfg.task_names = [args.task]
     env_cfg.total_num_envs = 1
     env_cfg.video_cfg.save_video = False
+    if pool is not None:
+        env_cfg.instruction_type = "unseen"
+        for key, value in pool["protocol"]["screening_overrides"].items():
+            OmegaConf.update(env_cfg.task_config, key, value, force_add=True)
     env = RoboTwinMultiTaskEnv(env_cfg, 1, 0, 1, None)
     next_seed = args.seed
     try:
         for episode in range(args.episodes):
             started = time.monotonic()
+            fixed_episode = None if pool_entries is None else pool_entries[episode]
+            if fixed_episode is not None:
+                next_seed = fixed_episode["scene_seed"]
             row = {
                 "slot": 0,
                 "task_id": 0,
@@ -130,9 +189,14 @@ def main() -> None:
                 "round": episode,
             }
             env.set_rollout_tasks([row])
-            obs, _ = env.reset()
+            obs, _ = env.reset(evaluation_episode=fixed_episode)
             print(f"Episode {episode}: environment reset", flush=True)
             actual_seed = env.rollout_episode_records()[0]["actual_reset_seed"]
+            if fixed_episode is not None:
+                if actual_seed != fixed_episode["scene_seed"]:
+                    raise RuntimeError("Fixed pool seed changed during evaluation")
+                if obs["task_descriptions"] != [fixed_episode["instruction"]]:
+                    raise RuntimeError("Fixed pool prompt changed during reset")
             next_seed = actual_seed + 1  # Avoid repeating a retried scene.
             random.seed(actual_seed)
             np.random.seed(actual_seed)
@@ -154,6 +218,10 @@ def main() -> None:
                     observations, _, terminal, truncated, _ = env.chunk_step(actions)
                     simulation_seconds += time.monotonic() - before
                     obs = observations[-1]
+                    if fixed_episode is not None and obs["task_descriptions"] != [
+                        fixed_episode["instruction"]
+                    ]:
+                        raise RuntimeError("Fixed pool prompt changed during rollout")
                     chunks += 1
                     if bool((terminal | truncated).any()):
                         break
@@ -165,6 +233,12 @@ def main() -> None:
                 simulation_seconds=simulation_seconds,
                 policy_chunks=chunks,
             )
+            if fixed_episode is not None:
+                result.update(
+                    pool_episode_index=episode,
+                    evaluation_pool_sha256=pool["pool_content_sha256"],
+                    instruction=fixed_episode["instruction"],
+                )
             episodes.append(result)
             write_summary(args.output, metadata, episodes)
             print(json.dumps(result), flush=True)

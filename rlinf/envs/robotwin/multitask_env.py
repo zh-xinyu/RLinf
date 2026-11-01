@@ -59,7 +59,7 @@ class NativeTaskSlot:
         self.task = None
         self.actual_seed = None
 
-    def reset(self, seed):
+    def reset(self, seed, *, instruction=None, strict_seed=False):
         from description.utils.generate_episode_instructions import (
             generate_episode_descriptions,
         )
@@ -69,7 +69,7 @@ class NativeTaskSlot:
         self.close()
         # Retry only physically unstable resets, never planner/task failures.
         # Record the actual seed so these benchmark-native retries are visible.
-        for attempt in range(20):
+        for attempt in range(1 if strict_seed else 20):
             actual_seed = seed + attempt
             self.task = class_decorator(self.task_name)
             try:
@@ -77,18 +77,23 @@ class NativeTaskSlot:
                     now_ep_num=actual_seed, seed=actual_seed, **self.args
                 )
                 break
-            except UnStableError:
+            except UnStableError as error:
                 self.close()
+                if strict_seed:
+                    raise RuntimeError(
+                        f"Fixed evaluation seed {seed} is unstable; refusing reseed"
+                    ) from error
         else:
             raise RuntimeError(f"20 unstable resets for {self.task_name}, seed={seed}")
         self.task.step_lim = self.horizon
         self.task.run_steps = 0
         self.task.reward_step = 0
         self.actual_seed = actual_seed
-        descriptions = generate_episode_descriptions(
-            self.task_name, [self.task.get_info()], 1, actual_seed
-        )[0][self.instruction_type]
-        instruction = str(np.random.default_rng(actual_seed).choice(descriptions))
+        if instruction is None:
+            descriptions = generate_episode_descriptions(
+                self.task_name, [self.task.get_info()], 1, actual_seed
+            )[0][self.instruction_type]
+            instruction = str(np.random.default_rng(actual_seed).choice(descriptions))
         self.task.set_instruction(instruction)
         self.last_obs = self.observe()
         return self.last_obs
@@ -238,16 +243,36 @@ class RoboTwinMultiTaskEnv(RoboTwinEnv):
         obs["extra_view_images"] = None
         return obs
 
-    def reset(self, *, seed=None, options=None, env_idx=None):
+    def reset(self, *, seed=None, options=None, env_idx=None, evaluation_episode=None):
         if env_idx is not None:
             raise ValueError("Quota rollouts reset the complete pool between rounds")
         if seed is not None:
             self.reset_state_ids = torch.arange(self.num_envs) + int(seed)
+        if evaluation_episode is not None:
+            if self.num_envs != 1:
+                raise ValueError("Fixed evaluation episodes require one environment")
+            if int(self.reset_state_ids[0]) != int(evaluation_episode["scene_seed"]):
+                raise ValueError("Fixed evaluation seed disagrees with allocation")
+            if (
+                not isinstance(evaluation_episode["instruction"], str)
+                or not evaluation_episode["instruction"].strip()
+            ):
+                raise ValueError("Fixed evaluation instruction must be nonempty")
         # setup_demo changes global random generators; do not reset in threads.
         for i, task_id in enumerate(self._slot_task_ids):
             if self._slots[i] is None:
                 self._slots[i] = self._make_slot(task_id)
-            self._raw_obs[i] = self._slots[i].reset(int(self.reset_state_ids[i]))
+            reset_kwargs = (
+                {}
+                if evaluation_episode is None
+                else {
+                    "instruction": evaluation_episode["instruction"],
+                    "strict_seed": True,
+                }
+            )
+            self._raw_obs[i] = self._slots[i].reset(
+                int(self.reset_state_ids[i]), **reset_kwargs
+            )
             self._actual_reset_seeds[i] = self._slots[i].actual_seed
         self._elapsed_steps.zero_()
         self.success_once.zero_()
