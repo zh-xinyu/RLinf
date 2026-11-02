@@ -154,3 +154,9 @@ SFT100/200/500均已完成真实训练推理路径测评：
 SFT500已COMPLETE：adjust8/8、handover0/8、place3/8、stack0/8，总计11/32（34.375%）。32条实际episode与汇总一致，和SFT100/200的actual scene序列相同；adjust仍仅6个unique scenes，action noise未固定。SFT200→500的总体改善来自adjust和place；handover仍0，stack由1/8变0/8，不能把总体loss下降解释为四任务同步改善。结构化审计为`analysis/joint_sft500_policy_verified_20261101.json`。
 
 固定SFT500通过原定“至少两个任务出现成功”的探索性筛查。恢复队列已实际启动`robotwin4_joint_sft500_r4_t32_b128_pilot_20261101`，T32/R4/B128/micro8、8GPU、LR1e-5/warmup4、80updates，与预注册命令一致；使用SFT500模型权重、新optimizer，`resume_dir=null`。本快照仅确认launcher启动，尚未确认首个优化更新或MOPD效果。后续与SFT500比较，重点同时看能力保留和新任务学习。
+
+## MOPD首轮完整更新核验（22:29）
+
+首轮32条轨迹/13,766个实际control targets已完成，随后4个更新记录齐全；plain MSE为0.146931、0.131413、0.111765、0.139576，M3加权loss及gradient norm均有限。LR依warmup为0、2.5e-6、5e-6、7.5e-6；首个LR=0不产生参数变化，后续已有正LR更新。8个actor均通过FP32 Adam检查。每个更新保留独立指标，但runner等待整轮R4完成才统一写出，不能用短暂无JSONL判断未优化。
+
+第一轮采样使用更新前策略：adjust8/8、handover0/8、place4/8、stack2/8；与冻结评测场景不同，不作为蒸馏收益。首步逐task MSE依次0.0416、0.0374、0.1544、0.3543；handover低MSE与零成功率并存，跨task的误差绝对值不可当作难度或SR排序。仍执行固定80步及后续评测。证据：`analysis/joint_sft500_mopd_startup_20261101.json`；[W&B gi47axmt](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/gi47axmt)。

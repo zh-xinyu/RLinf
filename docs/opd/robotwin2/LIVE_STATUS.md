@@ -10,12 +10,16 @@
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
 | 固定输入 flow 对照 | 四task的0/20/60相同缓存对照完成；place误差恢复，adjust不随训练loss同步下降；见FIXED_REFERENCE_RESULTS_20261101.md | analysis/fixed_reference_joint20_20261101/ |
 | 更多 MOPD 优化 | 训练及40/60冻结评测已COMPLETE；place 6/8→1/8→1/8→4/8，其余task仍0/8；见LONGER_OPD_RESULTS_20261101.md | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
-| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查，8卡MOPD80已启动，首个更新待确认，再测评40/80 | setup/joint_sft_followup_queue_recovery_20261101.json |
+| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查，8卡MOPD80运行中，首轮4个更新及预算已核验，再测评40/80 | setup/joint_sft_followup_queue_recovery_20261101.json |
 | 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3 micro2/micro4两步反向、保存通过，checkpoint已用推理工具重载；500updates联合SFT已COMPLETE，固定CFM验证loss 0.167479→0.00440669 | setup/joint_sft/long_pilot_status_20261101.json；train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/ |
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
 
-## 22:18 最新结果
+## 22:29 最新结果
+
+SFT500→MOPD首轮4个更新已完成，MSE为0.147/0.131/0.112/0.140，梯度有限；32条轨迹和13,766个control targets计数一致。训练继续中，尚无蒸馏后冻结SR。逐更新JSONL在整轮R4结束后统一写出。详见[联合SFT记录](JOINT_SFT_WARMSTART.md)和`analysis/joint_sft500_mopd_startup_20261101.json`。
+
+## 22:18 里程碑
 
 SFT500闭环结果为adjust8/8、handover0/8、place3/8、stack0/8（11/32），记录与同场景序列已核验；与SFT200相比并非每task都改善。通过既定筛查后MOPD80已实际启动，仍待首个更新与后续效果验证。配置与证据见[联合SFT记录](JOINT_SFT_WARMSTART.md)。
 
