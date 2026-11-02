@@ -37,6 +37,7 @@ from rlinf.models import get_model
 from rlinf.models.embodiment.base_policy import BasePolicy
 from rlinf.scheduler import Channel, Cluster, Worker, split_channel_message
 from rlinf.utils.placement import HybridComponentPlacement
+from rlinf.utils.utils import seed_everything
 
 
 class MultiStepRolloutWorker(Worker):
@@ -137,6 +138,24 @@ class MultiStepRolloutWorker(Worker):
                 "rollout_results": [],
             }
         self.rollout_queue_size = self.cfg.rollout.get("rollout_queue_size", 0)
+        self._initialize_rollout_rng()
+
+    def _initialize_rollout_rng(self) -> None:
+        """Seed the worker once before model initialization when configured."""
+        self.rollout_rng_seed = None
+        base_seed = self.cfg.rollout.get("seed", None)
+        if base_seed is None:
+            return
+        if isinstance(base_seed, bool) or not isinstance(base_seed, int):
+            raise ValueError("rollout.seed must be an integer or null")
+        effective_seed = base_seed + self._rank
+        if base_seed < 0 or not 0 <= effective_seed < 2**64:
+            raise ValueError("rollout.seed + rollout rank must be in [0, 2**64)")
+        self.rollout_rng_seed = seed_everything(effective_seed)
+        self.log_info(
+            f"Rollout RNG initialized: base_seed={base_seed}, "
+            f"rank={self._rank}, effective_seed={self.rollout_rng_seed}"
+        )
 
     def init_worker(self):
         rollout_model_config = copy.deepcopy(self.model_cfg)
