@@ -7,12 +7,20 @@
 | teacher 真实训练推理路径 | 完成，21/32 成功 | analysis/teacher_train_t16_verified_20261101/ |
 | specialist 初始化 joint MOPD 20 updates | 完成；MSE下降，冻结测评6/32→1/32 | analysis/specialist_init_final_summary_20261101.json |
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
-| 固定输入 flow 对照 | 四task完成，逐task分析中；每task一个初始观测，不能代表整条episode | analysis/fixed_reference_joint20_20261101/ |
-| 更多 MOPD 优化 | self保留通过探索筛查，joint20→60全状态续训已启动，之后测评40/60 | setup/longer_opd_queue_20261101.json |
-| SFT后续队列 | 已启动等待现有OPD结束；依次测评SFT100/200/500，固定500通过可行性筛查后8卡MOPD80，再测评40/80 | setup/joint_sft_followup_queue_20261101.json |
+| 固定输入 flow 对照 | 四task完成，见FIXED_REFERENCE_RESULTS_20261101.md；每task一个初始观测，不能代表整条episode | analysis/fixed_reference_joint20_20261101/ |
+| 更多 MOPD 优化 | 60updates训练已COMPLETE；末5步MSE0.0741；40/60冻结评测正在恢复队列中进行 | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
+| SFT后续队列 | 新恢复队列等待OPD40/60评测；依次测评SFT100/200/500，固定500通过筛查后8卡MOPD80，再测评40/80 | setup/joint_sft_followup_queue_recovery_20261101.json |
 | 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3 micro2/micro4两步反向、保存通过，checkpoint已用推理工具重载；500updates联合SFT运行中 | setup/joint_sft/long_pilot_status_20261101.json；train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/ |
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
+
+## 20:49 评测队列恢复
+
+- 训练run本身为`COMPLETE`：60updates/30rounds/480trajectories/264,893control targets，逐episode计数守恒检查通过。没有重跑训练或改变参数。
+- 原队列在训练结束后立即检查GPU空闲时失败，SFT后续队列随之停止。之后现场检查GPU4–7为1MiB且无compute进程；这与资源释放延迟相符，但失败瞬间没有逐卡遥测，不能把原因视为已证实。
+- 原`longer_opd_queue_20261101.json`（FAILED）与`joint_sft_followup_queue_20261101.json`（REVIEW_REQUIRED）及日志保留。新的eval-only supervisor为`setup/run_longer_eval_recovery_20261101.py`，身份/状态分别是`longer_opd_eval_recovery_20261101.launch.json`/`.status.json`；先评测40，再60。20:49第40步评测进程已实际启动。
+- 下游使用新tag=`recovery_20261101`，显式绑定上述上游；身份与失败队列分开。启用120秒严格GPU空闲等待，检查标准不变、到期停止，不终止其他作业。恢复CLI与有限等待有21项CPU测试，代码commit`573fc007`；说明在worktree的`toolkits/robotwin_mopd/JOINT_SFT_QUEUE.md`。
+- SFT仍在独立GPU0–3训练。固定验证loss在steps200/250/300为0.00639/0.00716/0.00605，存在逐任务波动；尚无联合SFT策略成功率结论。
 
 ## 运行中里程碑：2026-11-01 19:48 Detroit
 
