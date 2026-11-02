@@ -1,6 +1,6 @@
 # RoboTwin 四 teacher：自动调试状态
 
-更新：2026-11-02，action00。当前仍在调试，RoboCasa 主分支代码与环境保持隔离。
+更新：2026-11-02，action00。本轮自动调试已完成，RoboCasa 主分支代码与环境保持隔离。
 
 | 项目 | 状态 | 证据入口（根目录 outputs/robotwin4/） |
 |---|---|---|
@@ -10,12 +10,20 @@
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
 | 固定输入 flow 对照 | 四task的0/20/60相同缓存对照完成；place误差恢复，adjust不随训练loss同步下降；见FIXED_REFERENCE_RESULTS_20261101.md | analysis/fixed_reference_joint20_20261101/ |
 | 更多 MOPD 优化 | 训练及40/60冻结评测已COMPLETE；place 6/8→1/8→1/8→4/8，其余task仍0/8；见LONGER_OPD_RESULTS_20261101.md | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
-| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查；MOPD80训练已COMPLETE并核验，原队列因同事GPU任务停止；冻结MOPD40/80完成18/32与28/32；共享显存队列正在独立SFT500确认，随后MOPD80 | setup/joint_sft_followup_queue_recovery_20261101.json |
+| SFT后续队列 | 全部COMPLETE并退出：pilot SFT50011/32→MOPD4018/32→MOPD8028/32；独立SFT50028/80→MOPD8068/80，场景匹配通过 | setup/joint_mopd_evals_shared_20261102.status.json；analysis/joint_sft500_mopd80_confirmation_audit_20261102.json |
 | 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3 micro2/micro4两步反向、保存通过，checkpoint已用推理工具重载；500updates联合SFT已COMPLETE，固定CFM验证loss 0.167479→0.00440669 | setup/joint_sft/long_pilot_status_20261101.json；train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/ |
 
-详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
+完成记录见[自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。以下按时间保留历史状态；当前结果以顶部最终状态及[结果报告](JOINT_SFT_MOPD_RESULTS_20261102.md)为准。
 
-## 2026-11-02 01:16 最新状态：冻结pilot收益确认，独立测试进行中
+## 2026-11-02 01:48 最终状态：全部完成
+
+独立确认：SFT500 **28/80（35.0%）** → MOPD80 **68/80（85.0%）**；teacher参考59/80。MOPD四task为17/20、19/20、16/20、16/20。三组每task20个不同actual reset seeds，场景映射全匹配；严格类型、计数、checkpoint、协议检查全部通过。Action noise未固定；adjust汇总SR相同但有3退化/3改善场景，不能声称逐episode零遗忘。
+
+共享队列PID39254/create_time1793599273.42已COMPLETE且退出，四项评测完成；遥测PID44419也已退出，四个评测owner均无残留Ray进程。显卡恢复为同事任务占用约13.6GB/卡；未终止同事任务。根`opd-project-main@5d1d1494`无tracked源码改动。
+
+最终记录：`analysis/joint_sft500_mopd80_confirmation_audit_20261102.json`；解释、限制、权重和复现入口见[最终结果报告](JOINT_SFT_MOPD_RESULTS_20261102.md)。本轮无需继续训练或新增uncertainty proxy。
+
+## 2026-11-02 01:16 里程碑：冻结pilot收益确认，独立测试进行中
 
 SFT500 / MOPD40 / MOPD80分别为**11/32、18/32、28/32**。最终80的四task为8/8、8/8、6/8、6/8；actual scene序列与SFT500完全相同，记录与summary检查通过。小样本及action-noise未固定限制仍适用，adjust实际6个unique scenes。完整比较见[联合SFT→MOPD结果](JOINT_SFT_MOPD_RESULTS_20261102.md)。
 

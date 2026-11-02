@@ -2,6 +2,8 @@
 
 **当前优先级仍是更充分的 MSE/M3 优化与 joint SFT 初始化。** 只有固定输入诊断也显示优化受阻，且出现 teacher 在 student 状态上不可靠的证据时，再考虑 uncertainty/OOD masking；本笔记不改变训练，不安排新 GPU 实验。
 
+本轮完成状态（2026-11-02）：固定输入诊断、充分优化和joint SFT→MOPD均已完成，独立确认35.0%→85.0%。因此没有触发新的uncertainty实验；下方最小诊断清单是当时设计及后备判据，已执行部分的结果见[最终报告](JOINT_SFT_MOPD_RESULTS_20261102.md)。
+
 ## 本地论文实际做了什么
 
 来源：根 workspace 的 `25_When_to_Trust_Your_Teacher_.pdf`，*When to Trust Your Teacher: Uncertainty-Aware On-Policy Distillation for Embodied Policies*。关键依据为 §III-B/Eq.(3–4)、§IV-C/Eq.(6–7)、§V Practical Implementation 和 Appendix B。

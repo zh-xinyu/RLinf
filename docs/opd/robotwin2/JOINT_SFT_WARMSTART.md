@@ -4,6 +4,8 @@
 
 实现位于隔离 worktree 的 `toolkits/robotwin_mopd/joint_sft.py`，不改变已有 MOPD 默认代码。独立 `torchrun` 启动，不需要环境、teacher、Ray 或 rollout。
 
+**完成状态（2026-11-02）：** SFT500及后续MOPD80均已完成；独立确认35.0%→85.0%，全部checkpoint/episode/scene检查通过。当前执行计划已收尾，以下保留数据、实现与各阶段历史记录。结果见[最终报告](JOINT_SFT_MOPD_RESULTS_20261102.md)。
+
 ## 数据与坐标
 
 - 官方 [TianxingChen/RoboTwin2.0](https://huggingface.co/datasets/TianxingChen/RoboTwin2.0/tree/3dc3b798668feb99ac61cc9086d84cbcc3d79186/dataset)，固定 revision `3dc3b798668feb99ac61cc9086d84cbcc3d79186`。
@@ -42,7 +44,7 @@ x_t=t\epsilon+(1-t)a,\quad
 - 每个 global batch 对 task 等额；task 内均匀取 episode，再均匀取 frame。每次重采样 noise/time 和 seen instruction。
 - 训练使用 OpenPI 的图像增强；离线验证关闭增强，并固定 observation/frame/prompt/noise/time seed。验证 loss 和带增强的 training loss 不应直接比较绝对大小。
 - FP32 master/Adam moments、BF16 AMP、full-shard、gradient checkpointing。每个 microbatch 同步梯度，避免累计未分片 FP32 gradient；因此 microbatch 太小会增加通信次数。
-- 当前已启动方案：4 GPU，B128，microbatch4，LR2.5e-5，warmup25，constant scheduler，500 updates，每100保存、每50离线验证。microbatch4先通过2步smoke再启用；根据中间checkpoint策略评测决定是否干预长跑。
+- 本轮已完成方案：4 GPU，B128，microbatch4，LR2.5e-5，warmup25，constant scheduler，500 updates，每100保存、每50离线验证。microbatch4先通过2步smoke再启用；最终按预声明完成500updates，未从中间checkpoint择优。
 - 文件中只绑定本次实例的 demonstration forward，复用 `get_joint_velocity`，绕过旧 `sft_forward` 禁用 checkpointing 的行为；参数名称和 MOPD checkpoint 接口不变。
 - `--verify-only` 在四 task 各一个 batch 上使用同一 observation/noise/time/augmentation RNG，比较该 forward 与原 OpenPI `PI0Pytorch.forward` 的 full-horizon loss。两者使用相同数学目标；当前 FP32 master/BF16 AMP 下是近似数值一致，不是 bit-identical。
 

@@ -1,6 +1,6 @@
 # RoboTwin 2.0 四任务 MOPD
 
-更新：2026-11-02，action00。**联合SFT500→MOPD80的冻结pilot由11/32提高到28/32，独立20场景确认正在运行。** Teacher真实训练路径、自蒸馏保留控制、固定输入诊断和specialist-init延长训练均已完成。最新MOPD前/末5轮平均MSE为0.08170/0.01928；不能仅据此宣称能力融合成功。冻结评测队列已在GPU4–7按充分显存余量条件启动，详见[当前状态](LIVE_STATUS.md)、[联合SFT记录](JOINT_SFT_WARMSTART.md)和[自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。
+更新：2026-11-02，action00。**本轮自动调试已完成：联合SFT500→MOPD80在独立20场景/task上由35.0%提高到85.0%，三组实际场景与teacher参考匹配。** 完整训练、冻结pilot和独立确认均已核验，所有自有作业退出。详见[最终结果](JOINT_SFT_MOPD_RESULTS_20261102.md)、[计划与完成记录](AUTONOMOUS_DEBUG_PLAN_20261101.md)和[状态历史](LIVE_STATUS.md)。当前仍是单训练seed、seen/unstable-only reset的可行性结果，不是论文正式benchmark成绩。
 
 前几轮负面结果完整保留：[初期 pilot](PILOT_RESULTS_20261101.md)、[specialist 初始化结果](SPECIALIST_INIT_RESULTS_20261101.md)。训练 loss 下降不等于任务能力融合成功。
 
@@ -22,7 +22,7 @@
 
 | 文档 | 用途 |
 |---|---|
-| [联合SFT→MOPD结果](JOINT_SFT_MOPD_RESULTS_20261102.md) | 最新冻结策略比较、预算和待完成独立确认 |
+| [联合SFT→MOPD结果](JOINT_SFT_MOPD_RESULTS_20261102.md) | 已完成的冻结/独立确认、预算、限制及checkpoint交接 |
 | [结果与交接](PILOT_RESULTS_20261101.md) | 实测结果、预算、结论和限制 |
 | [Teacher独立场景参考](TEACHER_CONFIRMATION_20261101.md) | 每task20个不同场景、真实训练路径59/80及协议边界 |
 | [延长MOPD结果](LONGER_OPD_RESULTS_20261101.md) | 完整20→60续训、冻结测评与恢复信号 |
