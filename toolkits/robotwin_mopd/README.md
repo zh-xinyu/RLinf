@@ -48,6 +48,16 @@ python -m toolkits.robotwin_mopd.calibrate \
 python -m toolkits.robotwin_mopd.summarize "$ROBOTWIN_OUTPUT_ROOT/train/RUN_ID"
 ```
 
+The offline summarizer selects the first/last `--window-rounds` observed
+`rollout_count` values in `optimizer_updates.jsonl`, so R2 and R4 use the same
+physical-round window. Window details include exact rollout IDs, update steps,
+and finite/missing/invalid metric counts; a partially logged round includes only
+its recorded updates. Missing MSE values do not shift the window, and its mean
+uses the available finite values. Invalid/nonfinite values make that window's
+mean `null` and `loss_all_finite=false`; missing metrics without invalid values
+make `loss_all_finite=null`. Updates without a valid rollout count are reported
+separately and excluded from MSE windows. SR remains training-rollout SR.
+
 Evaluate all four specialists before building the calibration. For adaptive
 runs set `OPD_TEACHER_REFERENCE` to that JSON and pass
 `runner.rollout_allocation.mode=adaptive algorithm.sync_suite_loss_weights=true`.

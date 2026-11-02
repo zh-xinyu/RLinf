@@ -25,6 +25,63 @@ def read_rows(path: Path) -> list[dict]:
     return rows
 
 
+def metric_counts(rows: list[dict]) -> tuple[dict, list[float]]:
+    """Separate absent MSE values from invalid values without claiming finiteness."""
+    counts = {"finite": 0, "missing": 0, "invalid": 0}
+    finite_values = []
+    for row in rows:
+        value = row.get("train/actor/velocity_mse")
+        if value is None:
+            counts["missing"] += 1
+        elif type(value) in (int, float) and math.isfinite(value):
+            counts["finite"] += 1
+            finite_values.append(value)
+        else:
+            counts["invalid"] += 1
+    return counts, finite_values
+
+
+def mse_windows(updates: list[dict], window_rounds: int) -> dict:
+    """Use observed rollout IDs; no assumption about updates per physical round."""
+    if window_rounds < 1:
+        raise ValueError("window_rounds must be positive")
+    grouped = defaultdict(list)
+    unassigned = 0
+    for row in updates:
+        rollout = row.get("rollout_count")
+        if type(rollout) is int and rollout > 0:
+            grouped[rollout].append(row)
+        else:
+            unassigned += 1
+    round_ids = sorted(grouped)
+    all_counts, _ = metric_counts(updates)
+    result = {
+        "mse_window_rounds_requested": window_rounds,
+        "updates_without_valid_rollout_count": unassigned,
+        "loss_metric_counts": all_counts,
+        "loss_all_finite": False
+        if all_counts["invalid"]
+        else (True if updates and not all_counts["missing"] else None),
+    }
+    for label, selected in (
+        ("first", round_ids[:window_rounds]),
+        ("last", round_ids[-window_rounds:]),
+    ):
+        rows = [row for rollout in selected for row in grouped[rollout]]
+        counts, values = metric_counts(rows)
+        result[f"mse_{label}_window"] = (
+            statistics.mean(values) if values and not counts["invalid"] else None
+        )
+        result[f"mse_{label}_window_details"] = {
+            "rollout_counts": selected,
+            "round_count": len(selected),
+            "update_count": len(rows),
+            "update_steps": [row.get("update_step") for row in rows],
+            "metric_counts": counts,
+        }
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_dir", type=Path)
@@ -39,9 +96,6 @@ def main() -> None:
     tasks = defaultdict(list)
     for row in recent:
         tasks[row["task"]].append(bool(row["success_once"]))
-    losses = [r.get("train/actor/velocity_mse") for r in updates]
-    losses = [x for x in losses if x is not None]
-    n = min(len(losses), 2 * args.window_rounds)
     sr = {name: sum(values) / len(values) for name, values in tasks.items()}
     result = {
         "run_dir": str(args.run_dir.resolve()),
@@ -50,9 +104,7 @@ def main() -> None:
         "physical_rounds": len({r["round"] for r in episodes}),
         "trajectories": len(episodes),
         "executed_control_targets": sum(r["simulation_steps"] for r in episodes),
-        "loss_all_finite": all(math.isfinite(x) for x in losses) if losses else None,
-        "mse_first_window": statistics.mean(losses[:n]) if n else None,
-        "mse_last_window": statistics.mean(losses[-n:]) if n else None,
+        **mse_windows(updates, args.window_rounds),
         "recent_training_sr": sr,
         "recent_training_macro_sr": statistics.mean(sr.values()) if sr else None,
         "recent_episode_counts": {name: len(values) for name, values in tasks.items()},
