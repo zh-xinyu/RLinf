@@ -59,3 +59,20 @@
 - 后续 checkpoint 必须通过 `--cache-input` 复用原 `.reference.pt`，保持输入与AMP一致；可扩展少量后期状态，但不能将重新采样的观察误称为同输入对照。
 
 原始证据（根workspace）：`outputs/robotwin4/analysis/fixed_reference_joint20_20261101/`。逐task JSON包含checkpoint路径、seed/prompt、noise/observation/x_t hash与dtype；`results_summary.json`保留本页数值及逐bin明细。`SUMMARY.md`与本页同内容。
+
+## 延长至step60：相同缓存的补充检查
+
+四task复用原`.reference.pt`，没有重新reset或执行控制。观测/noise/x_t/cache SHA、任务norm、teacher/reference路径、prompt、实际seed、ODE grid、AMP全部一致；新运行的reference模型全部统计与原报告完全相同。每task约51–56秒，四GPU并行，未占用SFT的GPU0–3。
+
+| Task | Physical14 MSE：20→60 | M3 weighted：20→60 | t≈0.1 MSE：20→60 |
+|---|---:|---:|---:|
+| adjust | 0.9657→0.9772 | 0.3513→0.5251 | 0.2098→0.6170 |
+| handover | 0.7153→0.5747 | 0.3786→0.3986 | 0.4664→0.6027 |
+| place | 0.3902→0.0731 | 0.5184→0.0764 | 1.6801→0.2117 |
+| stack | 0.6332→0.5829 | 0.4681→0.3570 | 0.9597→0.3318 |
+
+place的固定误差明显恢复，与冻结SR从1/8→4/8方向一致，但不是因果证明。adjust的当前训练MSE虽下降，原固定路径上的误差未改善；handover未加权误差下降但末端误差仍有增加。这表明online训练loss的下降并不意味着对所有固定输入的teacher拟合均改善。
+
+关键限制：该路径来自**最初place specialist**，并非step60当前student的flow分布；每task仍只有一个初始观测。不能据此称step60整体vector field退化，不能直接解释长时闭环失败，也不应把该小probe变成调参目标。
+
+新结果：根workspace `outputs/robotwin4/analysis/fixed_reference_joint60_20261101/`，包含四JSON、logs、逐任务退出状态、带GPU空档检查记录的`launch_plan.json`及`results_summary.json`。所有进程exit0；执行控制步数均0。冻结SR参见[延长MOPD结果](LONGER_OPD_RESULTS_20261101.md)。

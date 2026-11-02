@@ -120,3 +120,19 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 状态：根`outputs/robotwin4/setup/joint_sft_followup_queue_20261101.json`。GPU忙时停止待review，不终止他人进程；整个队列限时10h，异常仅清理本队列启动的子进程。启动防重、精确PID/create_time和完整episode校验有CPU测试。
 
 评测限制：实际重试可能产生重复seed。目前adjust的8episodes仅6个unique scene seeds，其余三任务8个；新summary会分别记录episode数/唯一场景数，不能称所有任务都有8个独立场景。比较报告明确actual scene seed序列是否匹配，action noise未固定。该小样本队列用于pilot判断，若出现收益还需独立、更充分的确认。
+
+## 策略测评进展（21:23快照）
+
+SFT100/200均已完成真实训练推理路径测评：
+
+| Checkpoint | adjust | handover | place | stack | 总计 |
+|---|---:|---:|---:|---:|---:|
+| Joint SFT100 | 4/8 | 0/8 | 0/8 | 1/8 | 5/32 |
+| Joint SFT200 | 7/8 | 0/8 | 1/8 | 1/8 | 9/32 |
+| Joint SFT500 | 待测 | 待测 | 待测 | 待测 | 待测 |
+
+实际scene序列一致，action noise未显式固定；adjust为6个unique scenes，其余为8个。已看到部分任务的SFT初始化能力，但不是MOPD收益或统计显著性结论。小样本中adjust已高于原teacher参考4/8，不据此断言student显著优于teacher；后续需以同一SFT500为蒸馏前后基线，不能把较弱的SFT100拿来夸大收益。
+
+主训练继续至固定500；steps350/400固定验证loss为0.004826/0.004988，有正常波动。SFT500仍是预先确定的MOPD初始化。原始记录在根`outputs/robotwin4/analysis/joint_sft_step{100,200}_trainpath_t16_20261101/`。
+
+原下游队列在上游评测衔接失败后已停止，恢复后的当前状态入口为`setup/joint_sft_followup_queue_recovery_20261101.json`，正在等待SFT500完成。原失败记录保留；恢复参数与身份见[LIVE_STATUS](LIVE_STATUS.md)。
