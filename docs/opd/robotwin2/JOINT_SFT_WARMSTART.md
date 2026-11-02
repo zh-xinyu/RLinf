@@ -105,6 +105,10 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 
 这是示范条件flow matching拟合证据；它与MOPD在student flow上计算的teacher velocity MSE目标不同，**不能横向比较绝对loss，也不能据此宣称成功率改善**。策略rollout尚待checkpoint测评。结构化记录：根`outputs/robotwin4/analysis/joint_sft_step50_validation_20261101.json`。
 
+## 第200步离线验证补充
+
+固定留出CFM loss在steps0/50/100/150/200为0.16748/0.01600/0.00912/0.00778/0.00639。第200步physical14 loss依次为adjust0.00823、handover0.01439、place0.01725、stack0.01758，均比第150步降低。该样本仅覆盖每task16个固定观测；支持继续拟合，不证明闭环操作已成功。500步长跑及下游策略评测仍在进行。结构化记录：`outputs/robotwin4/analysis/joint_sft_step200_validation_20261101.json`。
+
 ## 已固定的下游测评与 MOPD 队列
 
 入口：`toolkits/robotwin_mopd/joint_sft_followup.py`；本机wrapper为根`outputs/robotwin4/setup/run_sft_then_mopd_queue.py`。等待正在运行的joint20→60及其测评完全退出，再依次测评SFT100/200；SFT500需训练正常完成并退出后测评。全部使用原训练推理链路，T16×2 rounds、seed200000，每任务8episodes。

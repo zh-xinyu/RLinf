@@ -14,6 +14,13 @@
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
 
+## 运行中里程碑：2026-11-01 19:48 Detroit
+
+- 延长 MOPD 已到40/60 updates。step40的full weights、四个DCP分片与metadata、runner/allocation状态均已写出；runner记录40updates、20rounds、176,701 control targets。冻结策略评测仍待整段训练结束。
+- 中途窗口（updates34–38）的平均velocity MSE为0.1144，对比原updates16–20的0.2268继续降低；四task均在拟合。续训前10轮实际episode中，adjust/handover/place/stack成功数为1/0/7/0，每task40episodes。这是不同场景的在线统计，不是冻结评测，也不说明因果。
+- 联合SFT固定离线验证的CFM loss：step0/50/100/150/200分别0.16748/0.01600/0.00912/0.00778/0.00639。step200四task的physical14 loss均比step150降低。尚无joint-SFT策略成功率结果，不与MOPD的teacher velocity MSE横向比较。
+- 原始证据：`analysis/longer_opd_interim_20261101.json`、`analysis/joint_sft_step200_validation_20261101.json`。此处为静态快照，最新进度以运行日志和supervisor状态为准。
+
 ## 早期 pilot 存档
 
 以下为先前两轮已结束实验，不表示当前没有运行任务。
@@ -49,7 +56,7 @@
 - `openpi.nft_full_horizon`默认false，开启只改变监督范围；生成仍50×32、执行25×14。新监督代码commit `c468dc66`，首轮默认行为不变。
 - Bucket修正后的两段训练无GPU OOM；保存曾触发CPU短暂reclaim/swap。没有改系统VM参数或停止他人的进程。
 - 旧`_retry` run在4rounds/8updates后因整包patch同步OOM而FAILED，现场保留，未接入有效模型谱系。
-- 当前是unfiltered/seen、5episodes/task的pilot，**不具备正式RoboTwin benchmark协议或统计结论**。
+- 本节早期pilot为unfiltered/seen、5episodes/task；当前训练链路小测评为8episodes/task（adjust仅6个unique scenes）。两者均**不具备正式RoboTwin benchmark协议或统计结论**。
 
 ## 代码与下一步
 
