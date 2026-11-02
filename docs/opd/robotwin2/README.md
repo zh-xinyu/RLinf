@@ -1,6 +1,6 @@
 # RoboTwin 2.0 四任务 MOPD
 
-更新：2026-11-02，action00。**联合SFT500与后续MOPD80已完成，四任务在线成功率出现正向信号，冻结评测尚待确认。** Teacher真实训练路径、自蒸馏保留控制、固定输入诊断和specialist-init延长训练均已完成。最新MOPD前/末5轮平均MSE为0.08170/0.01928；不能仅据此宣称能力融合成功。冻结评测队列已在GPU4–7按充分显存余量条件启动，详见[当前状态](LIVE_STATUS.md)、[联合SFT记录](JOINT_SFT_WARMSTART.md)和[自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。
+更新：2026-11-02，action00。**联合SFT500→MOPD80的冻结pilot由11/32提高到28/32，独立20场景确认正在运行。** Teacher真实训练路径、自蒸馏保留控制、固定输入诊断和specialist-init延长训练均已完成。最新MOPD前/末5轮平均MSE为0.08170/0.01928；不能仅据此宣称能力融合成功。冻结评测队列已在GPU4–7按充分显存余量条件启动，详见[当前状态](LIVE_STATUS.md)、[联合SFT记录](JOINT_SFT_WARMSTART.md)和[自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。
 
 前几轮负面结果完整保留：[初期 pilot](PILOT_RESULTS_20261101.md)、[specialist 初始化结果](SPECIALIST_INIT_RESULTS_20261101.md)。训练 loss 下降不等于任务能力融合成功。
 
