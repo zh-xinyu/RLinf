@@ -22,6 +22,7 @@
 
 | 文档 | 用途 |
 |---|---|
+| [联合SFT→MOPD结果](JOINT_SFT_MOPD_RESULTS_20261102.md) | 最新冻结策略比较、预算和待完成独立确认 |
 | [结果与交接](PILOT_RESULTS_20261101.md) | 实测结果、预算、结论和限制 |
 | [Teacher独立场景参考](TEACHER_CONFIRMATION_20261101.md) | 每task20个不同场景、真实训练路径59/80及协议边界 |
 | [延长MOPD结果](LONGER_OPD_RESULTS_20261101.md) | 完整20→60续训、冻结测评与恢复信号 |
