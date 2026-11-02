@@ -8,11 +8,15 @@
 | specialist 初始化 joint MOPD 20 updates | 完成；MSE下降，冻结测评6/32→1/32 | analysis/specialist_init_final_summary_20261101.json |
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
 | 固定输入 flow 对照 | 四task完成，见FIXED_REFERENCE_RESULTS_20261101.md；每task一个初始观测，不能代表整条episode | analysis/fixed_reference_joint20_20261101/ |
-| 更多 MOPD 优化 | 60updates训练已COMPLETE；末5步MSE0.0741；40/60冻结评测正在恢复队列中进行 | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
-| SFT后续队列 | 新恢复队列等待OPD40/60评测；依次测评SFT100/200/500，固定500通过筛查后8卡MOPD80，再测评40/80 | setup/joint_sft_followup_queue_recovery_20261101.json |
+| 更多 MOPD 优化 | 训练及40/60冻结评测已COMPLETE；place 6/8→1/8→1/8→4/8，其余task仍0/8；见LONGER_OPD_RESULTS_20261101.md | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
+| SFT后续队列 | OPD恢复评测已完成，新队列正在测评SFT100；随后测评200/500，固定500通过筛查后8卡MOPD80，再测评40/80 | setup/joint_sft_followup_queue_recovery_20261101.json |
 | 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3 micro2/micro4两步反向、保存通过，checkpoint已用推理工具重载；500updates联合SFT运行中 | setup/joint_sft/long_pilot_status_20261101.json；train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/ |
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
+
+## 21:05 最新结果
+
+延长MOPD的完整结果见[报告](LONGER_OPD_RESULTS_20261101.md)。原place能力部分恢复，尚无新任务能力融合。恢复队列已COMPLETE且退出，SFT100评测已自动启动；joint SFT500仍在GPU0–3训练。
 
 ## 20:49 评测队列恢复
 

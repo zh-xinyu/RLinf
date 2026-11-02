@@ -1,6 +1,6 @@
 # RoboTwin 2.0 四任务 MOPD
 
-更新：2026-11-01，action00。**自动调试进行中，尚未展示四任务 MOPD 的成功率收益。** 已完成 teacher 训练路径验证（21/32）和 specialist 起点短程 MOPD（冻结测评6/32→1/32）。同 teacher 自蒸馏控制已保留place 6/8→6/8，固定输入诊断已完成；当前进行更长joint优化及真实四任务联合 SFT 初始化，见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)、[联合 SFT](JOINT_SFT_WARMSTART.md) 和 [当前状态](LIVE_STATUS.md)。
+更新：2026-11-01，action00。**自动调试进行中，尚未展示四任务 MOPD 的成功率收益。** 已完成 teacher 训练路径验证（21/32）和 specialist 起点短程 MOPD（冻结测评6/32→1/32）。同 teacher 自蒸馏控制已保留place 6/8→6/8，固定输入诊断已完成；更长joint优化到60updates后place恢复到4/8、其余task仍0/8；当前进行真实四任务联合 SFT 初始化，见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)、[联合 SFT](JOINT_SFT_WARMSTART.md) 和 [当前状态](LIVE_STATUS.md)。
 
 前几轮负面结果完整保留：[初期 pilot](PILOT_RESULTS_20261101.md)、[specialist 初始化结果](SPECIALIST_INIT_RESULTS_20261101.md)。训练 loss 下降不等于任务能力融合成功。
 
@@ -23,6 +23,7 @@
 | 文档 | 用途 |
 |---|---|
 | [结果与交接](PILOT_RESULTS_20261101.md) | 实测结果、预算、结论和限制 |
+| [延长MOPD结果](LONGER_OPD_RESULTS_20261101.md) | 完整20→60续训、冻结测评与恢复信号 |
 | [自蒸馏控制](SELF_DISTILL_RESULTS_20261101.md) | 同源teacher/student保留能力的冻结测评与限制 |
 | [当前状态](LIVE_STATUS.md) | 运行身份、队列和checkpoint状态 |
 | [实验方案](EXPERIMENTS_20261101.md) | 参数选择与单次follow-up设计 |
