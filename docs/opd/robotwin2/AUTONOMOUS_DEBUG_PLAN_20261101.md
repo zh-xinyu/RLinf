@@ -32,4 +32,4 @@
 3. 审核实际episode数量、整数seed/occurrence/control计数、场景匹配和协议；action noise未固定，不能声称确定性配对。独立确认仍属seen/unstable-only-reset pilot，不能充当官方feasible/unseen结果。
 4. 汇总正负结果、初始化与累计预算，核对根主分支未改变、所有自身作业退出。当前无需引入uncertainty masking。
 
-执行入口：`outputs/robotwin4/setup/run_joint_mopd_evals_20261102.py`。当前恢复队列仅评测并严格等待GPU4–7空闲，不会重跑训练；身份/状态在同目录`joint_mopd_evals_recovery_20261102.{launch,status}.json`。旧队列因同事GPU任务停止的记录保留。
+当前执行入口：`outputs/robotwin4/setup/run_joint_mopd_evals_shared_20261102.py`。仅冻结评测，基于历史实测峰值，每卡至少30,000MiB空闲时允许共存运行；不会重跑训练，耗时不作独占吞吐比较。身份/状态在同目录`joint_mopd_evals_shared_20261102.{launch,status}.json`。之前严格空闲等待队列已验证无子进程后被替换，旧记录保留，详见LIVE_STATUS。

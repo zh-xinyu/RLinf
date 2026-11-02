@@ -10,12 +10,21 @@
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
 | 固定输入 flow 对照 | 四task的0/20/60相同缓存对照完成；place误差恢复，adjust不随训练loss同步下降；见FIXED_REFERENCE_RESULTS_20261101.md | analysis/fixed_reference_joint20_20261101/ |
 | 更多 MOPD 优化 | 训练及40/60冻结评测已COMPLETE；place 6/8→1/8→1/8→4/8，其余task仍0/8；见LONGER_OPD_RESULTS_20261101.md | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
-| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查；MOPD80训练已COMPLETE并核验，原队列因同事GPU任务停止；eval-only恢复队列等待GPU4–7空闲，再测40/80及独立场景SFT500/MOPD80 | setup/joint_sft_followup_queue_recovery_20261101.json |
+| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查；MOPD80训练已COMPLETE并核验，原队列因同事GPU任务停止；eval-only共享显存队列已开始MOPD40评测，再测80及独立场景SFT500/MOPD80 | setup/joint_sft_followup_queue_recovery_20261101.json |
 | 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3 micro2/micro4两步反向、保存通过，checkpoint已用推理工具重载；500updates联合SFT已COMPLETE，固定CFM验证loss 0.167479→0.00440669 | setup/joint_sft/long_pilot_status_20261101.json；train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/ |
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
 
-## 2026-11-02 00:53 最新状态
+## 2026-11-02 01:02 最新状态：冻结评测已启动
+
+核对历史SFT500/specialist60相同评测后，单student PyTorch峰值reserved为8,141,144,064 bytes（约7.58GiB/卡），checkpoint在CPU加载，无actor、optimizer或四teacher驻留。此数不包含native renderer/context；当前每卡约34GiB空闲，足够额外预留native开销。因此沿用用户此前允许显存充足时共存的授权，将**本次冻结评测**改为每张GPU4–7启动前至少30,000MiB空闲。全空闲条件不是评测协议的一部分；模型、场景、命令、超时、checkpoint选择均保持原计划。
+
+- 仅停止了我们自己的、身份核验且无子进程的空等supervisor28402；旧状态和superseded说明保留。没有向其他用户进程发信号。
+- 新队列`setup/joint_mopd_evals_shared_20261102.status.json`（PID39254/create_time1793599273.42）已进入`EVALUATING/pilot40`。仍使用单Ray实例和自有owner清理，启动前检查显存余量。
+- 只读整卡遥测`analysis/joint_mopd_evals_shared_gpu_telemetry_20261102.jsonl`每10秒采样，记录整卡占用与compute PID。内存门槛不是显存预留，后续占用可能变化；本轮耗时不用于独占吞吐比较。
+- 资源依据：`analysis/shared_frozen_eval_resource_decision_20261102.json`。独立20场景最终审核工具为`setup/audit_joint_mopd_confirmation_20261102.py`，24项CPU自测通过，会拒绝缺失结果、小数seed/occurrence或不合法control计数；不会根据在线SR生成最终结论。
+
+## 2026-11-02 00:53 里程碑
 
 - 联合SFT500 → MOPD80训练、保存、退出及W&B同步均完成。80个连续更新、20 rounds、640条轨迹、213,912个实际control targets与runner/allocation计数完全一致。最终checkpoint包含完整权重和8个DCP分片；尚待冻结评测实际重载。
 - 前/末5轮（各20个更新）平均velocity MSE：**0.081703 → 0.019279**；前/末4个更新：0.132421 → 0.021035；最后一步0.022324。全部loss/梯度有限。逐轮窗口已经按实际rollout_count统计，不能把R4的10个更新写成5轮。
