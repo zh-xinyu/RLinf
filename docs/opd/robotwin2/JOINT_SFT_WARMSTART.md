@@ -121,15 +121,15 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 
 评测限制：实际重试可能产生重复seed。目前adjust的8episodes仅6个unique scene seeds，其余三任务8个；新summary会分别记录episode数/唯一场景数，不能称所有任务都有8个独立场景。比较报告明确actual scene seed序列是否匹配，action noise未固定。该小样本队列用于pilot判断，若出现收益还需独立、更充分的确认。
 
-## 策略测评进展（21:23快照）
+## 策略测评进展（22:18更新）
 
-SFT100/200均已完成真实训练推理路径测评：
+SFT100/200/500均已完成真实训练推理路径测评：
 
 | Checkpoint | adjust | handover | place | stack | 总计 |
 |---|---:|---:|---:|---:|---:|
 | Joint SFT100 | 4/8 | 0/8 | 0/8 | 1/8 | 5/32 |
 | Joint SFT200 | 7/8 | 0/8 | 1/8 | 1/8 | 9/32 |
-| Joint SFT500 | 待测 | 待测 | 待测 | 待测 | 待测 |
+| Joint SFT500 | 8/8 | 0/8 | 3/8 | 0/8 | 11/32 |
 
 实际scene序列一致，action noise未显式固定；adjust为6个unique scenes，其余为8个。已看到部分任务的SFT初始化能力，但不是MOPD收益或统计显著性结论。小样本中adjust已高于原teacher参考4/8，不据此断言student显著优于teacher；后续需以同一SFT500为蒸馏前后基线，不能把较弱的SFT100拿来夸大收益。
 
@@ -148,3 +148,9 @@ SFT100/200均已完成真实训练推理路径测评：
 完整500次更新、64,000次样本呈现和11次固定验证已核验；`COMPLETE`及step500完整权重、4个DCP分片和metadata均已保存，训练正常退出。固定64样本CFM验证loss从0.167479降至**0.00440669**（约97.4%）；最后训练batch loss为0.00297036。最终physical14验证loss：adjust0.004583、handover0.009924、place0.013535、stack0.011663。验证过程有波动，不等同于闭环成功率改善。
 
 长跑跨rank累计allocated峰值34.139 GB、reserved峰值48.331 GB（十进制），高于早期micro4 smoke的allocated值；未发生OOM。训练记录及最终checkpoint文件尺寸审计见根`outputs/robotwin4/analysis/joint_sft_step500_validation_20261101.json`。下游恢复队列已自动进入SFT500训练推理路径评测；MOPD尚未开始，仍按既定可行性筛查决定。
+
+## SFT500闭环基线与MOPD启动（22:18）
+
+SFT500已COMPLETE：adjust8/8、handover0/8、place3/8、stack0/8，总计11/32（34.375%）。32条实际episode与汇总一致，和SFT100/200的actual scene序列相同；adjust仍仅6个unique scenes，action noise未固定。SFT200→500的总体改善来自adjust和place；handover仍0，stack由1/8变0/8，不能把总体loss下降解释为四任务同步改善。结构化审计为`analysis/joint_sft500_policy_verified_20261101.json`。
+
+固定SFT500通过原定“至少两个任务出现成功”的探索性筛查。恢复队列已实际启动`robotwin4_joint_sft500_r4_t32_b128_pilot_20261101`，T32/R4/B128/micro8、8GPU、LR1e-5/warmup4、80updates，与预注册命令一致；使用SFT500模型权重、新optimizer，`resume_dir=null`。本快照仅确认launcher启动，尚未确认首个优化更新或MOPD效果。后续与SFT500比较，重点同时看能力保留和新任务学习。
