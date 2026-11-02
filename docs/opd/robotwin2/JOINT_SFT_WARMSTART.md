@@ -95,11 +95,11 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 - Hydra compose 与 FP32/BF16 配置检查通过；GPU四任务 official-forward 检查通过，逐task相对loss差异为0.313%、0.169%、0.048%、0.063%。现有joint helper将embedding转为FP32，而官方forward在FP32 master时保留部分AMP产出的BF16 embedding；RMSNorm/residual路径因而存在数值差别，不能称完全相同。MSE计算本身两边均为FP32；具体归因还未通过额外GPU控制实验验证。
 - 4 GPU、B128、microbatch2的2步FSDP smoke已通过，约47秒/update，rank0 allocated峰值30.1GB，完整checkpoint保存成功；保存权重已通过 `fixed_flow_probe` 重新加载。
 - microbatch4的2步smoke也已通过：27.0 / 26.5秒/update，跨rank最大allocated 30.128GB、reserved 47.928GB；包含初始化、验证和保存的总耗时180.6秒。两步样本显示更新耗时约降低43%，尚不代表长跑或仿真训练的同等收益。
-- 500-step长跑已启动：`robotwin4_joint_sft_500_b128_micro4_pilot_20261101`，GPU0–3，W&B [33rml11k](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/33rml11k)。启动时四rank FP32 master/Adam验证通过。**状态是运行中，不是500步已完成，也没有联合策略SR提升结论。**
+- 500-step长跑已启动：`robotwin4_joint_sft_500_b128_micro4_pilot_20261101`，GPU0–3，W&B [33rml11k](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/33rml11k)。启动时四rank FP32 master/Adam验证通过。这是启动时的核验记录；最终500步训练及策略评测均已完成，结果见下文。
 - 启动后前5步检查正常：平均26.8秒/update，loss为0.1692、0.1604、0.1378、0.1609、0.1392，gradient norm均有限（1.26–1.55）。最大allocated稳定30.128GB、reserved稳定48.331GB。LR按25-step warmup从0增至4e-6；W&B已启动且内部日志无ERROR。这里只确认启动/数值健康，不把少数不同训练batch的loss变化当作验证集或SR提升。
 - 长跑状态：根workspace `outputs/robotwin4/setup/joint_sft/long_pilot_status_20261101.json`；原始训练和验证指标位于 `outputs/robotwin4/train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/`。日志和状态文件优先于本页的静态进度。
 
-## 运行中的第50步离线验证
+## 第50步离线验证（历史记录）
 
 固定留出观测、prompt、noise/time（每task16个样本，关闭图像增强）的CFM loss：0.16748→0.01600，下降90.4%。四task都改善：adjust0.1690→0.01056，handover0.2015→0.01647，place0.1180→0.02194，stack0.1813→0.01504。physical14也均下降，改善并非仅来自padded坐标。
 
@@ -107,11 +107,11 @@ W&B 默认关闭，显式设置 `--wandb-project` 后仅 rank0 上传，`train/*
 
 ## 第200步离线验证补充
 
-固定留出CFM loss在steps0/50/100/150/200为0.16748/0.01600/0.00912/0.00778/0.00639。第200步physical14 loss依次为adjust0.00823、handover0.01439、place0.01725、stack0.01758，均比第150步降低。该样本仅覆盖每task16个固定观测；支持继续拟合，不证明闭环操作已成功。500步长跑及下游策略评测仍在进行。结构化记录：`outputs/robotwin4/analysis/joint_sft_step200_validation_20261101.json`。
+固定留出CFM loss在steps0/50/100/150/200为0.16748/0.01600/0.00912/0.00778/0.00639。第200步physical14 loss依次为adjust0.00823、handover0.01439、place0.01725、stack0.01758，均比第150步降低。该样本仅覆盖每task16个固定观测；支持继续拟合，不证明闭环操作已成功。记录该阶段时，500步长跑及下游策略评测仍在进行；最终结果见下文。结构化记录：`outputs/robotwin4/analysis/joint_sft_step200_validation_20261101.json`。
 
 ## 已固定的下游测评与 MOPD 队列
 
-入口：`toolkits/robotwin_mopd/joint_sft_followup.py`；本机wrapper为根`outputs/robotwin4/setup/run_sft_then_mopd_queue.py`。等待正在运行的joint20→60及其测评完全退出，再依次测评SFT100/200；SFT500需训练正常完成并退出后测评。全部使用原训练推理链路，T16×2 rounds、seed200000，每任务8episodes。
+入口：`toolkits/robotwin_mopd/joint_sft_followup.py`；本机wrapper为根`outputs/robotwin4/setup/run_sft_then_mopd_queue.py`。队列依赖顺序为：joint20→60及其测评完全退出，再依次测评SFT100/200；SFT500需训练正常完成并退出后测评。全部使用原训练推理链路，T16×2 rounds、seed200000，每任务8episodes。
 
 固定选SFT500作为后续初始化，100/200仅用于观察过程，不挑选成绩最高的checkpoint。探索性可行性筛查要求四任务均有完整8episodes，至少两个任务出现成功；不满足时停止为`REVIEW_REQUIRED`，先复查初始化。这不是统计显著性标准。
 
@@ -133,9 +133,9 @@ SFT100/200/500均已完成真实训练推理路径测评：
 
 实际scene序列一致，action noise未显式固定；adjust为6个unique scenes，其余为8个。已看到部分任务的SFT初始化能力，但不是MOPD收益或统计显著性结论。小样本中adjust已高于原teacher参考4/8，不据此断言student显著优于teacher；后续需以同一SFT500为蒸馏前后基线，不能把较弱的SFT100拿来夸大收益。
 
-主训练继续至固定500；steps350/400固定验证loss为0.004826/0.004988，有正常波动。SFT500仍是预先确定的MOPD初始化。原始记录在根`outputs/robotwin4/analysis/joint_sft_step{100,200}_trainpath_t16_20261101/`。
+主训练已完成预先确定的500步；steps350/400固定验证loss为0.004826/0.004988，有正常波动。未按测评结果改选初始化。原始记录在根`outputs/robotwin4/analysis/joint_sft_step{100,200,500}_trainpath_t16_20261101/`。
 
-原下游队列在上游评测衔接失败后已停止，恢复后的当前状态入口为`setup/joint_sft_followup_queue_recovery_20261101.json`，正在等待SFT500完成。原失败记录保留；恢复参数与身份见[LIVE_STATUS](LIVE_STATUS.md)。
+原下游队列在上游评测衔接失败后已停止，恢复后的当前状态入口为`setup/joint_sft_followup_queue_recovery_20261101.json`，已完成SFT500测评并进入MOPD80训练。原失败记录保留；恢复参数与身份见[LIVE_STATUS](LIVE_STATUS.md)。
 
 ## 独立场景确认预注册（SFT500/MOPD80结果出来前）
 
@@ -166,3 +166,18 @@ SFT500已COMPLETE：adjust8/8、handover0/8、place3/8、stack0/8，总计11/32�
 20次更新、5轮、160条轨迹、67,784个control targets的日志与checkpoint恢复计数一致。前4次/末4次更新的平均plain MSE为0.132421/0.051230，step20为0.045281；20步loss与gradient norm均有限。这是变化采样分布上的在线拟合信号，尚无蒸馏后冻结SR结论。
 
 step20已发布完整权重（16,573,945,133 bytes）、8个DCP分片及metadata、runner与allocation状态。这里只做结构和计数核验；不打断当前8卡训练额外加载中间checkpoint，后续按既定40/80测评。结构化记录：`analysis/joint_sft500_mopd_step20_20261101.json`。
+
+## MOPD40阶段记录（23:35）
+
+半程40次更新、10轮、320条轨迹、119,276 controls已完成；完整权重、8个DCP分片及metadata、runner/allocation状态均已发布，计数一致。前4步/末4步平均plain MSE为0.132421/0.027710，step40为0.024005，loss与梯度均有限。
+
+最近3轮（rounds8–10，采样策略分别为update28/32/36）的在线成功数：
+
+| task | 在线成功 / episodes | updates37–40 平均MSE |
+|---|---:|---:|
+| adjust_bottle | 24/24 | 0.018725 |
+| handover_mic | 19/24 | 0.041370 |
+| place_container_plate | 14/24 | 0.032447 |
+| stack_bowls_two | 18/24 | 0.018296 |
+
+四任务均出现连续成功，handover相较先前rounds4–6的0/24明显改善，支持继续完成训练。但这些窗口使用不同策略和场景、动作噪声未固定，不能直接与SFT500冻结11/32或teacher独立59/80相减，也不能据此宣称因果收益。保持固定80步计划；40/80冻结测评和预先指定的SFT500/MOPD80独立确认仍待完成。证据：`analysis/joint_sft500_mopd_step40_20261101.json`。
