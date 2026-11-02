@@ -142,3 +142,9 @@ SFT100/200均已完成真实训练推理路径测评：
 若既定SFT500可行性筛查通过且MOPD80正常完成，独立确认固定比较**SFT500与最终MOPD80**，无论8episode pilot是否显示收益都进行；不从40/80中挑最好者。使用seed300000、stride20、T16×5、每task20个不同实际场景，与[teacher参考](TEACHER_CONFIRMATION_20261101.md)一致。仍需逐条核对actual seeds，action noise不固定。
 
 精确路径、命令及每checkpoint30分钟上限记录于根`outputs/robotwin4/setup/joint_sft500_mopd80_confirmation_plan_20261101.json`。在现有主队列完成并释放GPU后执行，检查完整checkpoint与GPU空闲状态；本声明时尚未启动确认评测。如果SFT500筛查失败或MOPD80未完成，先诊断该问题，不改选其他checkpoint冒充预定比较。
+
+## 500步训练完成（22:10）
+
+完整500次更新、64,000次样本呈现和11次固定验证已核验；`COMPLETE`及step500完整权重、4个DCP分片和metadata均已保存，训练正常退出。固定64样本CFM验证loss从0.167479降至**0.00440669**（约97.4%）；最后训练batch loss为0.00297036。最终physical14验证loss：adjust0.004583、handover0.009924、place0.013535、stack0.011663。验证过程有波动，不等同于闭环成功率改善。
+
+长跑跨rank累计allocated峰值34.139 GB、reserved峰值48.331 GB（十进制），高于早期micro4 smoke的allocated值；未发生OOM。训练记录及最终checkpoint文件尺寸审计见根`outputs/robotwin4/analysis/joint_sft_step500_validation_20261101.json`。下游恢复队列已自动进入SFT500训练推理路径评测；MOPD尚未开始，仍按既定可行性筛查决定。
