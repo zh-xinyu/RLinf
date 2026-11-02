@@ -48,6 +48,11 @@ by the production policy's normal noise draws; this is not the explicit NumPy
 noise protocol used by the simulator diagnostic. Outputs record the distinction.
 
 Absolute installation paths remain provenance only. Runtime validation compares
-versions, content hashes and the vendor wheel hash; an identical installation at
+versions and installed SAPIEN payload content (including `sapien.libs` binaries); an identical installation at
 another path is accepted. Set `PACE_REFERENCE_ROOT` to the relocated pinned
 author checkout. Local source/config changes invalidate the pool. No online expert feasibility revalidation is performed during evaluation.
+
+After the installed-content guard is deployed, create new versioned pool files
+with the same predeclared scene selections. Retain earlier pools/results unchanged.
+Vendor and normal installs match only when their actual payloads match, including
+any explicit UTF-8 loader patch; wheel receipts are provenance, not identity.

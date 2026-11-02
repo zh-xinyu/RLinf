@@ -12,6 +12,16 @@ import pytest
 from toolkits.robotwin_mopd import author_pool as module
 
 
+def verified_profile():
+    return {
+        "sapien_version": "3.0.0b1",
+        "sapien_content_fingerprint": {
+            "scheme": "sapien-installed-payload-sha256-v1",
+            "sha256": "a" * 64,
+        },
+    }
+
+
 def pool_fixture():
     return {
         "schema_version": 2,
@@ -28,11 +38,13 @@ def pool_fixture():
             "author_cache_sha256": module.CACHE_SHA256,
             "online_expert_revalidation": False,
             "allow_reseed": False,
+            "screening_overrides": {},
+            "noise_rule": module.NOISE_RULE,
             "task_config_sha256": module.canonical_sha256({"is_test": True}),
             "task_horizons": dict.fromkeys(module.TASKS, 400),
             "robotwin_revision": "local-revision",
             "source_files_sha256": {"envs/_base_task.py": "filehash"},
-            "runtime_profile": {"sapien_version": "3.0.0b1"},
+            "runtime_profile": verified_profile(),
             "author_reference_root": "/reference",
         },
         "tasks": {
@@ -112,9 +124,7 @@ def runtime_stubs(monkeypatch, pool):
     monkeypatch.setitem(
         sys.modules,
         "rlinf.envs.robotwin.runtime_profile",
-        SimpleNamespace(
-            validate_robotwin4_runtime=lambda: {"sapien_version": "3.0.0b1"}
-        ),
+        SimpleNamespace(validate_robotwin4_runtime=lambda: verified_profile()),
     )
 
 
@@ -131,7 +141,7 @@ def validate(pool, tmp_path, **kwargs):
 def test_runtime_and_cache_validation(monkeypatch, tmp_path):
     pool = pool_fixture()
     runtime_stubs(monkeypatch, pool)
-    assert validate(pool, tmp_path) == {"sapien_version": "3.0.0b1"}
+    assert validate(pool, tmp_path) == verified_profile()
     with pytest.raises(ValueError, match="task_config"):
         validate(pool, tmp_path, task_config={})
     with pytest.raises(ValueError, match="horizons"):
@@ -229,6 +239,7 @@ def test_evaluator_dispatch_preserves_each_validator(
 
 def test_runtime_identity_allows_relocation_but_rejects_changed_content():
     a = {
+        **verified_profile(),
         "profile": "pi05-four-task",
         "sapien_version": "3.0.0b1",
         "sapien_module_path": "/node-a/sapien/__init__.py",
@@ -243,5 +254,30 @@ def test_runtime_identity_allows_relocation_but_rejects_changed_content():
         changed = copy.deepcopy(b)
         changed[key] = "different"
         assert module.runtime_identity(a) != module.runtime_identity(changed)
-    b["sapien_vendor_manifest"]["wheel_sha256"] = "different"
+    # A normal installation may have no vendor receipt; content is decisive.
+    del b["sapien_vendor_manifest"]
+    assert module.runtime_identity(a) == module.runtime_identity(b)
+    b["sapien_content_fingerprint"]["sha256"] = "b" * 64
     assert module.runtime_identity(a) != module.runtime_identity(b)
+    del b["sapien_content_fingerprint"]
+    with pytest.raises(ValueError, match="content fingerprint"):
+        module.runtime_identity(b)
+
+
+def test_fixed_scene_placeholders_must_match():
+    expected = {"{A}": "bottle", "{a}": "left"}
+    module.validate_scene_info(expected, dict(expected))
+    for actual in ({"{A}": "bottle", "{a}": "right"}, {}, None):
+        with pytest.raises(RuntimeError, match="placeholders mismatch"):
+            module.validate_scene_info(expected, actual)
+
+
+def test_author_execution_contract_is_fixed(tmp_path):
+    p = pool_fixture()
+    p["protocol"]["screening_overrides"] = {"is_test": False}
+    with pytest.raises(ValueError, match="overrides"):
+        save_load(tmp_path, p)
+    p["protocol"]["screening_overrides"] = {}
+    p["protocol"]["noise_rule"] = "different"
+    with pytest.raises(ValueError, match="noise_rule"):
+        save_load(tmp_path, p)

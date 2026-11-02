@@ -15,9 +15,13 @@ export EMBODIED_PATH="$REPO_PATH/examples/embodiment"
 export PYTHONPATH="$REPO_PATH:$ROBOTWIN_PATH:${PYTHONPATH:-}"
 export OPD_ROBOTWIN_PROFILE=pi05-four-task
 # Optional temporary vendor for new processes while older jobs keep running.
+# Prefer the canonical UTF-8 patched payload used by the normal finalizer.
 # Fresh builds install the pinned version normally and need no vendor path.
 if [[ -z "${OPD_ROBOTWIN_SAPIEN_VENDOR:-}" ]]; then
     for opd_sapien_candidate in \
+        "$ROBOTWIN_RUNTIME_ROOT/vendor/sapien-3.0.0b1-utf8" \
+        "$REPO_PATH/outputs/robotwin4/reference/sapien300b1_cp311_utf8_vendor" \
+        "$REPO_PATH/../../robotwin4/reference/sapien300b1_cp311_utf8_vendor" \
         "$ROBOTWIN_RUNTIME_ROOT/vendor/sapien-3.0.0b1" \
         "$REPO_PATH/outputs/robotwin4/reference/sapien300b1_cp311_vendor" \
         "$REPO_PATH/../../robotwin4/reference/sapien300b1_cp311_vendor"; do

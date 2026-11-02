@@ -16,6 +16,8 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
+from rlinf.envs.robotwin.package_fingerprint import fingerprint_sapien_package
+
 PROFILE = "pi05-four-task"
 SAPIEN_VERSION = "3.0.0b1"
 ROBOTWIN_REVISION = "dca9ec682688821c42944eacd7f5dd9bfb15396f"
@@ -65,6 +67,10 @@ def _validate(robotwin_root: str, vendor: str) -> dict:
             name: hashlib.sha256((root / name).read_bytes()).hexdigest()
             for name in source_files
         },
+    }
+    content = fingerprint_sapien_package(module_path.parent)
+    report["sapien_content_fingerprint"] = {
+        key: value for key, value in content.items() if key != "files"
     }
     if vendor:
         receipt = Path(vendor) / "opd_sapien_manifest.json"

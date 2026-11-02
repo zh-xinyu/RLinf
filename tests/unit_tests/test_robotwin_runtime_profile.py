@@ -31,6 +31,9 @@ def fake_runtime(tmp_path, monkeypatch):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("source fixture\n")
     vendor = tmp_path / "vendor"
+    libraries = vendor / "sapien.libs"
+    libraries.mkdir(parents=True)
+    (libraries / "libsvulkan2.so").write_bytes(b"renderer fixture")
     package = vendor / "sapien"
     package.mkdir(parents=True)
     module = package / "__init__.py"
@@ -58,6 +61,10 @@ def test_valid_runtime_records_actual_module_and_source(fake_runtime):
     assert result["sapien_module_path"] == fake_runtime.__file__
     assert result["robotwin_revision"] == profile.ROBOTWIN_REVISION
     assert len(result["robotwin_source_sha256"]) == 5
+    assert (
+        result["sapien_content_fingerprint"]["scheme"]
+        == "sapien-installed-payload-sha256-v1"
+    )
 
 
 def test_loaded_wrong_module_rejected_even_if_metadata_is_correct(fake_runtime):
@@ -111,15 +118,26 @@ def test_dedicated_config_requires_profile():
     assert config["required_runtime_profile"] == profile.PROFILE
 
 
-def test_generated_profile_propagates_vendor_to_child(tmp_path):
+@pytest.mark.parametrize("canonical_available", [False, True])
+def test_generated_profile_propagates_vendor_to_child(tmp_path, canonical_available):
     runtime = tmp_path / "runtime"
     vendor = runtime / "vendor/sapien-3.0.0b1"
     package = vendor / "sapien"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("__version__ = '3.0.0b1'\n")
+    if canonical_available:
+        vendor = runtime / "vendor/sapien-3.0.0b1-utf8"
+        package = vendor / "sapien"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("__version__ = '3.0.0b1'\n")
     env = dict(os.environ, ROBOTWIN_RUNTIME_ROOT=str(runtime))
     env.pop("OPD_ROBOTWIN_SAPIEN_VENDOR", None)
-    writer = REPO / "toolkits/robotwin_mopd/setup/write_environment.sh"
+    # Isolate checkout-relative fallbacks from real machine-local vendors.
+    writer = tmp_path / "repo/toolkits/robotwin_mopd/setup/write_environment.sh"
+    writer.parent.mkdir(parents=True)
+    writer.write_bytes(
+        (REPO / "toolkits/robotwin_mopd/setup/write_environment.sh").read_bytes()
+    )
     subprocess.run(["bash", str(writer)], env=env, check=True)
     code = (
         "import json,os,sapien; print(json.dumps({"

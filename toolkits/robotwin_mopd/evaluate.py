@@ -233,14 +233,32 @@ def main() -> None:
             obs, _ = env.reset(evaluation_episode=fixed_episode)
             print(f"Episode {episode}: environment reset", flush=True)
             actual_seed = env.rollout_episode_records()[0]["actual_reset_seed"]
+            actual_scene_info = None
             if fixed_episode is not None:
                 if pool["protocol"]["name"] == "author_cache_replay_unseen":
                     from toolkits.robotwin_mopd.author_pool import (
                         validate_replay_identity,
+                        validate_scene_info,
                     )
 
                     validate_replay_identity(
                         fixed_episode, actual_seed, obs["task_descriptions"]
+                    )
+                    actual_scene_info = copy.deepcopy(env._slots[0].task.get_info())
+                    metadata.setdefault("fixed_scene_checks", []).append(
+                        {
+                            "episode": episode,
+                            "scene_seed": actual_seed,
+                            "expected_episode_info": fixed_episode["episode_info"],
+                            "actual_scene_info": actual_scene_info,
+                            "matched": actual_scene_info
+                            == fixed_episode["episode_info"],
+                        }
+                    )
+                    # Persist a mismatch even though it must never become a policy result.
+                    write_summary(args.output, metadata, episodes)
+                    validate_scene_info(
+                        fixed_episode["episode_info"], actual_scene_info
                     )
                 if actual_seed != fixed_episode["scene_seed"]:
                     raise RuntimeError("Fixed pool seed changed during evaluation")
@@ -275,6 +293,8 @@ def main() -> None:
                     if bool((terminal | truncated).any()):
                         break
             result = env.rollout_episode_records()[0]
+            if actual_scene_info is not None:
+                result["actual_scene_info"] = actual_scene_info
             result.update(
                 episode=episode,
                 wall_seconds=time.monotonic() - started,

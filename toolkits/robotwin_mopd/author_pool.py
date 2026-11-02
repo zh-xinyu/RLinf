@@ -133,6 +133,10 @@ def load_pool(path: Path) -> dict:
         raise ValueError("Author provenance mismatch")
     if p["task_names"] != list(TASKS) or set(pool["tasks"]) != set(TASKS):
         raise ValueError("Expected the four predeclared tasks")
+    if p.get("screening_overrides") != {}:
+        raise ValueError("Author replay overrides must be exactly empty")
+    if p.get("noise_rule") != NOISE_RULE:
+        raise ValueError("Author replay noise_rule differs from production evaluator")
     n = p["episodes_per_task"]
     if type(n) is not int or n < 1 or p["selection_count"] != n:
         raise ValueError("Invalid per-task count")
@@ -168,9 +172,16 @@ def runtime_identity(report: dict) -> dict:
         "robotwin_source_sha256",
     )
     identity = {key: report.get(key) for key in keys}
-    manifest = report.get("sapien_vendor_manifest", {})
-    identity["sapien_wheel_sha256"] = manifest.get("wheel_sha256")
-    identity["sapien_local_patches"] = manifest.get("local_patches", [])
+    fingerprint = report.get("sapien_content_fingerprint", {})
+    if (
+        fingerprint.get("scheme") != "sapien-installed-payload-sha256-v1"
+        or not isinstance(fingerprint.get("sha256"), str)
+        or len(fingerprint["sha256"]) != 64
+    ):
+        raise ValueError("Missing verified installed SAPIEN content fingerprint")
+    identity["sapien_content_fingerprint"] = {
+        key: fingerprint[key] for key in ("scheme", "sha256")
+    }
     return identity
 
 
@@ -212,6 +223,14 @@ def validate_pool_protocol(
             if row["instruction"] != expected:
                 raise ValueError(f"Author instruction mismatch: {task}")
     return runtime
+
+
+def validate_scene_info(expected: dict, actual: dict) -> None:
+    """Reject mismatched physical scene placeholders before policy inference."""
+    if not isinstance(actual, dict) or actual != expected:
+        raise RuntimeError(
+            f"Author scene placeholders mismatch: expected={expected!r}, actual={actual!r}"
+        )
 
 
 def validate_replay_identity(entry: dict, actual_seed: int, prompts: list[str]) -> None:
