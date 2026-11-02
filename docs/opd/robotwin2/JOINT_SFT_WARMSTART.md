@@ -181,3 +181,7 @@ step20已发布完整权重（16,573,945,133 bytes）、8个DCP分片及metadata
 | stack_bowls_two | 18/24 | 0.018296 |
 
 四任务均出现连续成功，handover相较先前rounds4–6的0/24明显改善，支持继续完成训练。但这些窗口使用不同策略和场景、动作噪声未固定，不能直接与SFT500冻结11/32或teacher独立59/80相减，也不能据此宣称因果收益。保持固定80步计划；40/80冻结测评和预先指定的SFT500/MOPD80独立确认仍待完成。证据：`analysis/joint_sft500_mopd_step40_20261101.json`。
+
+## MOPD60阶段记录（2026-11-02 00:10）
+
+60次更新、15轮、480条轨迹、166,274 controls及完整checkpoint结构和恢复计数已核验。末4步平均MSE为0.019834；最近rounds13–15在线成功数为adjust22/24、handover19/24、place17/24、stack18/24。采样策略依次为update48/52/56，仍是变化场景上的在线诊断；冻结对照尚待训练80完成后执行。证据：`analysis/joint_sft500_mopd_step60_20261101.json`。
