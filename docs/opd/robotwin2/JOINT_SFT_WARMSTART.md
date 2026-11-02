@@ -160,3 +160,9 @@ SFT500已COMPLETE：adjust8/8、handover0/8、place3/8、stack0/8，总计11/32�
 首轮32条轨迹/13,766个实际control targets已完成，随后4个更新记录齐全；plain MSE为0.146931、0.131413、0.111765、0.139576，M3加权loss及gradient norm均有限。LR依warmup为0、2.5e-6、5e-6、7.5e-6；首个LR=0不产生参数变化，后续已有正LR更新。8个actor均通过FP32 Adam检查。每个更新保留独立指标，但runner等待整轮R4完成才统一写出，不能用短暂无JSONL判断未优化。
 
 第一轮采样使用更新前策略：adjust8/8、handover0/8、place4/8、stack2/8；与冻结评测场景不同，不作为蒸馏收益。首步逐task MSE依次0.0416、0.0374、0.1544、0.3543；handover低MSE与零成功率并存，跨task的误差绝对值不可当作难度或SR排序。仍执行固定80步及后续评测。证据：`analysis/joint_sft500_mopd_startup_20261101.json`；[W&B gi47axmt](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/gi47axmt)。
+
+## MOPD20阶段记录（22:58）
+
+20次更新、5轮、160条轨迹、67,784个control targets的日志与checkpoint恢复计数一致。前4次/末4次更新的平均plain MSE为0.132421/0.051230，step20为0.045281；20步loss与gradient norm均有限。这是变化采样分布上的在线拟合信号，尚无蒸馏后冻结SR结论。
+
+step20已发布完整权重（16,573,945,133 bytes）、8个DCP分片及metadata、runner与allocation状态。这里只做结构和计数核验；不打断当前8卡训练额外加载中间checkpoint，后续按既定40/80测评。结构化记录：`analysis/joint_sft500_mopd_step20_20261101.json`。
