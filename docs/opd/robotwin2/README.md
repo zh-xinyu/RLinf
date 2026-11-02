@@ -1,12 +1,12 @@
 # RoboTwin 2.0 四任务 MOPD
 
-更新：2026-11-01，action00。**自动调试进行中，尚未展示四任务 MOPD 的成功率收益。** 已完成 teacher 训练路径验证（21/32）和 specialist 起点短程 MOPD（冻结测评6/32→1/32）。同 teacher 自蒸馏控制已保留place 6/8→6/8，固定输入诊断已完成；更长joint优化到60updates后place恢复到4/8、其余task仍0/8；当前进行真实四任务联合 SFT 初始化，见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)、[联合 SFT](JOINT_SFT_WARMSTART.md) 和 [当前状态](LIVE_STATUS.md)。
+更新：2026-11-02，action00。**联合SFT500与后续MOPD80已完成，四任务在线成功率出现正向信号，冻结评测尚待确认。** Teacher真实训练路径、自蒸馏保留控制、固定输入诊断和specialist-init延长训练均已完成。最新MOPD前/末5轮平均MSE为0.08170/0.01928；不能仅据此宣称能力融合成功。独立评测队列正在等待GPU4–7空闲，详见[当前状态](LIVE_STATUS.md)、[联合SFT记录](JOINT_SFT_WARMSTART.md)和[自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。
 
 前几轮负面结果完整保留：[初期 pilot](PILOT_RESULTS_20261101.md)、[specialist 初始化结果](SPECIALIST_INIT_RESULTS_20261101.md)。训练 loss 下降不等于任务能力融合成功。
 
 ## 已固定的 setting
 
-π0.5 base student；四个PACE specialists分别对应adjust_bottle、handover_mic、place_container_plate、stack_bowls_two。Native clean ALOHA，三相机，14维物理动作，50步latent预测、执行25步、10步ODE。按task路由teacher与固定归一化。
+模型为π0.5；早期student从base或place specialist初始化，最新student从真实四任务联合SFT500初始化。四个PACE specialists分别对应adjust_bottle、handover_mic、place_container_plate、stack_bowls_two。Native clean ALOHA，三相机，14维物理动作，50步latent预测、执行25步、10步ODE。按task路由teacher与固定归一化。
 
 首轮T64/R2/B512训练40updates；一次温启动跟进使用完整50步监督、T32/R4/B256，再训练40updates。两组是可行性调参，不是单因素消融。当前评测为未筛选/seen小样本pilot，不能当作官方feasible/unseen benchmark成绩。
 
