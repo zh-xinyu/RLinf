@@ -136,3 +136,9 @@ SFT100/200均已完成真实训练推理路径测评：
 主训练继续至固定500；steps350/400固定验证loss为0.004826/0.004988，有正常波动。SFT500仍是预先确定的MOPD初始化。原始记录在根`outputs/robotwin4/analysis/joint_sft_step{100,200}_trainpath_t16_20261101/`。
 
 原下游队列在上游评测衔接失败后已停止，恢复后的当前状态入口为`setup/joint_sft_followup_queue_recovery_20261101.json`，正在等待SFT500完成。原失败记录保留；恢复参数与身份见[LIVE_STATUS](LIVE_STATUS.md)。
+
+## 独立场景确认预注册（SFT500/MOPD80结果出来前）
+
+若既定SFT500可行性筛查通过且MOPD80正常完成，独立确认固定比较**SFT500与最终MOPD80**，无论8episode pilot是否显示收益都进行；不从40/80中挑最好者。使用seed300000、stride20、T16×5、每task20个不同实际场景，与[teacher参考](TEACHER_CONFIRMATION_20261101.md)一致。仍需逐条核对actual seeds，action noise不固定。
+
+精确路径、命令及每checkpoint30分钟上限记录于根`outputs/robotwin4/setup/joint_sft500_mopd80_confirmation_plan_20261101.json`。在现有主队列完成并释放GPU后执行，检查完整checkpoint与GPU空闲状态；本声明时尚未启动确认评测。如果SFT500筛查失败或MOPD80未完成，先诊断该问题，不改选其他checkpoint冒充预定比较。
