@@ -92,3 +92,5 @@ routed teachers through the production training rollout/env workers, without
 creating an actor or optimizer. It requires a separately owner-scoped Ray
 instance with matching GPU visibility. `--student-checkpoint PATH` instead tests
 a single shared policy through the original mixed-batch prediction method.
+
+Author-cache fixed unseen evaluation: [protocol and commands](AUTHOR_POOL.md).

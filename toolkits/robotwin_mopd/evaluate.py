@@ -61,10 +61,16 @@ def write_summary(path: Path, metadata: dict, episodes: list[dict]) -> None:
 
 def read_evaluation_pool(path: Path, task: str, episodes: int, cfg):
     """Validate a fixed pool against this evaluator's runtime before model loading."""
-    from toolkits.robotwin_mopd.feasible_pool import load_pool, validate_pool_protocol
+    from toolkits.robotwin_mopd import author_pool, feasible_pool
 
-    pool = load_pool(path)
-    validate_pool_protocol(
+    header = json.loads(path.read_text())
+    provider = (
+        author_pool
+        if header.get("protocol", {}).get("name") == author_pool.PROTOCOL_NAME
+        else feasible_pool
+    )
+    pool = provider.load_pool(path)
+    provider.validate_pool_protocol(
         pool,
         task_config=OmegaConf.to_container(cfg.env.eval.task_config, resolve=True),
         task_horizons=OmegaConf.to_container(cfg.env.eval.task_horizons, resolve=True),
@@ -87,7 +93,7 @@ def main() -> None:
     parser.add_argument(
         "--evaluation-pool",
         type=Path,
-        help="Optional fixed expert-screened unseen protocol pool",
+        help="Optional validated expert-screened or author-cache unseen pool",
     )
     parser.add_argument(
         "--checkpoint", default="teacher", help="base, teacher, or checkpoint directory"
@@ -125,6 +131,7 @@ def main() -> None:
         "started_unix": time.time(),
         "task": args.task,
         "checkpoint": str(model_cfg.model_path),
+        "model_config": OmegaConf.to_container(model_cfg, resolve=True),
         "requested_episodes": args.episodes,
         "initial_seed": args.seed,
         "config_name": args.config_name,
@@ -144,7 +151,41 @@ def main() -> None:
         "reset_filter": "unstable_scene_only; no planner or success filtering",
     }
     if pool is not None:
-        metadata["reset_filter"] = "expert-screened fixed pool; no evaluation reseeding"
+        from toolkits.robotwin_mopd.author_pool import NOISE_RULE, PROTOCOL_NAME
+
+        is_author_pool = pool["protocol"]["name"] == PROTOCOL_NAME
+        metadata["reset_filter"] = (
+            "author-cache accepted scenes; no local online expert revalidation; no reseeding"
+            if is_author_pool
+            else "expert-screened fixed pool; no evaluation reseeding"
+        )
+        metadata["noise_rule"] = NOISE_RULE
+        metadata["evaluation_protocol"] = pool["protocol"]["name"]
+        if is_author_pool:
+            from rlinf.envs.robotwin.runtime_profile import validate_robotwin4_runtime
+
+            metadata["verified_runtime"] = validate_robotwin4_runtime()
+            checkpoint = Path(model_cfg.model_path)
+            metadata["checkpoint_files"] = {
+                str(path.relative_to(checkpoint)): {
+                    "size_bytes": path.stat().st_size,
+                    "mtime_ns": path.stat().st_mtime_ns,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest()
+                    if path.stat().st_size < 1024 * 1024
+                    else None,
+                }
+                for path in sorted(checkpoint.rglob("*"))
+                if path.is_file()
+            }
+            conversion = checkpoint / "conversion.json"
+            if conversion.exists():
+                metadata["checkpoint_conversion_receipt"] = json.loads(
+                    conversion.read_text()
+                )
+            metadata["checkpoint_hash_note"] = (
+                "Small files freshly hashed; large-weight digest, when present, "
+                "comes from the preserved conversion receipt, not a fresh rehash."
+            )
         metadata["initial_seed"] = pool_entries[0]["scene_seed"]
         metadata["evaluation_pool"] = {
             "path": str(args.evaluation_pool),
@@ -193,6 +234,14 @@ def main() -> None:
             print(f"Episode {episode}: environment reset", flush=True)
             actual_seed = env.rollout_episode_records()[0]["actual_reset_seed"]
             if fixed_episode is not None:
+                if pool["protocol"]["name"] == "author_cache_replay_unseen":
+                    from toolkits.robotwin_mopd.author_pool import (
+                        validate_replay_identity,
+                    )
+
+                    validate_replay_identity(
+                        fixed_episode, actual_seed, obs["task_descriptions"]
+                    )
                 if actual_seed != fixed_episode["scene_seed"]:
                     raise RuntimeError("Fixed pool seed changed during evaluation")
                 if obs["task_descriptions"] != [fixed_episode["instruction"]]:
