@@ -42,6 +42,9 @@ class NativeTaskSlot:
     """One task with native take_action execution and current-episode language."""
 
     def __init__(self, task_name, horizon, task_config, instruction_type="seen"):
+        from rlinf.envs.robotwin.runtime_profile import validate_requested_profile
+
+        self.runtime_profile = validate_requested_profile()
         from robotwin.envs.vector_env import VectorEnv
 
         class ConfigOnlyVectorEnv(VectorEnv):
@@ -138,6 +141,11 @@ class RoboTwinMultiTaskEnv(RoboTwinEnv):
         record_metrics=True,
     ):
         # Do not construct the single-task parent backend.
+        from rlinf.envs.robotwin.runtime_profile import validate_requested_profile
+
+        self.runtime_profile = validate_requested_profile(
+            cfg.get("required_runtime_profile")
+        )
         self.cfg = cfg
         self.num_envs = num_envs
         self.seed_offset = seed_offset

@@ -75,6 +75,7 @@ def main():
     output = args.output_root.resolve() / args.run_id
     env = dict(os.environ)
     env.update(
+        OPD_ROBOTWIN_PROFILE="pi05-four-task",
         OPD_RUN_DIR=str(output),
         REPO_PATH=str(REPO),
         EMBODIED_PATH=str(REPO / "examples/embodiment"),
@@ -138,6 +139,9 @@ def main():
     if args.dry_run:
         print(OmegaConf.to_yaml(cfg))
         return
+    from rlinf.envs.robotwin.runtime_profile import validate_robotwin4_runtime
+
+    runtime_profile = validate_robotwin4_runtime()
     if output.exists():
         raise FileExistsError(output)
     with open(f"/tmp/opd-single-job-{os.getuid()}.lock", "w") as lock:
@@ -145,6 +149,9 @@ def main():
         require_free_ray()
         check_gpus(args.num_gpus, env)
         output.mkdir(parents=True)
+        (output / "runtime_profile.json").write_text(
+            json.dumps(runtime_profile, indent=2) + "\n"
+        )
         OmegaConf.save(cfg, output / "resolved_config.yaml")
         (output / "code.diff").write_bytes(
             subprocess.check_output(["git", "diff", "HEAD"], cwd=REPO)

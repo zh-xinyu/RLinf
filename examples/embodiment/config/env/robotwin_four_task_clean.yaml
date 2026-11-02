@@ -1,4 +1,5 @@
 env_type: robotwin
+required_runtime_profile: pi05-four-task
 total_num_envs: 64
 auto_reset: false
 ignore_terminations: false

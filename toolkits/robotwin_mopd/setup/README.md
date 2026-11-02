@@ -23,7 +23,7 @@ rerun it after moving either directory. The default Vulkan ICD path is specific
 to this server and can be overridden after sourcing `env.sh`.
 
 Verified on action00: Python 3.11.14, PyTorch 2.6.0+cu124, transformers 4.53.2,
-JAX 0.5.3, Orbax 0.11.13, SAPIEN 3.0.1, NumPy 1.26.4. OpenPI's documented
+JAX 0.5.3, Orbax 0.11.13, SAPIEN **3.0.0b1**, NumPy 1.26.4. OpenPI's documented
 `transformers_replace` overlay is required and applied by the finalizer.
 Hydra 1.3.2 preserves the repository's `version_base="1.1"` entrypoints;
 PyArrow 19.0.1 supports NumPy 1.26. Ray 2.56.1 matches the existing runtime.
@@ -37,6 +37,25 @@ Source revisions:
 The runtime root contains `source_revisions.txt`, `base_freeze.txt` and
 `runtime_freeze.txt` for exact installed-package inspection. The pins file covers
 known compatibility boundaries; it is not a complete dependency lock.
+
+SAPIEN is a benchmark fidelity constraint. The initial pilot used 3.0.1, which
+changed wrist-camera rendering despite identical camera matrices and initial
+physical states. Replacing only SAPIEN with 3.0.0b1 restored all nine reference
+images on three fixed scenes exactly and improved the matched ten-scene teacher
+diagnostic from 8/10 to 10/10. This small diagnostic does not establish a formal
+benchmark score. See `docs/opd/robotwin2/RUNTIME_FIDELITY_20261102.md`.
+
+New installations use the pin in `runtime-pins.txt`. While existing jobs are
+running, an optional isolated wheel installation can be selected for **new**
+processes with `OPD_ROBOTWIN_SAPIEN_VENDOR=/absolute/vendor/path` before sourcing
+`env.sh`. The activation file also discovers the validated local vendor under
+the runtime's `vendor/sapien-3.0.0b1` or this workspace's reference outputs.
+It prepends that path to `PYTHONPATH`; it does not mutate installed packages.
+Start a new owned Ray instance after activation. The dedicated environment
+configuration requires `pi05-four-task` and checks the actual module version,
+distribution version and RoboTwin source revision inside each environment
+worker, even if the worker lacks the profile environment variable. The launcher
+records module location and source hashes in `runtime_profile.json`.
 
 Validation: actual headless rendering, Aloha `adjust_bottle` reset, three RGB
 camera observations, 14-dimensional state and one native `take_action` passed.
