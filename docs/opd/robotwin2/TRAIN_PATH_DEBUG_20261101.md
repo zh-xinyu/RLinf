@@ -71,3 +71,21 @@ T16×2 rounds：adjust 0/8、handover 0/8、place 6/8、stack 0/8，总计6/32�
 采样训练峰值升至约47,507MiB/卡（46.4GiB），尚未OOM，但仅余约1GiB，四卡方案需要这些卡独占使用，不能再与17GB任务同卡共存。峰值仍需包含后续保存等阶段；资源采样持续运行。
 
 [W&B run](https://wandb.ai/zhouxinyu2022-michigan-state-university/RoboTwin_MultiTeacher_Pilots/runs/oipp0xze)。队列PID3565733，状态/精确启动身份以setup中的JSON为准，避免仅凭旧PID操作进程。训练20步完成后自动评测step20，比较输出目标为`outputs/robotwin4/analysis/specialist_init_comparison_20261101.json`；该文件仅在完成后生成，当前尚无final SR。代码提交`1071ad4a`。
+
+## 后续确认评测：避免 reset 重试导致重复场景
+
+仅诊断工具新增 `--seed-stride`；默认 `1` 完整保留旧 allocator seed 序列及 modulo 行为，现有队列命令无需变化。`NativeTaskSlot.reset` 最多尝试请求 seed 起的20个连续值；旧相邻 occurrence 可能在重试后落到同一实际 seed，不能把episode行数直接当作独立场景数。
+
+未来若pilot出现收益，可另开如下确认评测（**这里只记录示例，不启动任务**；在worktree中激活本机runtime后，使用已有owner-scoped launcher检查GPU并管理独立Ray生命周期）：
+
+```bash
+CUDA_VISIBLE_DEVICES=4,5,6,7 python \
+  /absolute/path/to/workspace/outputs/robotwin4/setup/launch_teacher_train_diagnostic.py \
+  joint_sft500_confirmation_seen_stride20 \
+  --trajectories 16 --rounds 5 --seed 300000 --seed-stride 20 \
+  --student-checkpoint /absolute/path/to/checkpoint
+```
+
+stride≥20时，请求seed为 `base_seed + task_id*1000003 + occurrence*stride`，不做wrap；2–19及其他无效stride拒绝。每个请求的完整20-seed重试窗口必须落在uint32范围内，否则失败。每轮对累计记录验证实际seed位于自己的窗口、同task实际seed不重复；异常会报错，不静默去重。改变的是该诊断的pending plan，仍经原allocator的episode身份检查，共享训练allocator和环境均未修改。
+
+示例成功完成时为80episodes、每task20个不同的实际reset seeds；resolved config和results记录 `seed_protocol`、`seed_stride`、`reset_retry_span`、语言类型及reset筛选方式。这仍是 **unfiltered / seen** 的训练路径确认，不是官方 expert-feasible / unseen 评测；场景seed不重复也不等于完整轨迹统计独立，或两个checkpoint使用完全相同的policy noise。

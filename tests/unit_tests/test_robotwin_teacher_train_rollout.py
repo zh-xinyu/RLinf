@@ -165,3 +165,106 @@ def test_student_diagnostic_calls_original_predict_and_checks_finite(
         assert worker.first_batch_prompts == observations["task_descriptions"]
     assert calls == [(worker, observations, "train")]
     assert worker.routed_samples == Counter("abcd")
+
+
+def confirmation_allocator(seed=300000):
+    from rlinf.utils.rollout_allocation import RolloutAllocator
+
+    tasks = [
+        {"task_id": i, "task": f"task{i}", "suite": f"task{i}", "horizon": 400}
+        for i in range(4)
+    ]
+    return RolloutAllocator(tasks, 4, 4, 1, {"mode": "uniform", "seed": seed})
+
+
+def test_seed_stride_one_leaves_legacy_pending_plan_exactly_unchanged():
+    import copy
+
+    from toolkits.robotwin_mopd.teacher_train_rollout import space_confirmation_seeds
+
+    allocator = confirmation_allocator(seed=2**32 - 3)
+    plan = allocator.plan()
+    before = copy.deepcopy(plan)
+    identities = [id(row) for row in plan]
+    result = space_confirmation_seeds(plan, base_seed=2**32 - 3, stride=1)
+    assert result is plan and allocator.pending is plan
+    assert result == before and [id(row) for row in result] == identities
+    # Existing modulo-wrapped legacy seeds remain untouched.
+    assert any(row["reset_seed"] < 100 for row in result)
+
+
+@pytest.mark.parametrize("stride", [-1, 0, 2, 19, True, 20.0])
+def test_unsafe_seed_strides_are_rejected(stride):
+    from toolkits.robotwin_mopd.teacher_train_rollout import validate_seed_stride
+
+    with pytest.raises(ValueError, match="seed-stride"):
+        validate_seed_stride(stride)
+
+
+def test_confirmation_windows_are_disjoint_and_allocator_observe_accepts_plan():
+    from toolkits.robotwin_mopd.teacher_train_rollout import (
+        space_confirmation_seeds,
+        validate_confirmation_seeds,
+    )
+
+    allocator = confirmation_allocator()
+    cumulative = []
+    for _ in range(5):
+        plan = space_confirmation_seeds(allocator.plan(), base_seed=300000, stride=20)
+        assert allocator.pending is plan
+        records = [
+            dict(
+                row,
+                actual_reset_seed=row["reset_seed"] + 19,
+                success_once=False,
+                simulation_steps=row["horizon"],
+            )
+            for row in plan
+        ]
+        cumulative.extend(records)
+        validate_confirmation_seeds(cumulative, stride=20)
+        allocator.observe(records)
+    assert allocator.rounds == 5 and allocator.trajectories == 80
+    for task_id in range(4):
+        rows = [row for row in cumulative if row["task_id"] == task_id]
+        starts = sorted(row["reset_seed"] for row in rows)
+        assert starts == [
+            300000 + task_id * 1000003 + occurrence * 20 for occurrence in range(20)
+        ]
+        assert len({row["actual_reset_seed"] for row in rows}) == 20
+        assert all(left + 19 < right for left, right in zip(starts, starts[1:]))
+
+
+def test_confirmation_overflow_rejects_whole_plan_without_partial_mutation():
+    import copy
+
+    from toolkits.robotwin_mopd.teacher_train_rollout import space_confirmation_seeds
+
+    plan = [{"task_id": 0, "occurrence": i, "reset_seed": i} for i in range(2)]
+    before = copy.deepcopy(plan)
+    with pytest.raises(ValueError, match="overflows"):
+        space_confirmation_seeds(plan, base_seed=2**32 - 20, stride=20)
+    assert plan == before
+    with pytest.raises(ValueError, match="32-bit"):
+        space_confirmation_seeds(plan, base_seed=-1, stride=20)
+
+
+@pytest.mark.parametrize("actual", [99, 120, None])
+def test_actual_seed_outside_retry_window_is_rejected(actual):
+    from toolkits.robotwin_mopd.teacher_train_rollout import validate_confirmation_seeds
+
+    records = [{"task": "a", "reset_seed": 100, "actual_reset_seed": actual}]
+    with pytest.raises(ValueError, match="retry window"):
+        validate_confirmation_seeds(records, stride=20)
+
+
+def test_actual_seed_duplicates_are_rejected_across_rounds_per_task():
+    from toolkits.robotwin_mopd.teacher_train_rollout import validate_confirmation_seeds
+
+    first = {"task": "a", "reset_seed": 100, "actual_reset_seed": 119, "round": 1}
+    later = dict(first, round=2)
+    with pytest.raises(ValueError, match="Duplicate"):
+        validate_confirmation_seeds([first, later], stride=20)
+    validate_confirmation_seeds([first, dict(later, task="b")], stride=20)
+    # Legacy diagnostics keep their previous acceptance behavior, including repeats.
+    validate_confirmation_seeds([first, later], stride=1)

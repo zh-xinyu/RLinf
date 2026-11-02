@@ -33,6 +33,70 @@ import torch
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf, open_dict
 
+# NativeTaskSlot.reset tries seed + 0..19; keep this diagnostic contract explicit.
+RESET_RETRY_SPAN = 20
+MAX_RESET_SEED = 2**32 - 1
+
+
+def validate_seed_stride(stride: int) -> None:
+    """Keep legacy spacing or reserve a complete nonoverlapping retry window."""
+    if (
+        isinstance(stride, bool)
+        or not isinstance(stride, int)
+        or (stride != 1 and stride < RESET_RETRY_SPAN)
+    ):
+        raise ValueError("seed-stride must be 1 (legacy) or at least 20")
+
+
+def space_confirmation_seeds(
+    plan: list[dict], *, base_seed: int, stride: int
+) -> list[dict]:
+    """Mutate allocator.pending rows in place, retaining exact legacy behavior at 1."""
+    validate_seed_stride(stride)
+    if stride == 1:
+        return plan
+    if not 0 <= base_seed <= MAX_RESET_SEED:
+        raise ValueError("Confirmation base seed must fit the unsigned 32-bit range")
+    seeds = []
+    for row in plan:
+        if row["task_id"] < 0 or row["occurrence"] < 0:
+            raise ValueError("Negative task ID or occurrence in confirmation plan")
+        seed = base_seed + row["task_id"] * 1000003 + row["occurrence"] * stride
+        if seed + RESET_RETRY_SPAN - 1 > MAX_RESET_SEED:
+            raise ValueError(
+                "Confirmation reset seed/retry window overflows uint32; no wrapping"
+            )
+        seeds.append(seed)
+    # Validate the whole plan before changing any pending identity.
+    for row, seed in zip(plan, seeds, strict=True):
+        row["reset_seed"] = seed
+    return plan
+
+
+def validate_confirmation_seeds(records: list[dict], *, stride: int) -> None:
+    """Validate cumulative actual seeds across rounds, never silently deduplicate."""
+    validate_seed_stride(stride)
+    if stride == 1:
+        return
+    seen = set()
+    for row in records:
+        requested, actual = row["reset_seed"], row.get("actual_reset_seed")
+        if (
+            type(actual) is not int
+            or type(requested) is not int
+            or not 0 <= requested <= MAX_RESET_SEED - RESET_RETRY_SPAN + 1
+            or not requested <= actual < requested + RESET_RETRY_SPAN
+        ):
+            raise ValueError(
+                "Actual reset seed is outside its requested 20-seed retry window"
+            )
+        key = (row["task"], actual)
+        if key in seen:
+            raise ValueError(
+                f"Duplicate actual reset seed for task {row['task']}: {actual}"
+            )
+        seen.add(key)
+
 
 def select_rows(value: Any, indices: list[int], batch_size: int) -> Any:
     """Select a sub-batch while preserving optional observation fields."""
@@ -316,6 +380,12 @@ def main() -> None:
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--seed-stride",
+        type=int,
+        default=1,
+        help="1 preserves legacy seeds; >=20 reserves disjoint reset-retry windows",
+    )
+    parser.add_argument(
         "--teacher-storage", choices=["resident", "cpu"], default="resident"
     )
     parser.add_argument(
@@ -325,6 +395,10 @@ def main() -> None:
     )
     parser.add_argument("--override", action="append", default=[])
     args = parser.parse_args()
+    try:
+        validate_seed_stride(args.seed_stride)
+    except ValueError as error:
+        parser.error(str(error))
     physical = [int(x) for x in args.physical_gpus.split(",")]
     if len(physical) != 4 or len(set(physical)) != 4 or args.rounds < 1:
         parser.error("Exactly four distinct GPUs and positive rounds are required")
@@ -357,6 +431,13 @@ def main() -> None:
         cfg.teacher_diagnostic = {
             "gpu_uuids": allowed_gpu_uuids(physical),
             "teacher_storage": args.teacher_storage,
+            "seed_stride": args.seed_stride,
+            "reset_retry_span": RESET_RETRY_SPAN,
+            "seed_protocol": "allocator_legacy"
+            if args.seed_stride == 1
+            else "disjoint_retry_windows_no_wrap",
+            "instruction_type": cfg.env.train.get("instruction_type", "seen"),
+            "reset_filter": "unstable_scene_only_no_expert_filter",
             "student_checkpoint": str(args.student_checkpoint.expanduser().resolve())
             if args.student_checkpoint
             else None,
@@ -406,7 +487,10 @@ def main() -> None:
     rollout_channel = Channel.create("TeacherDiagnosticRollout")
     records, timings = [], []
     for round_index in range(args.rounds):
-        env.set_rollout_allocation(allocator.plan(), policy_update_step=0).wait()
+        plan = space_confirmation_seeds(
+            allocator.plan(), base_seed=args.seed, stride=args.seed_stride
+        )
+        env.set_rollout_allocation(plan, policy_update_step=0).wait()
         round_start = time.perf_counter()
         env_handle = env.interact(
             input_channel=env_channel,
@@ -424,6 +508,7 @@ def main() -> None:
             for worker_rows in env.get_rollout_allocation_records().wait()
             for row in worker_rows
         ]
+        validate_confirmation_seeds(records + rows, stride=args.seed_stride)
         allocator.observe(rows)
         records.extend(rows)
         timings.append(
@@ -435,6 +520,11 @@ def main() -> None:
             else "frozen_routed_teachers_actual_training_path",
             "student_checkpoint": cfg.teacher_diagnostic.student_checkpoint,
             "student_updates": 0,
+            "seed_stride": cfg.teacher_diagnostic.seed_stride,
+            "reset_retry_span": cfg.teacher_diagnostic.reset_retry_span,
+            "seed_protocol": cfg.teacher_diagnostic.seed_protocol,
+            "instruction_type": cfg.teacher_diagnostic.instruction_type,
+            "reset_filter": cfg.teacher_diagnostic.reset_filter,
             "initialization_seconds": initialized - start,
             "round_timings": timings,
             "tasks": summarize_records(records),
