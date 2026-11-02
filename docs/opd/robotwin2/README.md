@@ -23,6 +23,7 @@
 | 文档 | 用途 |
 |---|---|
 | [结果与交接](PILOT_RESULTS_20261101.md) | 实测结果、预算、结论和限制 |
+| [Teacher独立场景参考](TEACHER_CONFIRMATION_20261101.md) | 每task20个不同场景、真实训练路径59/80及协议边界 |
 | [延长MOPD结果](LONGER_OPD_RESULTS_20261101.md) | 完整20→60续训、冻结测评与恢复信号 |
 | [自蒸馏控制](SELF_DISTILL_RESULTS_20261101.md) | 同源teacher/student保留能力的冻结测评与限制 |
 | [当前状态](LIVE_STATUS.md) | 运行身份、队列和checkpoint状态 |

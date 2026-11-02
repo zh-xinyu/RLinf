@@ -5,6 +5,7 @@
 | 项目 | 状态 | 证据入口（根目录 outputs/robotwin4/） |
 |---|---|---|
 | teacher 真实训练推理路径 | 完成，21/32 成功 | analysis/teacher_train_t16_verified_20261101/ |
+| teacher独立场景参考 | 完成：8/20、19/20、15/20、17/20；每task20个unique scenes；与旧pilot为不同seed集合 | analysis/teacher_confirm_stride20_t16_n20_20261101/verified_summary.json |
 | specialist 初始化 joint MOPD 20 updates | 完成；MSE下降，冻结测评6/32→1/32 | analysis/specialist_init_final_summary_20261101.json |
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
 | 固定输入 flow 对照 | 四task的0/20/60相同缓存对照完成；place误差恢复，adjust不随训练loss同步下降；见FIXED_REFERENCE_RESULTS_20261101.md | analysis/fixed_reference_joint20_20261101/ |
@@ -14,7 +15,11 @@
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
 
-## 21:23 最新结果
+## 21:45 最新结果
+
+[Teacher独立场景参考](TEACHER_CONFIRMATION_20261101.md)已完成59/80，80条计数及每task20个unique scenes核验通过。GPU4–7已释放，SFT500训练与等待队列保持原计划。Teacher能力不均衡，adjust40%，其余75–95%；需同协议student测评才能比较。
+
+## 21:23 里程碑
 
 SFT100/200冻结测评分别5/32、9/32，详见[联合SFT记录](JOINT_SFT_WARMSTART.md)。主训练仍在运行，下游等待固定SFT500。已利用空档完成四task step60固定输入诊断，全部exit0、缓存哈希一致、reference复算完全一致；GPU4–7已释放。
 
