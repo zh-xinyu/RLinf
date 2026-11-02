@@ -10,12 +10,23 @@
 | 同 teacher 自蒸馏控制 | 完成：place固定同场景6/8→6/8，末MSE3.56e-4；见SELF_DISTILL_RESULTS_20261101.md | setup/self_control_queue_20261101.json |
 | 固定输入 flow 对照 | 四task的0/20/60相同缓存对照完成；place误差恢复，adjust不随训练loss同步下降；见FIXED_REFERENCE_RESULTS_20261101.md | analysis/fixed_reference_joint20_20261101/ |
 | 更多 MOPD 优化 | 训练及40/60冻结评测已COMPLETE；place 6/8→1/8→1/8→4/8，其余task仍0/8；见LONGER_OPD_RESULTS_20261101.md | setup/longer_opd_eval_recovery_20261101.status.json；analysis/longer_opd_training_summary_20261101.json |
-| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查，8卡MOPD80运行中，60个更新及20/40/60完整checkpoint已核验，再测评40/80 | setup/joint_sft_followup_queue_recovery_20261101.json |
+| SFT后续队列 | SFT100/200/500测评已完成（5/32、9/32、11/32）；固定500通过筛查；MOPD80训练已COMPLETE并核验，原队列因同事GPU任务停止；eval-only恢复队列等待GPU4–7空闲，再测40/80及独立场景SFT500/MOPD80 | setup/joint_sft_followup_queue_recovery_20261101.json |
 | 四任务联合 SFT | 官方200条示范下载/对齐完成；四task前向与官方FM相对loss差<0.32%；GPU0–3 micro2/micro4两步反向、保存通过，checkpoint已用推理工具重载；500updates联合SFT已COMPLETE，固定CFM验证loss 0.167479→0.00440669 | setup/joint_sft/long_pilot_status_20261101.json；train/robotwin4_joint_sft_500_b128_micro4_pilot_20261101/ |
 
 详细设计见 [自动调试计划](AUTONOMOUS_DEBUG_PLAN_20261101.md)。不把当前运行中状态、CPU测试或低loss当成效果结论；所有后续候选都需策略rollout验证。
 
-## 2026-11-02 00:10 最新结果
+## 2026-11-02 00:53 最新状态
+
+- 联合SFT500 → MOPD80训练、保存、退出及W&B同步均完成。80个连续更新、20 rounds、640条轨迹、213,912个实际control targets与runner/allocation计数完全一致。最终checkpoint包含完整权重和8个DCP分片；尚待冻结评测实际重载。
+- 前/末5轮（各20个更新）平均velocity MSE：**0.081703 → 0.019279**；前/末4个更新：0.132421 → 0.021035；最后一步0.022324。全部loss/梯度有限。逐轮窗口已经按实际rollout_count统计，不能把R4的10个更新写成5轮。
+- 最近3轮在线成功数依次为adjust21/24、handover22/24、place17/24、stack19/24。这些是不同在线策略/场景的训练统计，**尚不构成冻结策略或独立场景提升结论**。
+- 原followup在训练结束后等待GPU释放120秒，因同事的进程占用停止于`WAITING_GPU_REVIEW`。进程归属已核验为其他用户，8卡均约13.6GB且计算利用率较高；没有终止或修改这些任务。
+- 新eval-only队列`setup/joint_mopd_evals_recovery_20261102.status.json`已启动（PID28402/create_time1793598759.94），当前等待物理GPU4–7严格空闲。顺序为pilot MOPD40、MOPD80（各8episodes/task），然后预先固定的独立SFT500、MOPD80（各20unique scenes/task，seed300000/stride20）。后两组不依赖pilot结果挑选checkpoint。
+- 每项评测上限1800秒、退出清理宽限90秒；等待GPU空闲最多6小时，队列总上限9小时。检查标准保持严格；不重启训练、不覆盖旧输出、只清理自身Ray进程。旧队列停止状态保留。
+
+训练核验：`analysis/joint_sft500_mopd_training_complete_20261102.json`。恢复脚本：`setup/run_joint_mopd_evals_20261102.py`；独立测评原计划：`setup/joint_sft500_mopd80_confirmation_plan_20261101.json`。
+
+## 2026-11-02 00:10 里程碑
 
 SFT500→MOPD60及保存已完成，仍在继续最后20步。末4步平均MSE为0.0198；最近3轮四任务在线成功数为22/24、19/24、17/24、18/24，仍待冻结评测确认。完整checkpoint与480条轨迹、166,274 controls恢复计数一致。证据：`analysis/joint_sft500_mopd_step60_20261101.json`。
 
