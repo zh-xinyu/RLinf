@@ -182,3 +182,96 @@ def test_duplicate_actual_scene_seeds_are_counted_without_changing_gate():
             result[side]["unique_actual_scene_seeds_per_task"][task] == 8
             for task in TASKS[1:]
         )
+
+
+def test_recovery_queue_paths_preserve_original_identity(tmp_path):
+    from toolkits.robotwin_mopd.joint_sft_followup import parse_args, queue_files
+
+    original = parse_args(["--base", str(tmp_path)])
+    assert original.queue_tag == "20261101"
+    assert original.gpu_drain_grace_seconds == 0
+    before = queue_files(tmp_path, original.queue_tag)
+    for path in before:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("original failed queue evidence")
+    recovered = parse_args(
+        [
+            "--base",
+            str(tmp_path),
+            "--queue-tag",
+            "recovery_20261101",
+            "--upstream-launch",
+            "/new/launch.json",
+            "--upstream-status",
+            "/new/status.json",
+            "--gpu-drain-grace-seconds",
+            "120",
+        ]
+    )
+    after = queue_files(tmp_path, recovered.queue_tag)
+    assert set(before).isdisjoint(after)
+    assert recovered.upstream_launch == Path("/new/launch.json")
+    assert recovered.upstream_status == Path("/new/status.json")
+    assert all(path.read_text() == "original failed queue evidence" for path in before)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--queue-tag", "../old"],
+        ["--upstream-launch", "/new/launch.json"],
+        ["--gpu-drain-grace-seconds", "601"],
+    ],
+)
+def test_recovery_options_fail_before_queue_state_creation(tmp_path, arguments):
+    from toolkits.robotwin_mopd.joint_sft_followup import parse_args
+
+    with pytest.raises(SystemExit):
+        parse_args(["--base", str(tmp_path), *arguments])
+    assert not list(tmp_path.iterdir())
+
+
+def test_gpu_grace_is_explicit_bounded_and_preserves_strict_check(monkeypatch):
+    from toolkits.robotwin_mopd import joint_sft_followup as module
+
+    clock = [0.0]
+    checks = []
+    waits = []
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda duration: clock.__setitem__(0, clock[0] + duration)
+    )
+
+    def busy_then_idle(count, env):
+        checks.append((count, env))
+        if clock[0] < 20:
+            raise module.BusyGPUs("still occupied")
+
+    monkeypatch.setattr(module, "require_idle", busy_then_idle)
+    with pytest.raises(module.BusyGPUs):
+        module.wait_for_idle(4, {}, 0, 100)
+    assert clock[0] == 0 and len(checks) == 1
+    module.wait_for_idle(
+        4, {}, 30, 100, on_wait=lambda reason, remaining: waits.append(remaining)
+    )
+    assert clock[0] == 20 and waits == [30, 20]
+    assert len(checks) == 4
+
+
+def test_busy_gpu_grace_expiry_does_not_relax_or_reassign(monkeypatch):
+    from toolkits.robotwin_mopd import joint_sft_followup as module
+
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time, "sleep", lambda duration: clock.__setitem__(0, clock[0] + duration)
+    )
+
+    def busy(count, env):
+        assert env["CUDA_VISIBLE_DEVICES"] == "4,5,6,7"
+        raise module.BusyGPUs("peer still present")
+
+    monkeypatch.setattr(module, "require_idle", busy)
+    with pytest.raises(module.BusyGPUs, match="peer still present"):
+        module.wait_for_idle(4, {"CUDA_VISIBLE_DEVICES": "4,5,6,7"}, 120, 15)
+    assert clock[0] == 15

@@ -11,6 +11,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -217,14 +218,83 @@ def require_idle(count: int, env: dict) -> None:
         )
 
 
-def main() -> None:
+def queue_files(base: Path, tag: str) -> tuple[Path, Path]:
+    """Give each explicitly requested queue its own immutable launch identity."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", tag):
+        raise ValueError(
+            "Queue tag must contain only letters, numbers, underscores or hyphens"
+        )
+    setup = base / "setup"
+    return (
+        setup / f"joint_sft_followup_queue_{tag}.json",
+        setup / f"joint_sft_followup_launch_{tag}.json",
+    )
+
+
+def wait_for_idle(
+    count: int, env: dict, grace_seconds: float, deadline: float, on_wait=None
+) -> None:
+    """Optionally wait for GPU drain without relaxing ownership or memory checks."""
+    end = min(time.monotonic() + grace_seconds, deadline)
+    while True:
+        try:
+            require_idle(count, env)
+            return
+        except BusyGPUs as error:
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise
+            if on_wait is not None:
+                on_wait(str(error), remaining)
+            time.sleep(min(10, remaining))
+
+
+def parse_args(argv=None):
+    """Parse recovery identity and optional bounded GPU-drain grace."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--queue-tag", default="20261101")
+    parser.add_argument(
+        "--upstream-launch",
+        type=Path,
+        help="Explicit eval-only recovery supervisor launch identity",
+    )
+    parser.add_argument(
+        "--upstream-status",
+        type=Path,
+        help="Matching recovery supervisor atomic status JSON",
+    )
+    parser.add_argument(
+        "--gpu-drain-grace-seconds",
+        type=int,
+        default=0,
+        help="Explicit wait for strict GPU-idle checks, 0 (default) to 600 seconds",
+    )
+    args = parser.parse_args(argv)
+    try:
+        queue_files(args.base, args.queue_tag)
+    except ValueError as error:
+        parser.error(str(error))
+    if (args.upstream_launch is None) != (args.upstream_status is None):
+        parser.error(
+            "--upstream-launch and --upstream-status must be supplied together"
+        )
+    if not 0 <= args.gpu_drain_grace_seconds <= 600:
+        parser.error("--gpu-drain-grace-seconds must be between 0 and 600")
+    return args
+
+
+def main() -> None:
+    args = parse_args()
     base = args.base.resolve()
     setup = base / "setup"
-    statefile = setup / "joint_sft_followup_queue_20261101.json"
-    identityfile = setup / "joint_sft_followup_launch_20261101.json"
+    statefile, identityfile = queue_files(base, args.queue_tag)
+    upstream_launch = (
+        args.upstream_launch or setup / "longer_opd_queue_launch_20261101.json"
+    ).resolve()
+    upstream_status_path = (
+        args.upstream_status or setup / "longer_opd_queue_20261101.json"
+    ).resolve()
     from toolkits.robotwin_mopd.run import run_command
 
     with open(f"/tmp/robotwin-joint-sft-followup-{os.getuid()}.lock", "w") as lock:
@@ -240,6 +310,10 @@ def main() -> None:
             started_unix=time.time(),
             predeclared_init_step=500,
             action_noise_fixed=False,
+            queue_tag=args.queue_tag,
+            upstream_launch=str(upstream_launch),
+            upstream_status=str(upstream_status_path),
+            gpu_drain_grace_seconds=args.gpu_drain_grace_seconds,
         )
         deadline = time.monotonic() + 10 * 3600
 
@@ -305,8 +379,21 @@ def main() -> None:
         sft_root = base / "train" / SFT_RUN
         reports = {}
 
+        def idle_before_launch(count, env):
+            wait_for_idle(
+                count,
+                env,
+                args.gpu_drain_grace_seconds,
+                deadline,
+                on_wait=lambda reason, remaining: write(
+                    "WAITING_GPU_DRAIN",
+                    gpu_drain_reason=reason,
+                    gpu_drain_remaining_seconds=remaining,
+                ),
+            )
+
         def evaluate(checkpoint, name):
-            require_idle(4, env4)
+            idle_before_launch(4, env4)
             command = [
                 sys.executable,
                 "-u",
@@ -333,8 +420,8 @@ def main() -> None:
         try:
             write("WAITING_LONGER_OPD")
             wait_upstream(
-                setup / "longer_opd_queue_launch_20261101.json",
-                setup / "longer_opd_queue_20261101.json",
+                upstream_launch,
+                upstream_status_path,
             )
             for step in (100, 200):
                 write("WAITING_SFT_CHECKPOINT", checkpoint_step=step)
@@ -362,7 +449,7 @@ def main() -> None:
                     reason="SFT500 failed exploratory multi-task viability screen",
                 )
                 return
-            require_idle(8, env8)
+            idle_before_launch(8, env8)
             command = mopd_command(base, checkpoint)
             write("TRAINING_MOPD", gate=gate, command=command)
             bounded_run(command, setup / "joint_sft500_mopd_20261101.log", env8)
