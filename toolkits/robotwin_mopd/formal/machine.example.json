@@ -1,0 +1,9 @@
+{
+  "runtime_root": "/absolute/path/robotwin-runtime",
+  "resource_root": "/absolute/path/robotwin-resources",
+  "output_root": "/absolute/path/robotwin-formal-results",
+  "pace_reference_root": "/absolute/path/PACE",
+  "profile": "blackwell-cu128-candidate",
+  "wandb_mode": "disabled",
+  "wandb_entity": ""
+}

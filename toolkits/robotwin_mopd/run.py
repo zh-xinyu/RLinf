@@ -59,10 +59,14 @@ def main():
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--num-gpus", type=int, default=8)
+    parser.add_argument("--num-cpus", type=int, default=None)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
+    from toolkits.robotwin_mopd.resources import cpu_budget
+
+    num_cpus = cpu_budget(args.num_cpus, os.environ, len(os.sched_getaffinity(0)))
     if args.num_gpus < 1:
         parser.error("--num-gpus must be positive")
     if args.num_gpus != 8 and not os.environ.get("CUDA_VISIBLE_DEVICES"):
@@ -184,6 +188,7 @@ def main():
                     "owner": owner,
                     "runtime": str(runtime),
                     "num_gpus": args.num_gpus,
+                    "num_cpus": num_cpus,
                     "cuda_visible_devices": env["CUDA_VISIBLE_DEVICES"],
                     "numa_policy": env.get("ROBOTWIN_NUMA_POLICY", "default"),
                     "commit": subprocess.check_output(
@@ -198,7 +203,7 @@ def main():
             "start",
             "--head",
             "--port=6379",
-            "--num-cpus=48",
+            f"--num-cpus={num_cpus}",
             f"--num-gpus={args.num_gpus}",
             "--include-dashboard=true",
             "--dashboard-host=127.0.0.1",

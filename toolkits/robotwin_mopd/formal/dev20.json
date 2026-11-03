@@ -1,0 +1,931 @@
+{
+  "schema_version": 2,
+  "complete": true,
+  "protocol": {
+    "name": "author_cache_replay_unseen",
+    "instruction_type": "unseen",
+    "task_names": [
+      "adjust_bottle",
+      "handover_mic",
+      "place_container_plate",
+      "stack_bowls_two"
+    ],
+    "episodes_per_task": 20,
+    "selection_count": 20,
+    "selection_start": 0,
+    "author_cohort": 0,
+    "purpose": "development",
+    "author_revision": "fd2e624cc19325cc9b20a620c82d51c0d8e25cc1",
+    "author_cache_sha256": "12ac49e3913308901113cc8ddd9f71f0987ce8c9ebd83f03c308c759bdbeb939",
+    "author_reference_root": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/reference/PACE-fd2e624",
+    "author_source_files_sha256": {
+      "envs/_base_task.py": "448f7152b65cb9102217cf5463aa821d72810ca56f63d5a797ec7bd43e23e101",
+      "task_config/demo_clean.yml": "8ee5d0d07daecf7599b8d89b44776b700c7c60da24cd6317e176e6798d8cb11e",
+      "task_config/_camera_config.yml": "dc80a40552e0fad25d58cf0141302ceba66d22409b5091bed235ad2f10cbce7f",
+      "task_config/_embodiment_config.yml": "b0a198ff27bf6bf6b73162d2d1adafc7e73fcdf53f39943e67e40fee15bd83fa",
+      "envs/put_object_cabinet.py": "1de25dd513b4ad29e158440eefb28fb050be95d557c7df1b87578168ff35a7b2",
+      "envs/blocks_ranking_size.py": "18ddb8ca5465f450ef03db292bcfc22e8e795fcb397f104fc24213a5fa063696",
+      "envs/put_bottles_dustbin.py": "1c03a4b227daa7d285fa366944f1f75773e32dc6a7b73ab693217a13fcd42795",
+      "envs/place_can_basket.py": "9f24e5ac98146babe93c68cb46baaf1d7bf21e38dbfc7c0b29e7020ae764e7f0",
+      "envs/open_microwave.py": "ad679b7753fc50487ba8034570e3b94aa7bfc84756048b94580fa3d2516a1bd0",
+      "envs/hanging_mug.py": "8793ed6be6a80b18a10690767a1910c3c49a7a9e4887ecbdd48a191ca3e03034",
+      "envs/place_cans_plasticbox.py": "5d004110de53d95c7a6fc7721f9136d96b9792a61b97686f7b5489ff7ec48a5f",
+      "envs/stack_blocks_three.py": "b19f1f1c5a3a2c7c7312a4e1b2e577ccd269ebb0c444c287fecbc16ff5b47fb9",
+      "envs/stack_bowls_three.py": "95848e9c2987e64fef2cfd928128d7a19967ba600c57dc7a6b7f1c9ea5b358e6",
+      "envs/blocks_ranking_rgb.py": "0e632df38d9024e7952c0df7a1f59e3d011b537724e6e6588455dee4d4e6074b",
+      "envs/handover_mic.py": "41ed0f2561cc8f1ae2449ba405decd4f5d7e3b80243b60921598657551891b17",
+      "envs/scan_object.py": "860dfe2cc86d180096089bc87502c7904f7ce2efb64fb32620c1720ca0178c2b",
+      "envs/handover_block.py": "5439712296d7e143d41f8e78b4ab86cd4fad7fb98f40f5f5abb067a462d17650",
+      "envs/move_can_pot.py": "ea838bb2502199610eea6cc058a4ba5fc7abb01c3d8ee0705c44854ddca20186",
+      "envs/pick_dual_bottles.py": "422f23510f3662405dcb5518d1ebe8a0270935849a4b02a2585615ff7bffc4ef",
+      "envs/pick_diverse_bottles.py": "95ebb80fa96eafd0b7ff5518251c2a7aa42f22ef9b7cfdda4e80eac511f06151",
+      "envs/place_dual_shoes.py": "f35c4a133e1de567b274cbd15f158f585eb05e32aeb05be88839d249d0d7ab9e",
+      "envs/move_pillbottle_pad.py": "a5db7c65db15c2273d1f9e99fab8fc00533a27b740a45161c9402d43b8aa6824",
+      "envs/shake_bottle.py": "2e37395b302eb37ecac39b2a676ea119c4bf7a1dcc9e6df75cd683a5cf37b026",
+      "envs/place_object_basket.py": "e809bd3eabac48cb34589f164291b04b9e2fbf6cc1ebd8c4024c0af8e265ed48",
+      "envs/stack_bowls_two.py": "3e3217c277d84a0838739d55a0061a9acb3315240b5a99c6607d9637ea719637",
+      "envs/place_bread_basket.py": "50c433166301a7f0ac8615d041cc51aa673746b5b7d6fcc0b6f29790c560c053",
+      "envs/dump_bin_bigbin.py": "3bd57fe9172d59731db1ccf1bc9605dfe3ef08a0f7224edc720ea4812c214611",
+      "envs/place_bread_skillet.py": "b1fa08d7f23d8bcd933ea7d64904fea17f67dbe58101c66e42c6addbfdbbcd73",
+      "envs/adjust_bottle.py": "4f76b35e718a4c5a364dae564d35d68268755818d9062e3ed4ff393d158d0548",
+      "envs/stack_blocks_two.py": "4e92a679cb5be4ef87a1b842432c930560a2c9b539a4cbcee0161e2b2112f526",
+      "envs/turn_switch.py": "035e108a861f94f61369ba2221431e123b7ac231e8de683d8bf38090bf021f9a",
+      "envs/lift_pot.py": "347e06f3f9f82b1bc35882671bbbdea50b6e3c77fff0f7fb4449b024875402eb",
+      "envs/open_laptop.py": "b826d4f36513dba6df3c17b65f1251bf3dbe2994857ba672f4d06c5900c0cac0",
+      "envs/place_burger_fries.py": "19e8a3428e677839e7e51ae6488752acc940a7d2bc8ee54587c354b422ba6d2c",
+      "envs/shake_bottle_horizontally.py": "def5f373a3a289c946bb32c6d01145672432dbe1d2b71a10992e5280d5f8dead",
+      "envs/stamp_seal.py": "28a159e27aa76459355fa1f81e962815c62ee6435727039d73664b7eb6731b82",
+      "envs/place_shoe.py": "9e9b29eaca488f41617127070add87f33900c37db0d286a4c4b08e2138cbfc6f",
+      "envs/place_fan.py": "7e8be55f1f26ce6128c254b50464edc438a96f272581ccb19827521bc679c237",
+      "envs/place_phone_stand.py": "719cf84ebf997b8d15d0ef9f997d439da62d64067a292b6008433da3536a0216",
+      "envs/move_stapler_pad.py": "c2b7aa7bf4e896afc392a8cf1ac107b6982088a459c716de005a3412fcdedd6d",
+      "envs/rotate_qrcode.py": "382165e22a2a52a73958ff69c662e57a4d1f0bc8cb7cecf3e9dd1f5ba11defa9",
+      "envs/place_a2b_left.py": "8603f48febcb5b5b534dc7d973ac4651264ebb9c6fb60f199d4d2adc9e14d7cd",
+      "envs/place_mouse_pad.py": "369bf399d0fd6a2687abb7d80b8feb6101c8b5405d33f9de63bbbdaaea7b73d0",
+      "envs/place_object_scale.py": "555f04a2a2fa0a41ad8dfccd771579d1cc2686fc65ad6c7ef297c98f4c9ba310",
+      "envs/beat_block_hammer.py": "90269f15f9ce274fb5bcad703c47b0b552ff5a2f0a3ff62d12dbe9a553018014",
+      "envs/place_a2b_right.py": "1225e32207912e15855deff8aa9d4fd2cf425b4c5eeaeaf1eb795daaba4ac6ae",
+      "envs/place_container_plate.py": "7a288f27f61e96fe905d5cfb80eb0a4fd8e490c829f2f02149951266012a3aee",
+      "envs/place_empty_cup.py": "424bbd61f990ebfffb283eb152d17103c2a990edd20f68229203a96a2fd4d581",
+      "envs/grab_roller.py": "f0e1864199605acf59cf8982dded05129d873bb3934f200e47abafd918d41c89",
+      "envs/place_object_stand.py": "0b4db3a679230ff3732b9bfdfcfaba3437bd5f942043de9921240118849e3fe8",
+      "envs/click_alarmclock.py": "f69a1ad4f1b483ab0dd82d8bad872e12047ed8d898f1fa4058de9e382ddeef49",
+      "envs/press_stapler.py": "69274cf09aa1d4ba51469621461683b5225b8f98cf7837f821e848196ce51f9c",
+      "envs/click_bell.py": "a0b7673e6ef842738999acbccaaa3d01f86d62a147bb8387cb92163218db48ac",
+      "envs/move_playingcard_away.py": "edf557d5a29ab724860651e24398e03c400a71e4c82bdbf2cedd3958fbfb6cc2"
+    },
+    "author_language_source_sha256": "ef428fa9066c3025d41e2fabcbf894d1d4313bd12bee0a300d19d3d7d1158f24",
+    "online_expert_revalidation": false,
+    "allow_reseed": false,
+    "selection_rule": "ordered author cache slice; independent of learned-teacher performance",
+    "instruction_sampling": "pinned author generator; max_descriptions=100; Python random seeded by scene_seed; random.Random(scene_seed).choice(unseen)",
+    "noise_rule": "torch.manual_seed(actual_scene_seed) once per episode; production predict_action_batch draws subsequent noise",
+    "screening_overrides": {},
+    "task_config": {
+      "planner_backend": "mplib",
+      "render_freq": 0,
+      "episode_num": 50,
+      "use_seed": false,
+      "save_freq": 15,
+      "embodiment": [
+        "aloha-agilex"
+      ],
+      "language_num": 100,
+      "domain_randomization": {
+        "random_background": false,
+        "cluttered_table": false,
+        "clean_background_rate": 1,
+        "random_head_camera_dis": 0,
+        "random_table_height": 0,
+        "random_light": false,
+        "crazy_random_light_rate": 0
+      },
+      "camera": {
+        "head_camera_type": "D435",
+        "wrist_camera_type": "D435",
+        "collect_head_camera": true,
+        "collect_wrist_camera": true
+      },
+      "data_type": {
+        "rgb": true,
+        "third_view": false,
+        "depth": false,
+        "pointcloud": false,
+        "observer": false,
+        "endpose": true,
+        "qpos": true,
+        "mesh_segmentation": false,
+        "actor_segmentation": false
+      },
+      "pcd_down_sample_num": 1024,
+      "pcd_crop": true,
+      "save_path": "./outputs/robotwin4/simulator",
+      "clear_cache_freq": 1,
+      "collect_data": true,
+      "eval_video_log": false
+    },
+    "task_config_sha256": "1ed523b78109efb6d1f1522dd4b9fb3f554617ba8e8179b9426f40c608d9ebec",
+    "task_horizons": {
+      "adjust_bottle": 400,
+      "handover_mic": 600,
+      "place_container_plate": 400,
+      "stack_bowls_two": 900
+    },
+    "robotwin_revision": "dca9ec682688821c42944eacd7f5dd9bfb15396f",
+    "source_files_sha256": {
+      "description/task_instruction/adjust_bottle.json": "fa82a82a7c64498407896ab171bf731eddd679bd2189b827404a8feb3ffb237b",
+      "description/task_instruction/handover_mic.json": "99452881cf54850a3054ec4636327fadc5ac082562a1f1983d5383eec21e01dd",
+      "description/task_instruction/place_container_plate.json": "77af29299c38e4604398f52930ed0be76d8f82e00fffe2d0926146abcb3d227c",
+      "description/task_instruction/stack_bowls_two.json": "9d86d73e6bac43a9f7057dad27fde71e60391f97acbd01188e048094c0b63185",
+      "description/utils/generate_episode_instructions.py": "2770fbe4d5d91d96c7e2f15a4d3378f882a28d54407d5d5501918ae2e5a93955",
+      "envs/_base_task.py": "3ec50617672b3658122b0644bbda1afaec4a0c2d47c9a8b6b61b48e0bad303fd",
+      "envs/adjust_bottle.py": "fc9288b497d588588d495540a7f42f18b5d50832f8b0169356b64925e26b0830",
+      "envs/camera/__init__.py": "c666ede4ebee6fd286a444c8fa966e1bf2034a2fd1fe1a04c7f8a55fd0ba6df6",
+      "envs/camera/camera.py": "49ff2005d14749caa5fd9698d35f6f937664bde89cfdf0ab93675204c85bbf33",
+      "envs/handover_mic.py": "f0b043b26993ac1cec851a467715bff926f84d6078aabeb4113c24a9a94a230d",
+      "envs/place_container_plate.py": "39618012d97fd810318a113546ef9a5ae5fca7342848dbb6b5fb8260aa378736",
+      "envs/robot/__init__.py": "dd712aa0e0201076c7b9e751581e108081a08fdd927270390656c9a2e3d7cbc7",
+      "envs/robot/ik.py": "0e478b525adbeeb1b1de7674e1a00353d1d75eee666537ff0c1c13d3187322fe",
+      "envs/robot/planner.py": "178a72a7b6ededee66e7f78ebc35e7c39c4a855a1d713b90a01a32868d49f24a",
+      "envs/robot/robot.py": "1f4d0284eaf47fe5de2c0ba98a173b78beb83f2f2cc43409d37072a4774df4c8",
+      "envs/stack_bowls_two.py": "79d0dd8099fae8a9c8caa82423b4f19ef1604158d84a1abb22555819707ca436",
+      "robotwin/envs/vector_env.py": "3a068625f08e006162a5583ddf5175e42ad9ab7941d1016de89bbb7fe63ebc0d",
+      "task_config/_camera_config.yml": "dc80a40552e0fad25d58cf0141302ceba66d22409b5091bed235ad2f10cbce7f",
+      "task_config/_embodiment_config.yml": "8613e6996d05b7eed247c50227b3cd717ae8e0150334963ba940049007c910d9",
+      "task_config/_eval_step_limit.yml": "41c62bd26184977bae45aee555edd0cc21de5cddf560c2595921fc23a1e3b551",
+      "task_config/demo_clean.yml": "865af205a90c3e7ffe4b4dd3db06955609f1b58c76d997e18894d8195a361566"
+    },
+    "runtime_profile": {
+      "profile": "pi05-four-task",
+      "sapien_version": "3.0.0b1",
+      "sapien_distribution_version": "3.0.0b1",
+      "sapien_module_path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/reference/sapien300b1_cp311_utf8_vendor/sapien/__init__.py",
+      "sapien_module_sha256": "f883d253d8d29ee47cc46917c39d2ac4c3832cb8908eb02d1b836ec9cf20fcc4",
+      "robotwin_revision": "dca9ec682688821c42944eacd7f5dd9bfb15396f",
+      "robotwin_source_sha256": {
+        "envs/_base_task.py": "3ec50617672b3658122b0644bbda1afaec4a0c2d47c9a8b6b61b48e0bad303fd",
+        "envs/robot/robot.py": "1f4d0284eaf47fe5de2c0ba98a173b78beb83f2f2cc43409d37072a4774df4c8",
+        "envs/camera/camera.py": "49ff2005d14749caa5fd9698d35f6f937664bde89cfdf0ab93675204c85bbf33",
+        "task_config/demo_clean.yml": "865af205a90c3e7ffe4b4dd3db06955609f1b58c76d997e18894d8195a361566",
+        "task_config/_camera_config.yml": "dc80a40552e0fad25d58cf0141302ceba66d22409b5091bed235ad2f10cbce7f"
+      },
+      "sapien_content_fingerprint": {
+        "scheme": "sapien-installed-payload-sha256-v1",
+        "sha256": "a77d6d85380564ba32a07213fd7fbb1faa7a32fb2f5dd561a694f9e282767691",
+        "file_count": 1142,
+        "total_bytes": 109324823
+      },
+      "sapien_vendor_manifest": {
+        "distribution": "sapien",
+        "version": "3.0.0b1",
+        "python_abi": "cp311",
+        "wheel_filename": "sapien-3.0.0b1-cp311-cp311-manylinux2014_x86_64.whl",
+        "wheel_sha256": "d9497375c9dc26f07b82ba08f347f7ff5df063c057d2744aec0521568ffeb096",
+        "source": "https://pypi.org/project/sapien/3.0.0b1/",
+        "installation": "pip install --no-deps --no-index --target NEW_VENDOR_DIR WHEEL",
+        "local_patches": [
+          {
+            "name": "explicit-utf8-urdf-srdf-reading",
+            "file": "sapien/wrapper/urdf_loader.py",
+            "before_sha256": "eabba86fe7d244ce8d469010f96914010a8883ea5835c86a8bc58be310510683",
+            "after_sha256": "13aad693f05663472a4f1b59ea34fb313db6ee2f1416fce19ad4830cfa588059",
+            "matches": "toolkits/robotwin_mopd/setup/finalize_runtime.sh exact replacements"
+          }
+        ],
+        "snapshot_evidence": "outputs/robotwin4/analysis/teacher_reaudit_20261102/sapien_snapshot_ablation_20261102.json",
+        "closed_loop_evidence": "outputs/robotwin4/analysis/teacher_reaudit_20261102/cached_localenv_rlinf_sapien300b1_10/results.json"
+      }
+    }
+  },
+  "tasks": {
+    "adjust_bottle": [
+      {
+        "scene_seed": 100001,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "right"
+        },
+        "instruction": "Use the right arm to grab the bottle with red screw cap head-up."
+      },
+      {
+        "scene_seed": 100002,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Pick up the green plastic bottle with ridged bottom carefully using the left arm"
+      },
+      {
+        "scene_seed": 100005,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Pick up the green bottle carefully using the left arm"
+      },
+      {
+        "scene_seed": 100006,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "right"
+        },
+        "instruction": "Lift the plastic soda bottle from the table using the right arm."
+      },
+      {
+        "scene_seed": 100008,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Use the left arm to grab the bottle the green plastic bottle with ridged bottom"
+      },
+      {
+        "scene_seed": 100010,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "right"
+        },
+        "instruction": "Use the right arm to grab the bottle the green plastic bottle with ridged bottom"
+      },
+      {
+        "scene_seed": 100012,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Use the left arm to grab the green bottle with white label upright"
+      },
+      {
+        "scene_seed": 100013,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "right"
+        },
+        "instruction": "Pick up the brown bottle from the table head-up."
+      },
+      {
+        "scene_seed": 100015,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "right"
+        },
+        "instruction": "Pick up the plastic soda bottle carefully using the right arm"
+      },
+      {
+        "scene_seed": 100016,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "right"
+        },
+        "instruction": "Lift the brown bottle from the table using the right arm."
+      },
+      {
+        "scene_seed": 100021,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "right"
+        },
+        "instruction": "Pick up the green bottle with white label from the table head-up."
+      },
+      {
+        "scene_seed": 100022,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Pick up the green plastic bottle with ridged bottom using the correct arm"
+      },
+      {
+        "scene_seed": 100023,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "left"
+        },
+        "instruction": "Use the left arm to grab the brown bottle head-up."
+      },
+      {
+        "scene_seed": 100024,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Grab the green bottle on the table and raise it."
+      },
+      {
+        "scene_seed": 100025,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "right"
+        },
+        "instruction": "Lift the green bottle from the table using the right arm."
+      },
+      {
+        "scene_seed": 100026,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Grab the green plastic bottle with ridged bottom from the table with the left arm"
+      },
+      {
+        "scene_seed": 100027,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Grab the green bottle from the table with the left arm"
+      },
+      {
+        "scene_seed": 100028,
+        "episode_info": {
+          "{A}": "001_bottle/base13",
+          "{a}": "left"
+        },
+        "instruction": "Grab the bottle with red screw cap from the table with the left arm"
+      },
+      {
+        "scene_seed": 100030,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "left"
+        },
+        "instruction": "Use the left arm to grab the green plastic bottle with ridged bottom head-up."
+      },
+      {
+        "scene_seed": 100031,
+        "episode_info": {
+          "{A}": "001_bottle/base16",
+          "{a}": "right"
+        },
+        "instruction": "Use the right arm to grab the green bottle with white label upright"
+      }
+    ],
+    "handover_mic": [
+      {
+        "scene_seed": 100000,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Take hold of the black and white plastic microphone and hand it over."
+      },
+      {
+        "scene_seed": 100001,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Pick up the black and white plastic microphone and hand it over"
+      },
+      {
+        "scene_seed": 100003,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the switchable microphone with teal body from the table and pass it across."
+      },
+      {
+        "scene_seed": 100004,
+        "episode_info": {
+          "{A}": "018_microphone/base4",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Take hold of the compact microphone with two parts and hand it over."
+      },
+      {
+        "scene_seed": 100005,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Pick up the microphone used for audio input and hand it over"
+      },
+      {
+        "scene_seed": 100006,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the switchable microphone with teal body and pass it to the other arm."
+      },
+      {
+        "scene_seed": 100007,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the microphone used for audio input and pass it to the other arm."
+      },
+      {
+        "scene_seed": 100008,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Pick up the long teal microphone with white grooves and hand it over"
+      },
+      {
+        "scene_seed": 100009,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Pick up the switchable microphone with teal body and transfer it to the other hand."
+      },
+      {
+        "scene_seed": 100010,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Take hold of the long teal microphone with white grooves and hand it over."
+      },
+      {
+        "scene_seed": 100011,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Use one arm to hold the teal microphone with white bottom and hand it over."
+      },
+      {
+        "scene_seed": 100012,
+        "episode_info": {
+          "{A}": "018_microphone/base4",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the compact microphone with two parts and pass it to the other arm."
+      },
+      {
+        "scene_seed": 100013,
+        "episode_info": {
+          "{A}": "018_microphone/base4",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Use one arm to hold the handheld microphone and hand it over."
+      },
+      {
+        "scene_seed": 100014,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Pick up the lightweight handheld microphone and transfer it to the other hand."
+      },
+      {
+        "scene_seed": 100015,
+        "episode_info": {
+          "{A}": "018_microphone/base4",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Pick up the compact microphone with two parts and hand it over"
+      },
+      {
+        "scene_seed": 100016,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Pick up the microphone used for audio input and transfer it to the other hand."
+      },
+      {
+        "scene_seed": 100018,
+        "episode_info": {
+          "{A}": "018_microphone/base0",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Take hold of the switchable microphone with teal body and hand it over."
+      },
+      {
+        "scene_seed": 100020,
+        "episode_info": {
+          "{A}": "018_microphone/base5",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Grab the black and white plastic microphone from the table and pass it across."
+      },
+      {
+        "scene_seed": 100021,
+        "episode_info": {
+          "{A}": "018_microphone/base4",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Pick up the compact microphone with two parts and hand it over"
+      },
+      {
+        "scene_seed": 100022,
+        "episode_info": {
+          "{A}": "018_microphone/base4",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Pick up the microphone with cylindrical handle and hand it over"
+      }
+    ],
+    "place_container_plate": [
+      {
+        "scene_seed": 100000,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base3",
+          "{a}": "right"
+        },
+        "instruction": "Set the container on the gray plate for dining with the small smooth brown-rimmed bowl."
+      },
+      {
+        "scene_seed": 100003,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base5",
+          "{a}": "right"
+        },
+        "instruction": "Grab container with the cup with rounded edges, place it on the smooth round plate for serving."
+      },
+      {
+        "scene_seed": 100004,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base2",
+          "{a}": "right"
+        },
+        "instruction": "Grab container with the brown cylinder cup holds liquids, place it on the smooth round plate for serving."
+      },
+      {
+        "scene_seed": 100005,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base3",
+          "{a}": "left"
+        },
+        "instruction": "Grab container with the light blue bowl with darkened rim, place it on the smooth round plate for serving."
+      },
+      {
+        "scene_seed": 100006,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base5",
+          "{a}": "right"
+        },
+        "instruction": "Grab container with the cup made of metal, place it on the smooth round plate for serving."
+      },
+      {
+        "scene_seed": 100007,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base2",
+          "{a}": "right"
+        },
+        "instruction": "Place the container onto the gray plate with the smooth light gray bowl"
+      },
+      {
+        "scene_seed": 100008,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base2",
+          "{a}": "left"
+        },
+        "instruction": "Place the container onto the smooth round plate for serving with the simple round bowl"
+      },
+      {
+        "scene_seed": 100009,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base1",
+          "{a}": "right"
+        },
+        "instruction": "Set the container on the gray plate with the black and white round bowl."
+      },
+      {
+        "scene_seed": 100010,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base2",
+          "{a}": "left"
+        },
+        "instruction": "Grab container with the smooth light gray bowl, place it on the smooth round plate for serving."
+      },
+      {
+        "scene_seed": 100011,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base3",
+          "{a}": "right"
+        },
+        "instruction": "Place the container onto the gray plate with the smooth bowl with glossy finish"
+      },
+      {
+        "scene_seed": 100012,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base3",
+          "{a}": "right"
+        },
+        "instruction": "Place the container onto the gray plate for dining with the smooth green cup"
+      },
+      {
+        "scene_seed": 100014,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base4",
+          "{a}": "left"
+        },
+        "instruction": "Move the black-bottomed cup to set the container on the smooth round plate for serving"
+      },
+      {
+        "scene_seed": 100015,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base3",
+          "{a}": "right"
+        },
+        "instruction": "Move the green cup to set the container on the smooth round plate for serving"
+      },
+      {
+        "scene_seed": 100016,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base3",
+          "{a}": "left"
+        },
+        "instruction": "Move the green cup to set the container on the smooth round plate for serving"
+      },
+      {
+        "scene_seed": 100017,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base2",
+          "{a}": "left"
+        },
+        "instruction": "Place the container onto the gray plate for dining with the simple round bowl"
+      },
+      {
+        "scene_seed": 100018,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base5",
+          "{a}": "left"
+        },
+        "instruction": "Grab container with the cup made of metal, place it on the smooth round plate for serving."
+      },
+      {
+        "scene_seed": 100019,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base3",
+          "{a}": "left"
+        },
+        "instruction": "Set the container on the gray plate with the smooth bowl with glossy finish."
+      },
+      {
+        "scene_seed": 100020,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "002_bowl/base1",
+          "{a}": "left"
+        },
+        "instruction": "Move the black and white round bowl to set the container on the smooth round plate for serving"
+      },
+      {
+        "scene_seed": 100021,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base5",
+          "{a}": "left"
+        },
+        "instruction": "Grab container with the cup with rounded edges, place it on the gray plate."
+      },
+      {
+        "scene_seed": 100023,
+        "episode_info": {
+          "{A}": "003_plate/base0",
+          "{B}": "021_cup/base4",
+          "{a}": "right"
+        },
+        "instruction": "Grab container with the small round drinkable cup, place it on the gray plate for dining."
+      }
+    ],
+    "stack_bowls_two": [
+      {
+        "scene_seed": 100000,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Place the small smooth brown-rimmed bowl carefully over the small smooth brown-rimmed bowl to stack them."
+      },
+      {
+        "scene_seed": 100001,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "left",
+          "{b}": "left"
+        },
+        "instruction": "Pick up the light blue bowl with darkened rim and stack the smooth bowl with glossy finish above."
+      },
+      {
+        "scene_seed": 100002,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the small smooth brown-rimmed bowl and stack the small smooth brown-rimmed bowl on it."
+      },
+      {
+        "scene_seed": 100003,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Stack the small smooth brown-rimmed bowl directly over the light blue bowl with darkened rim."
+      },
+      {
+        "scene_seed": 100004,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Place the light blue bowl with darkened rim down, then put the light blue bowl with darkened rim on top."
+      },
+      {
+        "scene_seed": 100006,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "right"
+        },
+        "instruction": "Place the smooth bowl with glossy finish onto the light blue bowl with darkened rim to form a stack."
+      },
+      {
+        "scene_seed": 100008,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Stack the light blue bowl with darkened rim directly over the small smooth brown-rimmed bowl."
+      },
+      {
+        "scene_seed": 100009,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Grab the smooth bowl with glossy finish and stack the small smooth brown-rimmed bowl on it."
+      },
+      {
+        "scene_seed": 100011,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "right"
+        },
+        "instruction": "Grab the smooth bowl with glossy finish and stack the smooth bowl with glossy finish on it."
+      },
+      {
+        "scene_seed": 100014,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the light blue bowl with darkened rim, then set the smooth bowl with glossy finish on top."
+      },
+      {
+        "scene_seed": 100015,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Place the light blue bowl with darkened rim down, then put the smooth bowl with glossy finish on top."
+      },
+      {
+        "scene_seed": 100016,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the light blue bowl with darkened rim, then set the smooth bowl with glossy finish on top."
+      },
+      {
+        "scene_seed": 100017,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Take the light blue bowl with darkened rim, set it down, and stack the light blue bowl with darkened rim on top."
+      },
+      {
+        "scene_seed": 100020,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "left",
+          "{b}": "right"
+        },
+        "instruction": "Place the small smooth brown-rimmed bowl carefully over the light blue bowl with darkened rim to stack them."
+      },
+      {
+        "scene_seed": 100021,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Place the small smooth brown-rimmed bowl onto the smooth bowl with glossy finish to form a stack."
+      },
+      {
+        "scene_seed": 100022,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "left",
+          "{b}": "left"
+        },
+        "instruction": "Place the light blue bowl with darkened rim carefully over the small smooth brown-rimmed bowl to stack them."
+      },
+      {
+        "scene_seed": 100023,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Place the small smooth brown-rimmed bowl onto the small smooth brown-rimmed bowl to form a stack."
+      },
+      {
+        "scene_seed": 100024,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "left",
+          "{b}": "left"
+        },
+        "instruction": "Place the smooth bowl with glossy finish carefully over the smooth bowl with glossy finish to stack them."
+      },
+      {
+        "scene_seed": 100025,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Stack the smooth bowl with glossy finish directly over the smooth bowl with glossy finish."
+      },
+      {
+        "scene_seed": 100026,
+        "episode_info": {
+          "{A}": "002_bowl/base3",
+          "{B}": "002_bowl/base3",
+          "{a}": "right",
+          "{b}": "left"
+        },
+        "instruction": "Grab the small smooth brown-rimmed bowl and stack the small smooth brown-rimmed bowl on it."
+      }
+    ]
+  },
+  "pool_content_sha256": "87c00508a7f49ed31bbbc6cdf5190258600429f48b142e74cf87ed276d14c06c"
+}

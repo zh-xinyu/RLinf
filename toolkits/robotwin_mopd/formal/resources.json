@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "initialization": "Joint-SFT2000 (500 + 1500; fresh optimizer at continuation)",
+  "teacher_repository": "niejunnan25/pi05-robotwin",
+  "teacher_revision": "17ef545270cf26ed81169893b60f845f80ce6557",
+  "files": {
+    "teachers/adjust_bottle/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "20c4433c65cd6f74e0e125249d5fa97228e79416cc4ff7d6616bebba726007ee"
+    },
+    "teachers/adjust_bottle/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/adjust_bottle/conversion.json": {
+      "bytes": 853,
+      "sha256": "6710c62c4a9c706694bed04506b9ebc0fb96ebc264da3d58db11de4cbdba7dfe"
+    },
+    "teachers/adjust_bottle/assets/robotwin/norm_stats.json": {
+      "bytes": 3286,
+      "sha256": "21c2ec14c6a638f2dbcacdb41fd51dcce97d4142f2e597c074a5891919c64633"
+    },
+    "teachers/handover_mic/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "47fa9822a00da23c6d869c0fec48a4ef9ee217da530a1ec595e314f0c43c1d55"
+    },
+    "teachers/handover_mic/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/handover_mic/conversion.json": {
+      "bytes": 851,
+      "sha256": "ad7222cfd3e9592d4b0cbdeb98d31556daaa538675a58e3066117ae4793e3d7f"
+    },
+    "teachers/handover_mic/assets/robotwin/norm_stats.json": {
+      "bytes": 3276,
+      "sha256": "91b5137d7b0bf5dcdf4587180c169bda14147d7b34f1e2e9cc57a97c7d389be2"
+    },
+    "teachers/place_container_plate/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "113b052b7d9b074bb4bcab7569b00c6ee002157acab09cb18b7cae8bfa1143e6"
+    },
+    "teachers/place_container_plate/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/place_container_plate/conversion.json": {
+      "bytes": 869,
+      "sha256": "f6d3dfb2b889863168394affad67704d0da8316438a374e1588e2f245db0c702"
+    },
+    "teachers/place_container_plate/assets/robotwin/norm_stats.json": {
+      "bytes": 3306,
+      "sha256": "a5529851b73d593945ac705ff01e435c9c3f69dce6c26ff3c7c3a758cae5690d"
+    },
+    "teachers/stack_bowls_two/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "15c14afa815f53d2ec7c332464248c2f9ed09c47e14d6205e5dc62264f55dba7"
+    },
+    "teachers/stack_bowls_two/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/stack_bowls_two/conversion.json": {
+      "bytes": 857,
+      "sha256": "11e2bcb959470337e7a427957698d46752300e961ba8734e2c9480adc1517360"
+    },
+    "teachers/stack_bowls_two/assets/robotwin/norm_stats.json": {
+      "bytes": 3382,
+      "sha256": "7ae95e854e317cc1542db8ba8ba15446ade99ea49c76674ee44f4e33b7384dd5"
+    },
+    "student/actor/model_state_dict/full_weights.pt": {
+      "bytes": 16573945133,
+      "sha256": "3ceedc83aa566bfbe967ed9f9e83aea00fef942b3d5d965e7357f90f3fe08d9b"
+    },
+    "student/metadata.json": {
+      "bytes": 3843,
+      "sha256": "c014dcfbc9c631cc2372678d32b7a83a1b7f83957cd40f8b870821cae6f42a4e"
+    },
+    "openpi-data/big_vision/paligemma_tokenizer.model": {
+      "bytes": 4264023,
+      "sha256": "8986bb4f423f07f8c7f70d0dbe3526fb2316056c17bae71b1ea975e77a168fc6"
+    }
+  }
+}

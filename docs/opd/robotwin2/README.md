@@ -37,3 +37,7 @@
 | [初始设计存档](experiments/initial_design_20261020.md) | 保留早期计划，不代表当前状态 |
 
 RoboTwin依赖继续与RoboCasa profile隔离。后续调试以训练路径验证和有限初始化试验为范围。后续是否推进正式实验应以任务成功率为依据。
+
+## 当前正式交接
+
+[四任务SFT2000、100 episodes/task交接](../handoffs/robotwin2_formal_sft2000_20261103/README.md)取代旧50/task候选。首轮seed0完成后再安排多seed。

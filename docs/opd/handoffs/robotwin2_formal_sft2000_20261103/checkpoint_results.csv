@@ -1,0 +1,15 @@
+experiment,training_seed,rollout_round,episodes_per_task,adjust_bottle,handover_mic,place_container_plate,stack_bowls_two,task_macro_sr,status
+teachers,,0,100,,,,,,PENDING
+student,,0,100,,,,,,PENDING
+m0,0,5,100,,,,,,PENDING
+m0,0,10,100,,,,,,PENDING
+m0,0,15,100,,,,,,PENDING
+m0,0,20,100,,,,,,PENDING
+m1,0,5,100,,,,,,PENDING
+m1,0,10,100,,,,,,PENDING
+m1,0,15,100,,,,,,PENDING
+m1,0,20,100,,,,,,PENDING
+m2,0,5,100,,,,,,PENDING
+m2,0,10,100,,,,,,PENDING
+m2,0,15,100,,,,,,PENDING
+m2,0,20,100,,,,,,PENDING

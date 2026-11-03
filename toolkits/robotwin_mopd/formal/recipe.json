@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "rounds": 20,
+  "save_rounds": [
+    5,
+    10,
+    15,
+    20
+  ],
+  "eval_episodes_per_task": 100,
+  "initialization": "Joint-SFT2000",
+  "tasks": [
+    "adjust_bottle",
+    "handover_mic",
+    "place_container_plate",
+    "stack_bowls_two"
+  ],
+  "common_overrides": [
+    "actor.fsdp_config.enable_gradient_accumulation=false",
+    "env.train.total_num_envs=32",
+    "actor.global_batch_size=128",
+    "actor.micro_batch_size=4",
+    "actor.optim.lr=1e-5",
+    "actor.optim.value_lr=1e-5",
+    "actor.optim.lr_warmup_steps=4",
+    "actor.optim.lr_scheduler=constant",
+    "+actor.model.openpi.nft_full_horizon=true",
+    "actor.model.openpi.nft_joint_forward=true",
+    "actor.cast_trainable_params_to_fp32=true",
+    "actor.model.require_fp32_trainable_params=true",
+    "actor.fsdp_config.mixed_precision.param_dtype=null",
+    "actor.fsdp_config.mixed_precision.reduce_dtype=null",
+    "actor.fsdp_config.mixed_precision.buffer_dtype=null",
+    "actor.fsdp_config.amp_autocast.enabled=true",
+    "actor.fsdp_config.amp_autocast.precision=bf16",
+    "runner.resume_dir=null",
+    "runner.ckpt_path=null",
+    "runner.rollout_allocation.enabled=true",
+    "runner.rollout_allocation.rho=0.5",
+    "runner.rollout_allocation.epsilon=0.01",
+    "runner.rollout_allocation.warmup_rounds=5",
+    "runner.rollout_allocation.window_rounds=5",
+    "runner.rollout_allocation.interval_rounds=5",
+    "runner.rollout_allocation.min_task_episodes=5",
+    "runner.rollout_allocation.max_quota_change=4",
+    "algorithm.suite_balanced_sampling=true",
+    "runner.val_check_interval=-1",
+    "+algorithm.log_cuda_memory=true"
+  ],
+  "methods": {
+    "m0": {
+      "reuse": 1,
+      "adaptive": false
+    },
+    "m1": {
+      "reuse": 2,
+      "adaptive": false
+    },
+    "m2": {
+      "reuse": 2,
+      "adaptive": true
+    }
+  },
+  "task_horizons": {
+    "adjust_bottle": 400,
+    "handover_mic": 600,
+    "place_container_plate": 400,
+    "stack_bowls_two": 900
+  }
+}
