@@ -1,5 +1,20 @@
 # Release validation — 2026-10-31
 
+## Formal launch resource settings — 2026-11-03
+
+- Current-branch formal YAMLs use W&B project `FORMAL_robocasa_mopd` and the
+  same optional allocator cache settings in all four arms: prewarm 26 GiB,
+  retention bound 28 GiB per actor/GPU. Learning and evaluation controls are
+  unchanged. The original v1 tag is preserved.
+- Passed 78 targeted tests covering cache retention/preallocation, matrix
+  controls, suite distillation, refresh, and the reproduction workflow.
+- A real CUDA test reserved 26.018 GiB, reused a 2 GiB allocation without
+  growing the reservation, and preserved the checked matrix product and CUDA
+  RNG state. Temporary warmup tensors were released, leaving 0.008 GiB live.
+- The existing action10 runtime passed 281-package profile verification and
+  the FlashAttention GPU check. All four checkpoint inputs passed manifest
+  verification. These checks do not replace the full eight-GPU smoke run.
+
 ## Completed
 
 - Existing adaptive-sync, allocation resume/probes, suite metrics, and GR00T memory

@@ -12,7 +12,7 @@ runner:
   save_interval: 50
   val_check_interval: -1
   logger:
-    project_name: RoboCasa_MultiTeacher_Diagnostics
+    project_name: FORMAL_robocasa_mopd
     wandb_group: robocasa_formal_joint_sft_full_150r
   rollout_allocation:
     mode: uniform
@@ -27,7 +27,9 @@ algorithm:
 actor:
   global_batch_size: 2304
   micro_batch_size: 32
-  cuda_cache_retention_gib: 0
+  # Reusable actor cache; leaves room for colocated rollout/env workers on 48 GiB GPUs.
+  cuda_cache_retention_gib: 28
+  cuda_cache_preallocate_gib: 26
   seed: 0
   model:
     skip_backbone_logits: true

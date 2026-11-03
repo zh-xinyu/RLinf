@@ -47,7 +47,9 @@ def test_matrix_preserves_controls_and_round_budget(release_paths):
         assert cfg.actor.optim.lr == 3e-5
         assert cfg.actor.optim.lr_warmup_steps == 10
         assert cfg.actor.optim.lr_scheduler == "constant"
-        assert cfg.actor.cuda_cache_retention_gib == 0
+        assert cfg.actor.cuda_cache_retention_gib == 28
+        assert cfg.actor.cuda_cache_preallocate_gib == 26
+        assert cfg.runner.logger.project_name == "FORMAL_robocasa_mopd"
         assert cfg.actor.model.skip_backbone_logits
         assert cfg.algorithm.flow_observation_sampling == "full_pool"
     # Ignore only the intended experimental factors and unique output names.

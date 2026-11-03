@@ -67,7 +67,17 @@ Uniform allocation is32/32/32. Adaptive settings are rho0.5, epsilon0.01,
 20 uniform warmup **rounds**, window20, interval10, minimum5 episodes/task,
 minimum16 trajectories/suite, maximum quota change8. Synchronized loss weights
 are `alpha_s=3*q_s/96` using actual integer quotas, fixed for all R updates.
-Feature-only GR00T is enabled; CUDA cache retention is0 on dedicated GPUs.
+Feature-only GR00T is enabled. On the current branch, online runs use the
+`FORMAL_robocasa_mopd` project. All arms prewarm 26 GiB of reusable actor CUDA
+cache per GPU and retain it below a 28 GiB bound. This is allocator cache, not
+live ballast: model operations can reuse it without changing batches, RNG,
+losses, or updates. Initialization requires at least 8 GiB free after growing
+the cache for colocated workers; verify the total peak with the smoke run.
+This reduces low-memory windows but is not an exclusive GPU lock. CUDA may
+reclaim cache under pressure, and other processes can still cause OOM.
+The original `robocasa-mopd-joint-sft-full-v1` tag retains its previous logger
+project and zero-preallocation defaults; use the recorded run commit to
+reproduce the current resource settings.
 
 The first batch has one training seed, not a multi-seed aggregate. Do not
 change hyperparameters or initialize from an old pilot optimizer.
@@ -196,7 +206,7 @@ W&B is optional. The template uses `wandb_mode: "disabled"` and
 W&B login or backend. Offline mode keeps local W&B records without logging in.
 For online mode, choose your own username or any team you can write to and log
 in with your own account. Joining the project owner's team is not required.
-Online project: `RoboCasa_MultiTeacher_Diagnostics`; group: `robocasa_formal_joint_sft_full_150r`.
+Online project on the current branch: `FORMAL_robocasa_mopd`; group: `robocasa_formal_joint_sft_full_150r`.
 `WANDB_PROJECT` alone does not override the explicit YAML project.
 
 The same CSV schema and raw-file requirements apply to all modes. A missing
