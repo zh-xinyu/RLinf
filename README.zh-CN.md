@@ -26,7 +26,7 @@ unseen），共 50 个操作任务、3 个 specialist teachers；student 从全�
 | 独立评测 | [评测协议](evaluations/robocasa365/FORMAL_EVAL.md) |
 
 原八卡实验 tag：`robocasa-mopd-joint-sft-full-v1`。新分支
-`dev/robocasa-portable-launch` 同时支持四卡和八卡，并提供独立的 Blackwell CUDA12.8
+`release/robocasa-formal` 同时支持四卡和八卡，并提供独立的 Blackwell CUDA12.8
 profile；运行时固定到分配实验所指定的 commit。`opd-project-main` 继续作为开发基线。
 Blackwell profile 仍需在目标机器通过 smoke 才能开始正式实验。
 四组均从 Joint-SFT-Full 开始，每轮96条轨迹，训练150轮，每25轮保存；

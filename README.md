@@ -27,7 +27,7 @@ We study two complementary mechanisms:
 | Inspect the independent evaluation protocol | [RoboCasa365 evaluation](evaluations/robocasa365/FORMAL_EVAL.md) |
 
 The original eight-GPU release is pinned by `robocasa-mopd-joint-sft-full-v1`.
-Branch `dev/robocasa-portable-launch` adds four/eight-GPU resource selection and a
+Branch `release/robocasa-formal` adds four/eight-GPU resource selection and a
 separate Blackwell CUDA12.8 profile. Use the assigned exact commit for a run;
 `opd-project-main` remains the development base. The Blackwell profile requires
 a successful receiving-machine smoke before formal jobs.

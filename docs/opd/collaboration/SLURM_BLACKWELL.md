@@ -1,7 +1,7 @@
 # RoboCasa on Slurm: four or eight GPUs
 
 This branch separates **hardware settings** from the frozen scientific recipe.
-Use `dev/robocasa-portable-launch`, then check out the exact commit supplied with
+Use `release/robocasa-formal`, then check out the exact commit supplied with
 an experiment assignment. The earlier `robocasa-mopd-joint-sft-full-v1` tag does
 not contain this adaptation. Keep a clean, fixed checkout throughout all jobs.
 
@@ -39,7 +39,7 @@ the receiving machine's smoke test.** See [validation](VALIDATION.md) and the
 ## 2. Clone and fill one machine JSON
 
 ```bash
-git clone --branch dev/robocasa-portable-launch https://github.com/zh-xinyu/RLinf.git
+git clone --branch release/robocasa-formal https://github.com/zh-xinyu/RLinf.git
 cd RLinf
 # Use the exact commit from the task sheet before installation.
 git checkout <ASSIGNED_COMMIT>

@@ -151,7 +151,7 @@ installation checks and both smoke jobs remain required.
 
 ## Portable Slurm / Blackwell adaptation — 2026-11-03
 
-Branch: `dev/robocasa-portable-launch`. The original tags and main branch are
+Branch: `release/robocasa-formal`. The original tags and main branch are
 preserved. Four/eight-GPU selection changes placement and accumulation, keeping
 all four formal YAML recipes unchanged. Dedicated resource mode turns off the
 optional CUDA cache reservation. Slurm GPU visibility is retained as an explicit
