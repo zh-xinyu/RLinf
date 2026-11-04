@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Formal recipe budgets, scheduler constraints and result integrity."""
 
+import csv
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,7 +34,8 @@ def test_slurm_cpu_limit():
 
 
 @pytest.mark.parametrize(
-    "method,reuse,adaptive", [("m0", 1, False), ("m1", 2, False), ("m2", 2, True)]
+    "method,reuse,adaptive",
+    [("m0", 1, False), ("m1", 2, False), ("m2", 2, True), ("m3", 1, True)],
 )
 def test_matched_budget_and_refresh_contract(machine, method, reuse, adaptive):
     command = formal.train_command(machine, method, 0)
@@ -52,11 +56,11 @@ def test_matched_budget_and_refresh_contract(machine, method, reuse, adaptive):
 def test_every_checkpoint_gets_100_episodes(machine):
     jobs = [
         job
-        for target in ("student", "teachers", "m0", "m1", "m2")
+        for target in ("student", "teachers", "m0", "m1", "m2", "m3")
         for job in formal.eval_jobs(machine, target, 0)
     ]
-    assert len(jobs) == 56
-    assert len({job["output"] for job in jobs}) == 56
+    assert len(jobs) == 72
+    assert len({job["output"] for job in jobs}) == 72
     for job in jobs:
         command = job["command"]
         assert command[command.index("--episodes") + 1] == "100"
@@ -89,7 +93,10 @@ def test_prepare_materializes_external_tokenizer_link(machine, tmp_path, monkeyp
         formal.prepare(machine)
 
 
-def test_summary_rejects_wrong_checkpoint_and_reseed(machine, monkeypatch, tmp_path):
+@pytest.mark.parametrize("target", ["student", "m3"])
+def test_summary_rejects_wrong_checkpoint_and_reseed(
+    machine, monkeypatch, tmp_path, target
+):
     pool = {
         "pool_content_sha256": "frozen",
         "tasks": {
@@ -99,7 +106,7 @@ def test_summary_rejects_wrong_checkpoint_and_reseed(machine, monkeypatch, tmp_p
     }
     (tmp_path / "formal100.json").write_text(json.dumps(pool))
     monkeypatch.setattr(formal, "HERE", tmp_path)
-    job = formal.eval_jobs(machine, "student", 0)[0]
+    job = formal.eval_jobs(machine, target, 0)[0]
     path = Path(job["output"])
     path.parent.mkdir(parents=True)
     result = {
@@ -136,3 +143,43 @@ def test_summary_rejects_wrong_checkpoint_and_reseed(machine, monkeypatch, tmp_p
     path.write_text(json.dumps(result))
     with pytest.raises(ValueError, match="checkpoint"):
         formal.summarize(machine)
+
+
+def test_cli_plan_and_summary_include_complete_factorial_matrix(machine, tmp_path):
+    """The public plan and result table must expose both factors at both levels."""
+    config = {
+        **machine,
+        "pace_reference_root": str(tmp_path / "pace"),
+        "wandb_mode": "disabled",
+        "profile": "blackwell-cu128-candidate",
+    }
+    path = tmp_path / "machine.json"
+    path.write_text(json.dumps(config))
+    command = [
+        sys.executable,
+        str(formal.HERE / "experiment.py"),
+        "--machine",
+        str(path),
+    ]
+    plan = json.loads(subprocess.check_output([*command, "plan"], text=True))
+    assert set(plan["training"]) == {"m0", "m1", "m2", "m3"}
+    assert len(plan["evaluation"]) == 72
+    m3_jobs = formal.eval_jobs(machine, "m3", 0)
+    assert {Path(job["checkpoint"]).name for job in m3_jobs} == {
+        "global_step_5",
+        "global_step_10",
+        "global_step_15",
+        "global_step_20",
+    }
+    subprocess.run([*command, "summarize"], check=True)
+    table = Path(machine["output_root"]) / "deliverables/checkpoint_results.csv"
+    with table.open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 18
+    assert {int(row["rollout_round"]) for row in rows if row["experiment"] == "m3"} == {
+        5,
+        10,
+        15,
+        20,
+    }
+    assert all(row["status"] == "PENDING" and not row["task_macro_sr"] for row in rows)

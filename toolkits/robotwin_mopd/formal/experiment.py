@@ -17,6 +17,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 RECIPE = json.loads((HERE / "recipe.json").read_text())
 TASKS = RECIPE["tasks"]
+METHODS = tuple(RECIPE["methods"])
+EVAL_TARGETS = ("teachers", "student", *METHODS)
 
 
 def digest(path: Path) -> str:
@@ -314,7 +316,7 @@ def summarize(machine: dict) -> None:
     """Validate episode identity and emit a table with missing values left blank."""
     pool = json.loads((HERE / "formal100.json").read_text())
     rows = []
-    for target in ("teachers", "student", "m0", "m1", "m2"):
+    for target in EVAL_TARGETS:
         jobs = eval_jobs(machine, target, 0)
         for offset in range(0, len(jobs), 4):
             group = jobs[offset : offset + 4]
@@ -423,9 +425,7 @@ def main() -> None:
             "summarize",
         ),
     )
-    parser.add_argument(
-        "target", nargs="?", choices=("m0", "m1", "m2", "student", "teachers")
-    )
+    parser.add_argument("target", nargs="?", choices=EVAL_TARGETS)
     args = parser.parse_args()
     machine = read_machine(args.machine)
     if args.action == "plan":
@@ -436,9 +436,7 @@ def main() -> None:
                         m: train_command(machine, m, 0) for m in RECIPE["methods"]
                     },
                     "evaluation": [
-                        j
-                        for t in ("student", "teachers", "m0", "m1", "m2")
-                        for j in eval_jobs(machine, t, 0)
+                        j for t in EVAL_TARGETS for j in eval_jobs(machine, t, 0)
                     ],
                 },
                 indent=2,
@@ -491,7 +489,7 @@ def main() -> None:
         )
     elif args.action in ("train", "smoke"):
         if args.target not in RECIPE["methods"]:
-            parser.error("train/smoke requires m0, m1 or m2")
+            parser.error(f"train/smoke requires one of {', '.join(METHODS)}")
         if not (
             Path(machine["output_root"]) / "prepared/resource_verification.json"
         ).exists():

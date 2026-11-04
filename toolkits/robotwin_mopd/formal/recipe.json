@@ -59,6 +59,10 @@
     "m2": {
       "reuse": 2,
       "adaptive": true
+    },
+    "m3": {
+      "reuse": 1,
+      "adaptive": true
     }
   },
   "task_horizons": {

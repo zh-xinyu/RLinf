@@ -48,7 +48,7 @@ for task in ("adjust_bottle", "handover_mic", "place_container_plate", "stack_bo
 PY
 python3 "$entry" --machine "$1" eval teachers
 python3 "$entry" --machine "$1" eval student
-for method in m0 m1 m2; do
+for method in m0 m1 m2 m3; do
     python3 "$entry" --machine "$1" train "$method"
     python3 "$entry" --machine "$1" eval "$method"
 done
