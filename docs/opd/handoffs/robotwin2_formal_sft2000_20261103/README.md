@@ -1,8 +1,8 @@
 # RoboTwin 2.0 四任务正式实验交接
 
-状态：交接候选版，本机配置、协议与小规模GPU检查已通过；Blackwell 实机验收未完成，尚未发布远端固定版本。不要把本文件理解为已经验证过 Blackwell 的正式 release。
+状态：交接候选版，本机配置、协议与小规模GPU检查已通过；Blackwell 实机验收未完成；代码通过下述实验分支交付。不要把本文件理解为已经验证过 Blackwell 的正式 release。
 
-代码分支：`dev/robotwin2-formal-handoff`。从 `opd-project-main@5d1d1494` 建立，fast-forward 纳入已验证的 RoboTwin 开发提交至 `9345146b`，再添加本交接入口。原 workspace 和原 pilot worktree 不切换、不改训练程序。
+代码分支：`experiment/robotwin2-mopd`。从 `opd-project-main@5d1d1494` 建立，fast-forward 纳入已验证的 RoboTwin 开发提交至 `9345146b`，再添加本交接入口。原 workspace 和原 pilot worktree 不切换、不改训练程序。
 
 > **合作者必读：必须先在你们自己的 4×RTX PRO 6000 Blackwell 计算节点完成 smoke test，才能启动正式实验。** 当前已准备专用 cu128 环境与四卡/32 CPU Slurm 入口，但我们的验证硬件是 RTX A6000，尚未在你们的 Blackwell 节点验证。
 >
@@ -42,7 +42,15 @@ Adaptive：rho0.5、epsilon0.01、warmup/window/interval均5 **rollout rounds**�
 
 合作者目标：Slurm单节点4张Blackwell，32分配CPU，384GB RAM。现有完整训练checkpoint约66GB，四个保存点约265GB/run，首轮三组约795GB；另外需要74.45GB起点/teacher资源、环境和仿真资产空间。GPU更快不保证32 CPU下同比提速，以目标机实测为准。`ntasks=1`，启动器读取`SLURM_CPUS_PER_TASK`并限制Ray CPU数量；线程默认OMP/MKL/OpenBLAS各1。保留Slurm提供的CUDA_VISIBLE_DEVICES。当前训练入口要求四个**数字GPU ID**；若集群提供UUID或其他映射，应先适配/检查，不手工猜测物理卡号。
 
-准备代码的固定commit/git bundle后，在仓库根目录运行。当前分支尚未发布到GitHub，不能直接把未发布branch当作可clone的release。
+从实验分支获取代码，记录本次交付的commit，并在全部实验期间保持不变。在仓库根目录执行后续命令：
+
+```bash
+git clone --branch experiment/robotwin2-mopd --single-branch https://github.com/zh-xinyu/RLinf.git
+cd RLinf
+git rev-parse HEAD
+```
+
+代码可获取不代表Blackwell实机验收已完成；仍须先执行目标节点的validate阶段。
 
 ```bash
 # 新目录安装；脚本拒绝覆盖已有环境。
