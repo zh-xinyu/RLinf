@@ -1,6 +1,6 @@
 # 机器人策略的多教师 On-Policy Distillation
 
-Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffjoint-sft-fullb67c61c8e4b73208b45)。[English](README.md)
+Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffc10b67c61c8e4b73208b45)。[English](README.md)
 
 本项目将多个任务专家 VLA 的能力融合到一个 flow-based student 中。当前使用
 GR00T N1.5、RoboCasa365 三个 suites（atomic seen、composite seen、composite
@@ -18,20 +18,26 @@ unseen），共 50 个操作任务、3 个 specialist teachers；student 从全�
 
 | 目的 | 文档 |
 | --- | --- |
+| Slurm 四卡/八卡及 Blackwell 安装运行 | [Slurm 完整流程](docs/opd/collaboration/SLURM_BLACKWELL.md) |
 | 安装当前固定环境 | [GR00T/RoboCasa365 profile](OPD_ENVIRONMENT.md) |
 | 合作者或 coding agent 跑四个正式实验 | [交接与操作指南](docs/opd/collaboration/README.md) |
 | 准备并校验模型和仿真资产 | [资源说明](docs/opd/collaboration/RESOURCES.md) |
 | 理解训练实现与指标 | [开发说明](OPD_DEVELOPMENT.md) |
 | 独立评测 | [评测协议](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-固定实验 tag：`robocasa-mopd-joint-sft-full-v1`；`opd-project-main` 继续作为开发基线。
-正式配方使用单机 8×48GB GPU；四组均从 Joint-SFT-Full 开始，每轮 96 条轨迹，训练 150 轮，
-每 25 轮保存。完整参数和结果交付要求见交接指南。
+原八卡实验 tag：`robocasa-mopd-joint-sft-full-v1`。新分支
+`dev/robocasa-portable-launch` 同时支持四卡和八卡，并提供独立的 Blackwell CUDA12.8
+profile；运行时固定到分配实验所指定的 commit。`opd-project-main` 继续作为开发基线。
+Blackwell profile 仍需在目标机器通过 smoke 才能开始正式实验。
+四组均从 Joint-SFT-Full 开始，每轮96条轨迹，训练150轮，每25轮保存；
+四卡、八卡均保持全局 batch2304。完整参数和交付要求见指南。
 
 模型和仿真资产另行准备。个人机器路径、凭据、原始运行数据与研究草稿不作为安装
 前置条件。RoboTwin 将另开分支和环境 profile；当前 profile 仅覆盖 GR00T/RoboCasa365。
 
 ## 统一复现入口
+
+Slurm 请使用上述专用流程，通过 allocation 执行 GPU 阶段；下面是本地机器入口。
 
 四组训练 YAML 已提供；合作者只需复制
 [machine.example.json](toolkits/robocasa_mopd/machine.example.json) 到仓库外，

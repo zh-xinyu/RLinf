@@ -49,6 +49,34 @@ def test_fixed_sources_and_package_snapshot():
     assert "cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl" in wheel
 
 
+def test_blackwell_profile_preserves_task_model_sources_and_core_science_pins():
+    directory = REPO / "requirements/profiles/gr00t-n15-robocasa365-blackwell-cu128"
+    profile = json.loads((directory / "profile.json").read_text())
+    assert profile["sources"] == PROFILE.load_profile()["sources"]
+    assert profile["torch_cuda"] == "12.8" and profile["torch_cxx11_abi"] is True
+    pins = dict(
+        line.split("==", 1)
+        for line in (directory / "requirements.txt").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    old = PROFILE.package_pins()
+    for name in old:
+        if not name.startswith("nvidia-") and name not in {
+            "torch",
+            "torchvision",
+            "triton",
+        }:
+            assert pins[name] == old[name]
+    assert pins["torch"] == "2.7.1+cu128"
+    assert pins["torchvision"] == "0.22.1+cu128"
+    assert pins["triton"] == "3.3.1"
+    assert all(
+        url.startswith("https://download.pytorch.org/whl/cu128/")
+        for url in profile["package_wheels"]
+    )
+    assert "cu12torch2.7cxx11abiTRUE-cp311" in profile["flash_attention"]["url"]
+
+
 def test_existing_runtime_is_never_modified(tmp_path):
     sentinel = tmp_path / "existing-training-data"
     sentinel.write_text("keep")

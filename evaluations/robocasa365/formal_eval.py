@@ -165,9 +165,26 @@ def validate_runtime() -> dict[str, str]:
             raise RuntimeError(f"{package} is not at frozen commit {commit}")
         result[f"{package}_source"] = str(actual)
         result[f"{package}_commit"] = commit
-    versions = {name: importlib.metadata.version(name) for name in EXPECTED_PACKAGES}
-    if versions != EXPECTED_PACKAGES:
+    from toolkits.robocasa_mopd.hardware import PROFILES
+
+    profile_id = os.environ.get("OPD_ENV_PROFILE", PROFILES[0])
+    if profile_id not in PROFILES:
+        raise RuntimeError(f"Unknown evaluation runtime profile: {profile_id}")
+    profile_dir = REPO / "requirements/profiles" / profile_id
+    pins = dict(
+        line.split("==", 1)
+        for line in (profile_dir / "requirements.txt").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    profile = json.loads((profile_dir / "profile.json").read_text())
+    pins.update({source["name"]: source["version"] for source in profile["sources"]})
+    expected = {name: pins[name] for name in EXPECTED_PACKAGES}
+    versions = {name: importlib.metadata.version(name) for name in expected}
+    if versions != expected:
         raise RuntimeError(f"Frozen package versions changed: {versions}")
+    result["profile"] = profile_id
+    result["profile_sha256"] = sha256(profile_dir / "profile.json")
+    result["requirements_sha256"] = sha256(profile_dir / "requirements.txt")
     result["package_versions"] = versions
     return result
 
@@ -259,6 +276,18 @@ def validate_plan(plan: dict) -> None:
         raise RuntimeError("Evaluation protocol source changed since planning")
     if plan["manifest_sha256"] != sha256(MANIFEST):
         raise RuntimeError("Frozen task manifest changed since planning")
+    if "profile" in plan.get("runtime", {}) and plan["runtime"][
+        "profile"
+    ] != os.environ.get("OPD_ENV_PROFILE", "gr00t-n15-robocasa365-20261019"):
+        raise RuntimeError("Evaluation runtime profile changed since planning")
+    if "profile" in plan.get("runtime", {}):
+        profile_dir = REPO / "requirements/profiles" / plan["runtime"]["profile"]
+        for field, filename in (
+            ("profile_sha256", "profile.json"),
+            ("requirements_sha256", "requirements.txt"),
+        ):
+            if plan["runtime"].get(field) != sha256(profile_dir / filename):
+                raise RuntimeError("Evaluation profile contents changed since planning")
     if plan["seed"] != SEED:
         raise RuntimeError("Formal evaluation seed changed")
     expected = manifest_tasks()

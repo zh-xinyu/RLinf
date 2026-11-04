@@ -148,3 +148,38 @@ Learning algorithms, teachers, T96/B2304/micro32, LR3e-5/warmup10, R1/R2,
 150 physical rounds, save-every-25-rounds and 50 episodes/task are unchanged.
 No new training or simulator evaluation is claimed here; receiving-machine
 installation checks and both smoke jobs remain required.
+
+## Portable Slurm / Blackwell adaptation — 2026-11-03
+
+Branch: `dev/robocasa-portable-launch`. The original tags and main branch are
+preserved. Four/eight-GPU selection changes placement and accumulation, keeping
+all four formal YAML recipes unchanged. Dedicated resource mode turns off the
+optional CUDA cache reservation. Slurm GPU visibility is retained as an explicit
+placement restriction; no peer processes are terminated.
+
+- Installed `gr00t-n15-robocasa365-blackwell-cu128` into a fresh runtime directory:
+  Python3.11.14, Torch2.7.1+cu128, torchvision0.22.1+cu128, FlashAttention2.8.3.post2,
+  C++11 ABI. All282 version/source/import checks passed. The four upstream
+  checkouts and non-CUDA scientific package pins match the original profile.
+- Torch lists `sm_120`; the imported FlashAttention binary contains `sm_120`
+  metadata. No actual Blackwell CUDA kernel execution is claimed locally.
+- **121 targeted CPU regressions passed in each runtime** (original CUDA12.4
+  and new CUDA12.8). They cover equal four/eight-GPU recipes and weighted-gradient
+  accumulation, Slurm allocation validation, full matrix/budgets, flow refresh,
+  cache settings, checkpoint download protection, evaluation and result collection.
+- The same121 tests also passed from a clean staged-file snapshot with no
+  private machine overlays, local handoffs or experimental launch scripts.
+- Real-input four-arm preflight passed in the new runtime. Its independent
+  evaluation runtime verifier accepted the pinned sources/packages and all50
+  tasks, including editable RoboSuite metadata.
+- Slurm formal launches require matching successful smoke records. The updated
+  smoke verifies GPU forward/backward, runs M2 for two rounds/four updates, saves
+  step4, and independently evaluates the saved weights on one task.
+- Submission planning includes four training jobs plus25 checkpoint/baseline
+  evaluation jobs. CSV provenance now includes GPU counts, profiles and commits.
+
+**Remaining acceptance:** the target Blackwell node must pass the full documented
+smoke, including EGL/simulator execution, FSDP training and saved-weight loading.
+No Blackwell hardware was available during this adaptation. Existing GPUs were
+occupied, so this pass did not run new GPU experiments or claim formal results.
+The exact Slurm partition/account and site time limits must be confirmed locally.

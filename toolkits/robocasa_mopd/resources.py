@@ -7,6 +7,8 @@
 import argparse
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from evaluations.robocasa365.formal_eval import sha256
@@ -78,12 +80,46 @@ def download_teachers(destination: Path) -> None:
     print(f"export OPD_MODEL_ROOT={destination.resolve() / prefix}")
 
 
+def download_student(destination: Path) -> None:
+    """Download the five pinned inference files, refusing to replace existing bytes."""
+    from huggingface_hub import hf_hub_download
+
+    manifest = json.loads((INPUTS / "checkpoints.json").read_text())
+    source = manifest["student_initialization"]
+    for relative, record in manifest["checkpoints"]["Joint-SFT-Full"].items():
+        target = destination / relative
+        if target.exists():
+            verify_files(destination, {relative: record})
+            continue
+        cached = hf_hub_download(
+            repo_id=source["hf_repo"],
+            revision=source["hf_revision"],
+            filename=f"{source['hf_prefix']}/{relative}",
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=target.parent) as temporary:
+            with open(cached, "rb") as stream:
+                shutil.copyfileobj(stream, temporary)
+            temporary.flush()
+            if (
+                Path(temporary.name).stat().st_size != record["bytes"]
+                or sha256(Path(temporary.name)) != record["sha256"]
+            ):
+                raise ValueError(f"Downloaded checkpoint hash mismatch: {relative}")
+            # Atomic creation without replacing another process's file.
+            os.link(temporary.name, target)
+    verify_files(destination, manifest["checkpoints"]["Joint-SFT-Full"])
+    print(f"Verified Joint-SFT-Full at {destination}")
+
+
 def main() -> None:
     """Prepare resources explicitly; never upload models or credentials."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     download = sub.add_parser("download-teachers")
     download.add_argument("--destination", type=Path, required=True)
+    student = sub.add_parser("download-student")
+    student.add_argument("--destination", type=Path, required=True)
     bind = sub.add_parser("prepare")
     bind.add_argument(
         "--student", type=Path, default=os.environ.get("OPD_STUDENT_CHECKPOINT")
@@ -93,6 +129,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "download-teachers":
         download_teachers(args.destination)
+    elif args.command == "download-student":
+        download_student(args.destination)
     else:
         if args.student is None or args.teachers is None:
             parser.error(

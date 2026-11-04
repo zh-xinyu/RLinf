@@ -1,0 +1,14 @@
+{
+  "hostname": "slurm",
+  "scheduler": "slurm",
+  "num_gpus": 4,
+  "ray_cpus": 32,
+  "runtime_profile": "gr00t-n15-robocasa365-blackwell-cu128",
+  "resource_mode": "dedicated",
+  "runtime_root": "/absolute/shared/path/opd-blackwell-runtime",
+  "resource_root": "/absolute/shared/path/opd-resources",
+  "student_checkpoint": "/absolute/shared/path/opd-resources/project-checkpoints/robocasa365/groot-n15/joint-sft-full/checkpoint-60000",
+  "output_root": "/absolute/shared/path/opd-formal-results",
+  "wandb_entity": "",
+  "wandb_mode": "disabled"
+}

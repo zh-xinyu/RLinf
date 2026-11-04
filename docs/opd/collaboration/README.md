@@ -1,6 +1,12 @@
 # RoboCasa365 reproduction workflow
 
-Use tag **`robocasa-mopd-joint-sft-full-v1`** for this assignment. This revision switches
+For the new **four-GPU Blackwell Slurm assignment**, start with
+[SLURM_BLACKWELL.md](SLURM_BLACKWELL.md). It contains installation, mandatory
+smoke, serial submission of all training/evaluation jobs, and delivery steps.
+The experiment matrix below applies unchanged; machine settings choose four or
+eight GPUs. The earlier tag does not contain the new Slurm adaptation.
+
+The original local eight-GPU workflow uses tag **`robocasa-mopd-joint-sft-full-v1`**. This revision switches
 all four arms and the round-0 evaluation to full-data joint SFT (Joint-SFT-Full).
 Model hashes, run IDs, and the W&B group identify the new initialization. The
 software profile, teachers, learning hyperparameters, and evaluation protocol
@@ -56,8 +62,8 @@ All configs have the full filename prefix `robocasa365_mopd_` and suffix `.yaml`
 in `examples/embodiment/config/`. Their resolved copies are saved with each run.
 
 Shared controls: Joint-SFT-Full with a fresh optimizer; training seed0; all50 tasks with
-native horizons; T96=48 environments x2 epochs; B2304 (768/suite); eight GPUs,
-micro32/GPU, nine accumulation microbatches/update; LR3e-5, constant scheduler,
+native horizons; T96=48 environments x2 epochs; B2304 (768/suite); micro32/GPU,
+nine accumulation microbatches/update on eight GPUs or eighteen on four; LR3e-5, constant scheduler,
 warmup10 **updates**; M3 `analytic_local_kl`, four-step ODE, chunk16,
 noise_level0.5. Loss M3 and experiment ID M3 are separate labels.
 
@@ -68,11 +74,12 @@ Uniform allocation is32/32/32. Adaptive settings are rho0.5, epsilon0.01,
 minimum16 trajectories/suite, maximum quota change8. Synchronized loss weights
 are `alpha_s=3*q_s/96` using actual integer quotas, fixed for all R updates.
 Feature-only GR00T is enabled. On the current branch, online runs use the
-`FORMAL_robocasa_mopd` project. All arms prewarm 26 GiB of reusable actor CUDA
+`FORMAL_robocasa_mopd` project. In `shared` resource mode, all arms prewarm 26 GiB of reusable actor CUDA
 cache per GPU and retain it below a 28 GiB bound. This is allocator cache, not
 live ballast: model operations can reuse it without changing batches, RNG,
 losses, or updates. Initialization requires at least 8 GiB free after growing
 the cache for colocated workers; verify the total peak with the smoke run.
+In `dedicated` mode, both cache controls are zero; Slurm jobs use that mode.
 This reduces low-memory windows but is not an exclusive GPU lock. CUDA may
 reclaim cache under pressure, and other processes can still cause OOM.
 The original `robocasa-mopd-joint-sft-full-v1` tag retains its previous logger
@@ -166,6 +173,7 @@ and consistency with `summary.json`. Invalid results get
 | Training trajectories / simulation steps | Matching update in `optimizer_updates.jsonl` |
 | Training round seconds | Sum of TensorBoard `time/rollout_round` through that point; excludes startup and independent evaluation |
 | Weight hashes, eval directory | Evaluation plan and local result files |
+| GPU count, software profile, commit | Actual training launch and evaluation plan records; absent historical values stay blank |
 | W&B URL | Optional; extracted when available, otherwise leave blank |
 | Status / notes | Missing or invalid data, never fabricated zero scores |
 
@@ -204,12 +212,12 @@ Training success is a controller signal, not independent evaluation performance.
 W&B is optional. The template uses `wandb_mode: "disabled"` and
 `wandb_entity: ""`; training then uses only TensorBoard and JSONL, without a
 W&B login or backend. Offline mode keeps local W&B records without logging in.
-For online mode, choose your own username or any team you can write to and log
+For online mode, choose your actual entity slug or any team you can write to and log
 in with your own account. Joining the project owner's team is not required.
 Online project on the current branch: `FORMAL_robocasa_mopd`; group: `robocasa_formal_joint_sft_full_150r`.
 `WANDB_PROJECT` alone does not override the explicit YAML project.
 
 The same CSV schema and raw-file requirements apply to all modes. A missing
 `wandb_url` does not prevent a result from being marked `COMPLETE`.
-See [VALIDATION.md](VALIDATION.md) for checks already performed. A receiving-machine eight-GPU smoke is required. RoboTwin
+See [VALIDATION.md](VALIDATION.md) for checks already performed. A receiving-machine smoke with the assigned GPU count is required. RoboTwin
 uses a separate branch/profile and does not change this reproduction bundle.

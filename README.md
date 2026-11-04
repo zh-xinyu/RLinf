@@ -1,6 +1,6 @@
 # Multi-Teacher On-Policy Distillation for Robot Policies
 
-Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffjoint-sft-fullb67c61c8e4b73208b45).
+Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit [`e7609d4c`](https://github.com/RLinf/RLinf/commit/e7609d4c9e2f33c5ffc10b67c61c8e4b73208b45).
 
 This project consolidates task-specialist vision-language-action policies into
 one flow-based student. Our current setting uses GR00T N1.5 and RoboCasa365's
@@ -19,17 +19,22 @@ We study two complementary mechanisms:
 
 | Purpose | Entry |
 | --- | --- |
+| Run on Slurm with four/eight GPUs, including Blackwell | [Slurm setup and full workflow](docs/opd/collaboration/SLURM_BLACKWELL.md) |
 | Reproduce the current software environment | [Fixed GR00T/RoboCasa365 profile](OPD_ENVIRONMENT.md) |
 | Run the four agreed experiments, including setup and evaluation | [Collaborator / coding-agent handoff](docs/opd/collaboration/README.md) |
 | Obtain and verify Joint-SFT-Full, teachers, and simulator assets | [Resources](docs/opd/collaboration/RESOURCES.md) |
 | Understand the training implementation and metrics | [Development guide](OPD_DEVELOPMENT.md) |
 | Inspect the independent evaluation protocol | [RoboCasa365 evaluation](evaluations/robocasa365/FORMAL_EVAL.md) |
 
-The experiment release is pinned by Git tag `robocasa-mopd-joint-sft-full-v1`.
-Use that tag for reproduction; `opd-project-main` remains the development base.
-Training uses eight 48-GB GPUs on one machine. Every arm starts from Joint-SFT-Full,
-collects 96 trajectories per rollout round, runs 150 rounds, and saves every
-25 rounds. The handoff defines all remaining controls and result requirements.
+The original eight-GPU release is pinned by `robocasa-mopd-joint-sft-full-v1`.
+Branch `dev/robocasa-portable-launch` adds four/eight-GPU resource selection and a
+separate Blackwell CUDA12.8 profile. Use the assigned exact commit for a run;
+`opd-project-main` remains the development base. The Blackwell profile requires
+a successful receiving-machine smoke before formal jobs.
+
+Every arm starts from Joint-SFT-Full, collects96 trajectories per rollout round,
+runs150 rounds, and saves every25 rounds. The global batch stays2304 with either
+four or eight GPUs. The guides define the remaining controls and results.
 
 Checkpoints and simulator assets are distributed separately. Personal node
 paths, credentials, raw runs, and working research notes are not installation
@@ -42,6 +47,9 @@ separately. The inherited RLinf documentation under `docs/` has not yet been
 fully adapted to this project; use the OPD entries above for reproduction.
 
 ## Reproduce an experiment
+
+For Slurm, follow the [Slurm workflow](docs/opd/collaboration/SLURM_BLACKWELL.md),
+which submits GPU stages inside allocations. The commands below describe local launches.
 
 The four training YAMLs are already provided. Copy
 [`machine.example.json`](toolkits/robocasa_mopd/machine.example.json) outside the

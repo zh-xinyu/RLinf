@@ -13,6 +13,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+# The entrypoint also runs directly under host Python before runtime installation.
+sys.path.insert(0, str(REPO))
+from toolkits.robocasa_mopd.hardware import PROFILES, gpu_ids  # noqa: E402
+
 INITIALIZATION = "Joint-SFT-Full"
 ROUNDS = (25, 50, 75, 100, 125, 150)
 ARMS = {
@@ -35,27 +39,56 @@ def load_machine(path: Path) -> dict:
         "wandb_entity",
         "wandb_mode",
     }
-    if set(value) != required or any(
-        not isinstance(v, str) or (not v and k != "wandb_entity")
-        for k, v in value.items()
+    optional = {"num_gpus", "runtime_profile", "scheduler", "ray_cpus", "resource_mode"}
+    if (
+        not required <= set(value)
+        or set(value) - required - optional
+        or any(
+            not isinstance(v, str) or (not v and k != "wandb_entity")
+            for k, v in value.items()
+            if k in required
+        )
     ):
         raise ValueError(
             f"Machine JSON requires exactly these string keys: {sorted(required)}; "
             "only wandb_entity may be empty"
         )
-    if value["hostname"] != socket.gethostname().split(".")[0]:
+    value.setdefault("num_gpus", 8)
+    value.setdefault("runtime_profile", PROFILES[0])
+    value.setdefault("scheduler", "local")
+    value.setdefault("ray_cpus", 32)
+    value.setdefault(
+        "resource_mode", "dedicated" if value["scheduler"] == "slurm" else "shared"
+    )
+    if type(value["num_gpus"]) is not int or value["num_gpus"] not in (4, 8):
+        raise ValueError("num_gpus must be 4 or 8")
+    if value["runtime_profile"] not in PROFILES or value["scheduler"] not in (
+        "local",
+        "slurm",
+    ):
+        raise ValueError("Unknown runtime_profile or scheduler")
+    if type(value["ray_cpus"]) is not int or value["ray_cpus"] < 1:
+        raise ValueError("ray_cpus must be a positive integer")
+    if value["resource_mode"] not in ("shared", "dedicated"):
+        raise ValueError("resource_mode must be shared or dedicated")
+    if value["scheduler"] == "slurm" and value["hostname"] != "slurm":
+        raise ValueError("Use hostname=slurm for dynamically allocated Slurm nodes")
+    if (
+        value["scheduler"] == "local"
+        and value["hostname"] != socket.gethostname().split(".")[0]
+    ):
         raise ValueError(
             "Machine hostname does not match; select the correct machine JSON"
         )
     if value["wandb_mode"] not in {"online", "offline", "disabled"}:
         raise ValueError("wandb_mode must be online, offline, or disabled")
     if value["wandb_entity"].startswith("REPLACE_"):
-        raise ValueError("Choose your W&B username/team slug, or leave it empty")
+        raise ValueError("Choose your actual W&B entity/team slug, or leave it empty")
     if value["wandb_mode"] == "online" and not value["wandb_entity"].strip():
-        raise ValueError("Online logging requires your W&B username or team slug")
+        raise ValueError("Online logging requires your actual W&B entity or team slug")
     for key in ("runtime_root", "resource_root", "student_checkpoint", "output_root"):
         path = Path(value[key]).expanduser()
-        if not path.is_absolute() or str(path).startswith("/absolute/path"):
+        if not path.is_absolute() or str(path).startswith("/absolute/"):
             raise ValueError(f"Fill in a real absolute path for {key}")
         value[key] = str(path.resolve())
     runtime = Path(value["runtime_root"])
@@ -95,13 +128,16 @@ def environment(machine: dict) -> dict[str, str]:
         MUJOCO_GL="egl",
         PYOPENGL_PLATFORM="egl",
         RLINF_NODE_RANK="0",
-        OPD_ENV_PROFILE="gr00t-n15-robocasa365-20261019",
+        OPD_ENV_PROFILE=machine["runtime_profile"],
+        OPD_NUM_GPUS=str(machine["num_gpus"]),
+        OPD_SCHEDULER=machine["scheduler"],
+        OPD_RAY_CPUS=str(machine["ray_cpus"]),
+        OPD_RESOURCE_MODE=machine["resource_mode"],
         OPD_RUNTIME_ROOT=str(runtime),
         OPD_STUDENT_CHECKPOINT=machine["student_checkpoint"],
         OPD_MODEL_ROOT=machine["teacher_root"],
         OPD_TEACHER_REFERENCE=machine["teacher_reference"],
         OPD_RUN_DIR=str(REPO / "outputs/train"),
-        CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7",
         HF_HOME=str(runtime / "cache/huggingface"),
         HF_MODULES_CACHE=str(runtime / "cache/huggingface/modules"),
         WANDB_MODE=machine["wandb_mode"],
@@ -109,6 +145,18 @@ def environment(machine: dict) -> dict[str, str]:
     )
     if machine["wandb_entity"] and machine["wandb_mode"] != "disabled":
         env["WANDB_ENTITY"] = machine["wandb_entity"]
+    if machine["scheduler"] == "local":
+        env.setdefault(
+            "CUDA_VISIBLE_DEVICES", ",".join(map(str, range(machine["num_gpus"])))
+        )
+    if machine["scheduler"] == "slurm":
+        for key in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+        ):
+            env[key] = "1"
     return env
 
 
@@ -163,13 +211,22 @@ def commands_for(args, machine: dict) -> list[list[str]]:
                 "verify",
                 "--runtime",
                 machine["runtime_root"],
+                "--profile",
+                machine["runtime_profile"],
                 *(["--gpu"] if args.gpu else []),
             ]
         ]
+    if args.command == "check-logging":
+        return [[python, "-m", "toolkits.robocasa_mopd.check_logging"]]
     if args.command == "login":
         if machine["wandb_mode"] != "online":
             return []
         return [[str(Path(machine["runtime_root"]) / "venv/bin/wandb"), "login"]]
+    if args.command == "download-student":
+        return [
+            resources
+            + ["download-student", "--destination", machine["student_checkpoint"]]
+        ]
     if args.command == "download-teachers":
         return [
             resources
@@ -193,8 +250,30 @@ def commands_for(args, machine: dict) -> list[list[str]]:
         ]
     if args.command == "smoke":
         return [
+            [
+                python,
+                str(REPO / "requirements/opd_profile.py"),
+                "verify",
+                "--runtime",
+                machine["runtime_root"],
+                "--profile",
+                machine["runtime_profile"],
+                "--gpu",
+            ],
+            [python, "-m", "toolkits.robocasa_mopd.check_logging"],
             launch + ["train", "m2", "--run-id", "setup-m2-smoke", "--smoke"],
-            launch + ["eval", "--run-id", "setup-joint-sft-full-eval-smoke", "--smoke"],
+            launch
+            + [
+                "eval",
+                "--run-id",
+                "setup-joint-sft-full-eval-smoke",
+                "--smoke",
+                "--weights",
+                str(
+                    REPO
+                    / "outputs/smoke/setup-m2-smoke/setup-m2-smoke/checkpoints/global_step_4/actor/model_state_dict/full_weights.pt"
+                ),
+            ],
         ]
     if args.command == "train":
         return [launch + ["train", args.arm, "--run-id", ARMS[args.arm][0]]]
@@ -254,6 +333,8 @@ def install(machine: dict, dry_run: bool) -> None:
             "install",
             "--runtime",
             str(runtime),
+            "--profile",
+            machine["runtime_profile"],
         ],
     ]
     if dry_run:
@@ -280,7 +361,9 @@ def main() -> None:
         "paths",
         "install",
         "login",
+        "check-logging",
         "download-teachers",
+        "download-student",
         "assets",
         "prepare",
         "preflight",
@@ -311,6 +394,10 @@ def main() -> None:
     if args.command in {"prepare", "preflight", "smoke", "train", "eval", "summarize"}:
         bind_outputs(machine)
     env = environment(machine)
+    if args.command in {"smoke", "train", "eval"} or (
+        args.command == "verify" and args.gpu
+    ):
+        gpu_ids(env, require_allocation=True)
     for command in commands:
         execute(command, env)
 

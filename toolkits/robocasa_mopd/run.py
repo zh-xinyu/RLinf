@@ -2,7 +2,7 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy at http://www.apache.org/licenses/LICENSE-2.0
-"""Launch the frozen RoboCasa experiment matrix on a dedicated eight-GPU node.
+"""Launch the frozen RoboCasa experiment matrix on four or eight GPUs.
 
 Source the fixed runtime and machine-local paths first. Each invocation owns
 its Ray processes, refuses an existing cluster, and never invokes ray stop.
@@ -27,6 +27,7 @@ from omegaconf import OmegaConf
 from evaluations.robocasa365.formal_eval import manifest_tasks, sha256
 from rlinf.config import validate_suite_distillation_cfg
 from rlinf.utils.rollout_allocation import load_teacher_reference
+from toolkits.robocasa_mopd.hardware import gpu_ids, resource_overrides
 from toolkits.robocasa_mopd.owned_ray import (
     OWNER_KEY,
     check_gpus,
@@ -47,6 +48,7 @@ def training_config(experiment: str, run_id: str, smoke: bool = False):
         f"runner.logger.experiment_name={run_id}",
         f"hydra.run.dir={json.dumps(str(output))}",
     ]
+    overrides += resource_overrides()
     if smoke or os.environ.get("WANDB_MODE") == "disabled":
         overrides.append("runner.logger.logger_backends=[tensorboard]")
     if smoke:
@@ -61,6 +63,11 @@ def training_config(experiment: str, run_id: str, smoke: bool = False):
         cfg = compose(config_name=config_name, overrides=overrides)
     OmegaConf.resolve(cfg)
     validate_suite_distillation_cfg(cfg)
+    world = len(gpu_ids())
+    if cfg.actor.global_batch_size % (world * cfg.actor.micro_batch_size):
+        raise ValueError("Global batch must divide across GPUs and microbatches")
+    if cfg.env.train.total_num_envs % world:
+        raise ValueError("Environment count must divide across GPUs")
     command = [
         sys.executable,
         "-u",
@@ -89,6 +96,30 @@ def check_reference(cfg) -> None:
         if key != "teacher_checkpoints" and reference.get(key) != value:
             raise ValueError(f"Shared teacher reference changed: {key}")
     load_teacher_reference(path, cfg, manifest_tasks())
+
+
+def require_completed_smoke(env: dict, num_gpus: int) -> None:
+    """Require this revision/profile's completed smoke before Slurm formal runs."""
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
+    ).strip()
+    expected = {
+        "commit": commit,
+        "profile": env["OPD_ENV_PROFILE"],
+        "num_gpus": num_gpus,
+        "resource_mode": env["OPD_RESOURCE_MODE"],
+        "checkpoint_manifest_sha256": sha256(INPUTS / "checkpoints.json"),
+    }
+    for name in ("setup-m2-smoke", "setup-joint-sft-full-eval-smoke"):
+        directory = REPO / "outputs/launches" / name
+        if (
+            not (directory / "status").is_file()
+            or (directory / "status").read_text().strip() != "OK"
+        ):
+            raise ValueError(f"Complete the matching smoke job first: {name}")
+        actual = json.loads((directory / "launch.json").read_text())
+        if any(actual.get(key) != value for key, value in expected.items()):
+            raise ValueError(f"Smoke revision/profile/hardware mismatch: {name}")
 
 
 def run_command(command: list[str], log: Path, env: dict) -> None:
@@ -161,9 +192,8 @@ def main() -> None:
         RAY_ADDRESS="127.0.0.1:6379",
         RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES="1",
     )
-    env.setdefault("CUDA_VISIBLE_DEVICES", "0,1,2,3,4,5,6,7")
-    if env["CUDA_VISIBLE_DEVICES"] != "0,1,2,3,4,5,6,7":
-        parser.error("The frozen single-node recipe requires physical GPUs 0 through 7")
+    devices = gpu_ids(env, require_allocation=not args.dry_run)
+    env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, devices))
     env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     env.setdefault("RAY_DASHBOARD_STARTUP_TIMEOUT_S", "300")
     env.setdefault("RAY_DASHBOARD_SUBPROCESS_MODULE_WAIT_READY_TIMEOUT", "180")
@@ -188,7 +218,7 @@ def main() -> None:
             "--base-checkpoint",
             env["OPD_STUDENT_CHECKPOINT"],
             "--gpus",
-            "0,1,2,3,4,5,6,7",
+            env["CUDA_VISIBLE_DEVICES"],
         ]
         if args.weights:
             plan += ["--weights", str(args.weights.resolve(strict=True))]
@@ -205,13 +235,15 @@ def main() -> None:
         if cfg is not None:
             print(OmegaConf.to_yaml(cfg))
         return
+    if env.get("OPD_SCHEDULER") == "slurm" and not args.smoke:
+        require_completed_smoke(env, len(devices))
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite {output}")
     # Prevent two launchers under the same Unix account from racing for Ray ports.
     with open(f"/tmp/opd-single-job-{os.getuid()}.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         require_free_ray()
-        check_gpus(8, env)
+        check_gpus(len(devices), env)
         subprocess.run(
             ["git", "diff", "--exit-code", "--quiet", "HEAD"], cwd=REPO, check=True
         )
@@ -235,6 +267,12 @@ def main() -> None:
             "commands": commands,
             "profile": env.get("OPD_ENV_PROFILE"),
             "runtime": str(runtime),
+            "gpu_ids": devices,
+            "num_gpus": len(devices),
+            "ray_cpus": int(env.get("OPD_RAY_CPUS", "32")),
+            "scheduler": env.get("OPD_SCHEDULER", "local"),
+            "slurm_job_id": env.get("SLURM_JOB_ID"),
+            "resource_mode": env.get("OPD_RESOURCE_MODE", "shared"),
             "output": str(output),
         }
         (launch / "launch.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -245,8 +283,8 @@ def main() -> None:
             "start",
             "--head",
             "--port=6379",
-            "--num-cpus=32",
-            "--num-gpus=8",
+            f"--num-cpus={env.get('OPD_RAY_CPUS', '32')}",
+            f"--num-gpus={len(devices)}",
             "--include-dashboard=true",
             "--dashboard-host=127.0.0.1",
             "--dashboard-port=8265",

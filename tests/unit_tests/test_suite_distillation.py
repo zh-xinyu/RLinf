@@ -89,11 +89,13 @@ class TinyVelocityModel(torch.nn.Module):
         return {"v_theta": self.linear(nft_inputs["x_t"])}
 
 
-def run_actor_update(monkeypatch, order, counts, suite_weights=None, dynamic=False):
+def run_actor_update(
+    monkeypatch, order, counts, suite_weights=None, dynamic=False, world_size=8
+):
     """Exercise the real actor loop and its actual loss/backward path on CPU."""
     monkeypatch.setattr(actor_module, "clear_memory", lambda: None)
     monkeypatch.setattr(actor_module, "all_reduce_dict", lambda value, op: value)
-    monkeypatch.setattr(dist, "get_world_size", lambda: 8)
+    monkeypatch.setattr(dist, "get_world_size", lambda: world_size)
     torch.manual_seed(19)
     model = TinyVelocityModel()
     n = sum(counts)
@@ -138,7 +140,11 @@ def run_actor_update(monkeypatch, order, counts, suite_weights=None, dynamic=Fal
                 "loss_type": "analytic_local_kl",
                 "update_epoch": 1,
             },
-            "actor": {"global_batch_size": n * 8, "micro_batch_size": 32, "seed": 0},
+            "actor": {
+                "global_batch_size": n * world_size,
+                "micro_batch_size": 32,
+                "seed": 0,
+            },
             "runner": {"step_unit": "optimizer_update"},
         }
     )
@@ -157,7 +163,7 @@ def run_actor_update(monkeypatch, order, counts, suite_weights=None, dynamic=Fal
         rollout_batch=batch,
         _sample_idx=torch.randperm(n),
         _rank=0,
-        _world_size=8,
+        _world_size=world_size,
         is_weight_offloaded=False,
         is_optimizer_offloaded=False,
         device=torch.device("cpu"),
@@ -346,3 +352,19 @@ def test_distributed_sums_handle_unequal_rank_counts(tmp_path):
         4.0,
         2.0,
     ]
+
+
+@pytest.mark.parametrize("world_size", [4, 8])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_formal_batch_gradient_at_both_world_sizes(monkeypatch, world_size, weighted):
+    # Real actor accumulation and loss/backward compared with a direct full-rank
+    # batch objective. B2304 implies 18 microbatches on four GPUs, nine on eight.
+    weights = {"a": 0.5, "b": 1.25, "c": 1.25} if weighted else None
+    run_actor_update(
+        monkeypatch,
+        "grouped",
+        (768 // world_size,) * 3,
+        suite_weights=weights,
+        dynamic=weighted,
+        world_size=world_size,
+    )

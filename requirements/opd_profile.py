@@ -27,6 +27,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PROFILE = REPO / "requirements/profiles/gr00t-n15-robocasa365-20261019"
+PROFILE_NAMES = (
+    "gr00t-n15-robocasa365-20261019",
+    "gr00t-n15-robocasa365-blackwell-cu128",
+)
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -136,6 +140,8 @@ def install(runtime: Path, dry_run: bool) -> None:
         str(PROFILE / "build-constraints.txt"),
     ]
     run(pip + profile["bootstrap"], cwd=runtime, env=env)
+    if profile.get("package_wheels"):
+        run(pip + profile["package_wheels"], cwd=runtime, env=env)
     run(pip + ["-r", PROFILE / "requirements.txt"], cwd=runtime, env=env)
     for source in profile["sources"]:
         checkout = runtime / "repos" / source["name"]
@@ -160,7 +166,11 @@ def install(runtime: Path, dry_run: bool) -> None:
     # The snapshot requires this exact CUDA/Torch/ABI wheel: no version fallback.
     run(pip + [profile["flash_attention"]["url"]], cwd=runtime, env=env)
     env["PYTHONPATH"] = str(REPO)
-    run([python, __file__, "verify", "--runtime", runtime], cwd=runtime, env=env)
+    run(
+        [python, __file__, "verify", "--runtime", runtime, "--profile", profile["id"]],
+        cwd=runtime,
+        env=env,
+    )
     activation = (
         "# Generated for this checkout; source before launching Ray.\n"
         f"source {shlex.quote(str(runtime / 'venv/bin/activate'))}\n"
@@ -263,11 +273,23 @@ def verify(runtime: Path, gpu: bool = False) -> dict:
     if gpu:
         from flash_attn import flash_attn_func
 
-        q = torch.randn(1, 16, 2, 64, device="cuda", dtype=torch.bfloat16)
-        result = flash_attn_func(q, q, q)
-        if not torch.isfinite(result).all():
-            raise ValueError("FlashAttention returned non-finite values")
-        torch.cuda.synchronize()
+        for device in range(torch.cuda.device_count()):
+            q = torch.randn(
+                1,
+                16,
+                2,
+                64,
+                device=f"cuda:{device}",
+                dtype=torch.bfloat16,
+                requires_grad=True,
+            )
+            result = flash_attn_func(q, q, q)
+            result.float().square().mean().backward()
+            if not torch.isfinite(result).all() or not torch.isfinite(q.grad).all():
+                raise ValueError("FlashAttention returned non-finite values/gradients")
+            torch.cuda.synchronize(device)
+        if not torch.cuda.device_count():
+            raise ValueError("--gpu requires visible CUDA devices")
     report = {
         "profile": profile["id"],
         "verified_packages": len(pins),
@@ -281,12 +303,15 @@ def verify(runtime: Path, gpu: bool = False) -> dict:
 
 def main() -> None:
     """Expose installation and verification without any private launch helpers."""
+    global PROFILE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("install", "verify"))
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--gpu", action="store_true")
+    parser.add_argument("--profile", choices=PROFILE_NAMES, default=PROFILE_NAMES[0])
     args = parser.parse_args()
+    PROFILE = REPO / "requirements/profiles" / args.profile
     if not args.runtime.is_absolute():
         parser.error("--runtime must be an absolute path")
     if args.command == "install" and args.gpu:

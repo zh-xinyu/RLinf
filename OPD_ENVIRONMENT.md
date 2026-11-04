@@ -10,6 +10,11 @@ manual venv activation, or private scripts. The complete experiment assignment
 is in the separate email task sheet; the [technical guide](docs/opd/collaboration/README.md)
 provides the public training and evaluation commands.
 
+For **Slurm / RTX PRO 6000 Blackwell**, follow the complete
+[Slurm guide](docs/opd/collaboration/SLURM_BLACKWELL.md). It selects the new
+CUDA12.8 profile, supports four or eight GPUs, and keeps GPU commands inside
+allocations. The instructions below retain the local CUDA12.4 workflow.
+
 ## 1. Prerequisites and fixed checkout
 
 - Linux x86_64, Git, and host Python3.9+ with `venv` support for bootstrap tooling.
@@ -49,7 +54,7 @@ Edit all placeholder values in that JSON:
 | `resource_root` | Absolute directory for downloaded teachers and the bound calibration reference |
 | `student_checkpoint` | Absolute path to the received Joint-SFT-Full `checkpoint-60000` directory |
 | `output_root` | Absolute directory for this checkout's experiment outputs |
-| `wandb_entity` | Your own W&B username or chosen team slug for online logging; otherwise may be empty |
+| `wandb_entity` | Your actual writable W&B entity or chosen team slug for online logging; otherwise may be empty |
 | `wandb_mode` | `disabled` (default: TensorBoard/JSONL only), `offline`, or `online` |
 
 Do not put access tokens in this file. JSON values are read as data, not shell
@@ -161,12 +166,12 @@ conflicts. The upstream general installer is not an equivalent environment.
 
 Verification covers281 package versions including bootstrap/editable packages,
 upstream revisions and source locations, imports, Torch ABI, and the local Eagle
-processor; `--gpu` adds a real FlashAttention CUDA operation. It does not prove
+processor; `--gpu` on the portable branch adds real FlashAttention forward/backward checks on each visible GPU. It does not prove
 a complete simulator/training run. OS, drivers, binary builds, and external
 assets are not a fully locked machine image. Public-source availability and
 bitwise numerical identity are not guaranteed.
 
 The [initial installation record](requirements/profiles/gr00t-n15-robocasa365-20261019/VALIDATION.md)
 and [release validation](docs/opd/collaboration/VALIDATION.md) describe completed
-checks. A profile update requires a new dated directory and fresh installation,
+checks. A profile update requires a new versioned directory and fresh installation,
 software/GPU checks, and regressions. Preserve the current profile for this batch.

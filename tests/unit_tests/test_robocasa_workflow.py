@@ -35,6 +35,7 @@ def test_machine_does_not_depend_on_shell_overlays(tmp_path, monkeypatch):
     monkeypatch.setenv("PYTHONPATH", "/wrong")
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setenv("GPU_FREE_MB", "1")
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     env = experiment.environment(machine)
     assert env["PYTHONPATH"] == str(experiment.REPO)
     assert env["WANDB_ENTITY"] == "team"
@@ -79,7 +80,7 @@ def test_online_logging_uses_collaborator_account(tmp_path):
     value = json.loads(path.read_text())
     value.update(wandb_entity="", wandb_mode="online")
     path.write_text(json.dumps(value))
-    with pytest.raises(ValueError, match="username or team"):
+    with pytest.raises(ValueError, match="entity or team"):
         experiment.load_machine(path)
     value["wandb_entity"] = "collaborator-account"
     path.write_text(json.dumps(value))

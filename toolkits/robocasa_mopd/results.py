@@ -17,6 +17,12 @@ FIELDS = [
     "experiment",
     "initialization",
     "training_seed",
+    "training_num_gpus",
+    "training_runtime_profile",
+    "training_commit",
+    "eval_num_gpus",
+    "eval_runtime_profile",
+    "eval_commit",
     "rollout_round",
     "optimizer_updates",
     "episodes_per_task",
@@ -151,6 +157,9 @@ def evaluation_scores(directory: Path, expected_weights: Path | None) -> dict:
             raise ValueError("Suite summary disagrees with per-task counts")
     return {
         **{s + "_sr": rates[s] for s in SUITES},
+        "eval_num_gpus": len(plan["gpus"]) if "gpus" in plan else "",
+        "eval_runtime_profile": plan.get("runtime", {}).get("profile", ""),
+        "eval_commit": plan.get("rlinf_git_commit", ""),
         "suite_macro_sr": sum(rates.values()) / 3,
         "task_macro_sr": overall,
         "weights_sha256": plan.get("weights_sha256")
@@ -261,6 +270,14 @@ def collect() -> list[dict]:
                     / experiment.ARMS[arm][0]
                     / "driver.log"
                 )
+                metadata_path = log.with_name("launch.json")
+                if metadata_path.exists():
+                    metadata = json.loads(metadata_path.read_text())
+                    row.update(
+                        training_num_gpus=metadata.get("num_gpus", ""),
+                        training_runtime_profile=metadata.get("profile", ""),
+                        training_commit=metadata.get("commit", ""),
+                    )
                 if log.exists():
                     match = re.search(
                         r"https://(?:wandb\.ai|forge\.coreweave\.com)/[^\s/]+/[^\s/]+/runs/[A-Za-z0-9_-]+",
