@@ -4,6 +4,12 @@
 
 代码分支：`dev/robotwin2-formal-handoff`。从 `opd-project-main@5d1d1494` 建立，fast-forward 纳入已验证的 RoboTwin 开发提交至 `9345146b`，再添加本交接入口。原 workspace 和原 pilot worktree 不切换、不改训练程序。
 
+> **合作者必读：必须先在你们自己的 4×RTX PRO 6000 Blackwell 计算节点完成 smoke test，才能启动正式实验。** 当前已准备专用 cu128 环境与四卡/32 CPU Slurm 入口，但我们的验证硬件是 RTX A6000，尚未在你们的 Blackwell 节点验证。
+>
+> 按第3节完成安装与资源准备后，先提交 `sbatch toolkits/robotwin_mopd/formal/slurm.sh /data/opd-config/robotwin.json validate`。检查四卡 NCCL/FSDP smoke、四个 teacher 的闭环 smoke，以及**完整 π0.5 的两次 student 更新和 checkpoint 保存**全部完成；同时确认图像和推理正常。仅通过安装、CPU preflight 或小模型检查不够。
+>
+> 验收通过并查看日志后，再单独提交同一命令的 `run` 阶段。若失败，保留日志并反馈，不绕过检查启动正式实验。验收数据不计入正式100 episodes/task结果。
+
 ## 1. 实验清单
 
 四任务：`adjust_bottle`、`handover_mic`、`place_container_plate`、`stack_bowls_two`。π0.5，四个固定 task specialists，按任务路由。共同 student 为 **Joint-SFT2000**，每组重新创建 OPD optimizer；不恢复 SFT optimizer。保留现有全参数训练，不冻结 student VLM。
