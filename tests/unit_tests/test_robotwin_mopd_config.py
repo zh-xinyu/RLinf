@@ -144,3 +144,77 @@ def test_full_horizon_rejects_incompatible_masks_or_loss(pilot_cfg, key, value):
     OmegaConf.update(pilot_cfg, key, value)
     with pytest.raises(ValueError, match="nft_full_horizon"):
         validate_flow_refresh_cfg(pilot_cfg)
+
+
+@pytest.mark.parametrize("reuse", [1, 2])
+def test_explicit_checkpoint_schedule_respects_complete_refresh_rounds(
+    pilot_cfg, reuse
+):
+    pilot_cfg.algorithm.flow_refresh_updates = reuse
+    pilot_cfg.runner.max_steps = 100 * reuse
+    pilot_cfg.runner.save_interval = -1
+    steps = [r * reuse for r in (10, 20, 40, 60, 80, 100)]
+    OmegaConf.update(pilot_cfg, "runner.save_steps", steps, force_add=True)
+    validate_flow_refresh_cfg(pilot_cfg)
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [],
+        [0, 80],
+        [20, 20, 80],
+        [40, 20, 80],
+        [20, 40],
+        [3, 80],
+        [20, 82],
+        [True, 80],
+        [20.0, 80],
+        "20,80",
+    ],
+)
+def test_explicit_checkpoint_schedule_rejects_invalid_steps(pilot_cfg, steps):
+    pilot_cfg.runner.max_steps = 80
+    pilot_cfg.runner.save_interval = -1
+    OmegaConf.update(pilot_cfg, "runner.save_steps", steps, force_add=True)
+    with pytest.raises(ValueError, match="save_steps"):
+        validate_flow_refresh_cfg(pilot_cfg)
+
+
+def test_smoke_replaces_long_formal_checkpoint_schedule(
+    pilot_cfg, monkeypatch, tmp_path
+):
+    if Path(sys.prefix).name != "venv":
+        pytest.skip("Launcher integration requires the isolated runtime venv")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5,6,7")
+    monkeypatch.setenv("ROBOTWIN_RUNTIME_ROOT", str(Path(sys.prefix).parent))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "toolkits.robotwin_mopd.run",
+            "--run-id",
+            "formal_schedule_smoke",
+            "--output-root",
+            str(tmp_path),
+            "--num-gpus",
+            "4",
+            "--dry-run",
+            "--smoke",
+            "runner.max_steps=200",
+            "runner.save_interval=-1",
+            "+runner.save_steps=[20,40,80,120,160,200]",
+            "actor.global_batch_size=256",
+            "actor.micro_batch_size=16",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    cfg = OmegaConf.create(result.stdout)
+    assert cfg.runner.max_steps == 2
+    assert list(cfg.runner.save_steps) == [2]
+    assert cfg.runner.save_interval == -1
+    assert cfg.actor.global_batch_size == 256
+    assert cfg.actor.micro_batch_size == 16
+    assert not (tmp_path / "formal_schedule_smoke").exists()

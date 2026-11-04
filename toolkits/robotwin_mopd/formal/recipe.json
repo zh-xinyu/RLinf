@@ -1,11 +1,13 @@
 {
   "schema_version": 1,
-  "rounds": 20,
+  "rounds": 100,
   "save_rounds": [
-    5,
     10,
-    15,
-    20
+    20,
+    40,
+    60,
+    80,
+    100
   ],
   "eval_episodes_per_task": 100,
   "initialization": "Joint-SFT2000",
@@ -18,8 +20,6 @@
   "common_overrides": [
     "actor.fsdp_config.enable_gradient_accumulation=false",
     "env.train.total_num_envs=32",
-    "actor.global_batch_size=128",
-    "actor.micro_batch_size=4",
     "actor.optim.lr=1e-5",
     "actor.optim.value_lr=1e-5",
     "actor.optim.lr_warmup_steps=4",
@@ -70,5 +70,7 @@
     "handover_mic": 600,
     "place_container_plate": 400,
     "stack_bowls_two": 900
-  }
+  },
+  "global_batch_size": 256,
+  "default_micro_batch_size": 16
 }

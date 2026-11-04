@@ -402,3 +402,46 @@ def test_resume_counters_keep_optimizer_and_scheduler_progress(mode):
     assert result["lr"] == 3e-5
     with pytest.raises(ValueError, match="mismatched"):
         inspect.unwrap(Actor.restore_opd_update_counters)(worker, 56)
+
+
+@pytest.mark.parametrize("reuse", [1, 2])
+def test_runner_explicit_checkpoint_schedule_has_no_extra_saves(reuse):
+    from rlinf.runners.embodied_runner import EmbodiedRunner
+
+    rounds = [10, 20, 40, 60, 80, 100]
+    expected = [r * reuse for r in rounds]
+    runner = SimpleNamespace(
+        cfg=OmegaConf.create(
+            {
+                "runner": {
+                    "val_check_interval": -1,
+                    "save_interval": -1,
+                    "save_steps": expected,
+                }
+            }
+        ),
+        max_steps=100 * reuse,
+    )
+    saved = []
+    runner._save_checkpoint = lambda: saved.append(runner.global_step)
+    for step in range(reuse, runner.max_steps + 1, reuse):
+        runner.global_step = step
+        assert EmbodiedRunner._maybe_eval_and_checkpoint(runner, step) == {}
+    assert saved == expected
+
+
+def test_runner_legacy_interval_checkpoint_behavior_is_unchanged():
+    from rlinf.runners.embodied_runner import EmbodiedRunner
+
+    runner = SimpleNamespace(
+        cfg=OmegaConf.create(
+            {"runner": {"val_check_interval": -1, "save_interval": 4}}
+        ),
+        max_steps=10,
+    )
+    saved = []
+    runner._save_checkpoint = lambda: saved.append(runner.global_step)
+    for step in range(1, 11):
+        runner.global_step = step
+        EmbodiedRunner._maybe_eval_and_checkpoint(runner, step)
+    assert saved == [4, 8, 10]

@@ -42,6 +42,7 @@ def read_machine(path: Path) -> dict:
         raise ValueError("Invalid wandb_mode")
     if cfg["profile"] not in ("action-cu124", "blackwell-cu128-candidate"):
         raise ValueError("Unknown runtime profile")
+    micro_batch_size(cfg)
     return cfg
 
 
@@ -85,7 +86,45 @@ def environment(machine: dict) -> dict:
 
 
 def run_id(method: str, seed: int) -> str:
-    return f"robotwin_formal_sft2000_{method}_rounds20_seed{seed}"
+    return (
+        f"robotwin_formal_sft2000_{method}_rounds{RECIPE['rounds']}"
+        f"_b{RECIPE['global_batch_size']}_seed{seed}"
+    )
+
+
+def micro_batch_size(machine: dict) -> int:
+    """Select hardware batching while preserving the fixed global batch."""
+    micro = machine.get("actor_micro_batch_size", RECIPE["default_micro_batch_size"])
+    if type(micro) is not int or micro < 1 or RECIPE["global_batch_size"] % (4 * micro):
+        raise ValueError(
+            "actor_micro_batch_size must be positive and divide global B / 4"
+        )
+    return micro
+
+
+def smoke_run_id(machine: dict, method: str = "m1") -> str:
+    """Keep hardware trials separate and prevent reuse of a different microbatch."""
+    return f"{run_id(method, 0)}_micro{micro_batch_size(machine)}_smoke"
+
+
+def freeze_training_settings(machine: dict) -> None:
+    """Reject changes to the common recipe after the first formal arm starts."""
+    path = Path(machine["output_root"]) / "prepared/formal_training_settings.json"
+    settings = {
+        "recipe_sha256": digest(HERE / "recipe.json"),
+        "micro_batch_size": micro_batch_size(machine),
+        "resource_root": machine["resource_root"],
+        "runtime_root": machine["runtime_root"],
+    }
+    if path.exists():
+        if json.loads(path.read_text()) != settings:
+            raise ValueError(
+                "Formal settings changed; keep all arms matched or use a new output_root"
+            )
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x") as stream:
+            stream.write(json.dumps(settings, indent=2) + "\n")
 
 
 def model_overrides(machine: dict) -> list[str]:
@@ -112,14 +151,17 @@ def train_command(
     reuse = spec["reuse"]
     output = Path(machine["output_root"])
     reference = output / "prepared/teacher_reference.json"
-    name = run_id(method, seed) + ("_smoke" if smoke else "")
+    name = smoke_run_id(machine, method) if smoke else run_id(method, seed)
     overrides = [
         *RECIPE["common_overrides"],
         *model_overrides(machine),
+        f"actor.global_batch_size={RECIPE['global_batch_size']}",
+        f"actor.micro_batch_size={micro_batch_size(machine)}",
         f"algorithm.flow_refresh_updates={reuse}",
         f"actor.model.model_path={machine['resource_root']}/student",
-        f"runner.max_steps={20 * reuse}",
-        f"runner.save_interval={5 * reuse}",
+        f"runner.max_steps={RECIPE['rounds'] * reuse}",
+        "runner.save_interval=-1",
+        f"+runner.save_steps={json.dumps([r * reuse for r in RECIPE['save_rounds']], separators=(',', ':'))}",
         f"runner.rollout_allocation.mode={'adaptive' if spec['adaptive'] else 'uniform'}",
         f"runner.rollout_allocation.teacher_reference_file={reference if spec['adaptive'] else 'null'}",
         f"algorithm.sync_suite_loss_weights={str(spec['adaptive']).lower()}",
@@ -146,7 +188,7 @@ def train_command(
 
 
 def eval_jobs(machine: dict, target: str, seed: int) -> list[dict]:
-    """All four saved checkpoints and shared references use 100 episodes/task."""
+    """Every declared checkpoint and shared reference uses 100 episodes/task."""
     output = Path(machine["output_root"])
     if target in ("student", "teachers"):
         checkpoints = [
@@ -494,6 +536,8 @@ def main() -> None:
             Path(machine["output_root"]) / "prepared/resource_verification.json"
         ).exists():
             raise ValueError("Run prepare first")
+        if args.action == "train":
+            freeze_training_settings(machine)
         subprocess.run(
             train_command(machine, args.target, 0, smoke=args.action == "smoke"),
             env=env,

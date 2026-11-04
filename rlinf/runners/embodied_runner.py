@@ -419,6 +419,10 @@ class EmbodiedRunner:
             run_time_exceeded=False,
         )
 
+        save_steps = self.cfg.runner.get("save_steps", None)
+        if save_steps is not None:
+            save_model = self.global_step in save_steps
+
         eval_metrics = {}
         if run_val:
             with self.timer("eval"):

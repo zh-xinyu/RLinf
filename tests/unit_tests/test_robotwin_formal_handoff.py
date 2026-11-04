@@ -40,13 +40,16 @@ def test_slurm_cpu_limit():
 def test_matched_budget_and_refresh_contract(machine, method, reuse, adaptive):
     command = formal.train_command(machine, method, 0)
     values = dict(v.split("=", 1) for v in command if "=" in v)
-    assert values["actor.global_batch_size"] == "128"
-    assert values["actor.micro_batch_size"] == "4"
+    assert values["actor.global_batch_size"] == "256"
+    assert values["actor.micro_batch_size"] == "16"
     assert values["env.train.total_num_envs"] == "32"
     assert values["actor.optim.lr"] == "1e-5"
     assert values["actor.optim.lr_warmup_steps"] == "4"
-    assert int(values["runner.max_steps"]) == 20 * reuse
-    assert int(values["runner.save_interval"]) == 5 * reuse
+    assert int(values["runner.max_steps"]) == 100 * reuse
+    assert values["runner.save_interval"] == "-1"
+    assert json.loads(values["+runner.save_steps"]) == [
+        r * reuse for r in (10, 20, 40, 60, 80, 100)
+    ]
     assert values["algorithm.sync_suite_loss_weights"] == str(adaptive).lower()
     assert values["runner.rollout_allocation.mode"] == (
         "adaptive" if adaptive else "uniform"
@@ -59,12 +62,19 @@ def test_every_checkpoint_gets_100_episodes(machine):
         for target in ("student", "teachers", "m0", "m1", "m2", "m3")
         for job in formal.eval_jobs(machine, target, 0)
     ]
-    assert len(jobs) == 72
-    assert len({job["output"] for job in jobs}) == 72
+    assert len(jobs) == 104
+    assert len({job["output"] for job in jobs}) == 104
     for job in jobs:
         command = job["command"]
         assert command[command.index("--episodes") + 1] == "100"
-    assert {j["round"] for j in formal.eval_jobs(machine, "m1", 0)} == {5, 10, 15, 20}
+    assert {j["round"] for j in formal.eval_jobs(machine, "m1", 0)} == {
+        10,
+        20,
+        40,
+        60,
+        80,
+        100,
+    }
     with pytest.raises(ValueError):
         formal.train_command(machine, "m0", 1)
 
@@ -163,23 +173,53 @@ def test_cli_plan_and_summary_include_complete_factorial_matrix(machine, tmp_pat
     ]
     plan = json.loads(subprocess.check_output([*command, "plan"], text=True))
     assert set(plan["training"]) == {"m0", "m1", "m2", "m3"}
-    assert len(plan["evaluation"]) == 72
+    assert len(plan["evaluation"]) == 104
     m3_jobs = formal.eval_jobs(machine, "m3", 0)
     assert {Path(job["checkpoint"]).name for job in m3_jobs} == {
-        "global_step_5",
         "global_step_10",
-        "global_step_15",
         "global_step_20",
+        "global_step_40",
+        "global_step_60",
+        "global_step_80",
+        "global_step_100",
     }
     subprocess.run([*command, "summarize"], check=True)
     table = Path(machine["output_root"]) / "deliverables/checkpoint_results.csv"
     with table.open() as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == 18
+    assert len(rows) == 26
     assert {int(row["rollout_round"]) for row in rows if row["experiment"] == "m3"} == {
-        5,
         10,
-        15,
         20,
+        40,
+        60,
+        80,
+        100,
     }
     assert all(row["status"] == "PENDING" and not row["task_macro_sr"] for row in rows)
+
+
+@pytest.mark.parametrize("micro", [4, 8, 16, 32])
+def test_hardware_microbatch_keeps_global_recipe_and_changes_smoke_id(machine, micro):
+    machine["actor_micro_batch_size"] = micro
+    for method in formal.METHODS:
+        command = formal.train_command(machine, method, 0, smoke=True)
+        values = dict(v.split("=", 1) for v in command if "=" in v)
+        assert values["actor.global_batch_size"] == "256"
+        assert values["actor.micro_batch_size"] == str(micro)
+        assert values["actor.optim.lr"] == "1e-5"
+        assert command[command.index("--run-id") + 1].endswith(f"_micro{micro}_smoke")
+
+
+@pytest.mark.parametrize("micro", [0, -1, 3, 128, True, "16"])
+def test_invalid_hardware_microbatch_is_rejected(machine, micro):
+    machine["actor_micro_batch_size"] = micro
+    with pytest.raises(ValueError, match="actor_micro_batch_size"):
+        formal.train_command(machine, "m0", 0)
+
+
+def test_formal_arms_cannot_silently_change_common_microbatch(machine):
+    formal.freeze_training_settings(machine)
+    formal.freeze_training_settings(machine)
+    with pytest.raises(ValueError, match="Formal settings changed"):
+        formal.freeze_training_settings({**machine, "actor_micro_batch_size": 8})

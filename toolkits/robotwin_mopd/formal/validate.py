@@ -15,6 +15,7 @@ from rlinf.utils.rollout_allocation import load_teacher_reference
 from toolkits.robotwin_mopd import author_pool
 from toolkits.robotwin_mopd.formal.experiment import (
     HERE,
+    RECIPE,
     REPO,
     TASKS,
     read_machine,
@@ -54,11 +55,14 @@ def main() -> None:
     reference = Path(machine["output_root"]) / "prepared/teacher_reference.json"
     metadata = json.loads(reference.read_text())
     rates = load_teacher_reference(str(reference), cfg, metadata["tasks"])
-    # Conservative upper bound: all 640 episodes assigned to each task,
+    # Conservative upper bound: all training episodes assigned to each task,
     # including every possible native reset retry (0..19).
+    max_task_episodes = RECIPE["rounds"] * int(cfg.env.train.total_num_envs)
     for task_id, task in enumerate(TASKS):
         training_seeds = set(
-            range(42 + task_id * 1000003, 42 + task_id * 1000003 + 640 + 19)
+            range(
+                42 + task_id * 1000003, 42 + task_id * 1000003 + max_task_episodes + 19
+            )
         )
         evaluation_seeds = {row["scene_seed"] for row in pool["tasks"][task]}
         if training_seeds & evaluation_seeds:
@@ -72,6 +76,7 @@ def main() -> None:
                 "torch": torch.__version__,
                 "cuda": torch.version.cuda,
                 "teacher_reference_rates": rates,
+                "training_trajectory_bound_per_task": max_task_episodes,
                 "pool_content_sha256": pool["pool_content_sha256"],
             },
             indent=2,

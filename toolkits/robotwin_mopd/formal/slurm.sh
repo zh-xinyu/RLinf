@@ -31,9 +31,10 @@ python3 - "$1" <<'PY'
 import json
 import sys
 from pathlib import Path
-machine = json.loads(Path(sys.argv[1]).read_text())
+from toolkits.robotwin_mopd.formal.experiment import read_machine, smoke_run_id
+machine = read_machine(Path(sys.argv[1]))
 output = Path(machine["output_root"])
-smoke = output / "smoke/robotwin_formal_sft2000_m1_rounds20_seed0_smoke"
+smoke = output / "smoke" / smoke_run_id(machine)
 if (smoke / "status").read_text().strip() != "COMPLETE":
     raise SystemExit("Complete and inspect validation before formal execution")
 weights = smoke / "checkpoints/global_step_2/actor/model_state_dict/full_weights.pt"

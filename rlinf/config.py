@@ -965,6 +965,34 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
                 raise ValueError(f"runner.{key} must be divisible by refresh R.")
         if cfg.runner.get("max_steps", -1) <= 0:
             raise ValueError("Optimizer-update steps require explicit max_steps > 0.")
+    save_steps = cfg.runner.get("save_steps", None)
+    if save_steps is not None:
+        if step_unit != "optimizer_update" or cfg.runner.get(
+            "use_training_pipeline", False
+        ):
+            raise ValueError(
+                "runner.save_steps requires synchronous optimizer-update steps."
+            )
+        if cfg.runner.get("save_interval", -1) > 0:
+            raise ValueError("Use runner.save_steps or save_interval, not both.")
+        if not isinstance(save_steps, list) and not OmegaConf.is_list(save_steps):
+            raise ValueError(
+                "runner.save_steps must be a nonempty list of update steps."
+            )
+        steps = list(save_steps)
+        if not steps or any(
+            type(step) is not int or step <= 0 or step > cfg.runner.max_steps
+            for step in steps
+        ):
+            raise ValueError(
+                "runner.save_steps must contain positive integers up to max_steps."
+            )
+        if steps != sorted(set(steps)) or steps[-1] != cfg.runner.max_steps:
+            raise ValueError(
+                "runner.save_steps must be sorted, unique and include max_steps."
+            )
+        if any(step % repeats for step in steps):
+            raise ValueError("runner.save_steps must be divisible by refresh R.")
     if repeats == 1 and step_unit == "rollout":
         validate_suite_distillation_cfg(cfg)
         return

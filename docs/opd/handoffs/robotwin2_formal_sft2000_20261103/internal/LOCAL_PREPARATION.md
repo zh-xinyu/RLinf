@@ -35,3 +35,5 @@ tar -chf /absolute/path/robotwin-formal-resources.tar \
 当前交付形式：直接发送 `robotwin2_blackwell_4gpu_handoffs.md` 与 `checkpoint_results.csv`，不再使用 ZIP。
 
 四组修正：正式方法为 M0/M1/M2/M3，结果表18行、72个task jobs、7,200 episodes；新增 M3 为 Adaptive-Sync R1。
+
+当前配方已改为100 rounds/B256、默认micro16（目标机smoke选择后四组统一），保存round10/20/40/60/80/100；26行、104个task jobs、10,400 episodes。原20轮/B128测试保留为历史依据，不覆盖。

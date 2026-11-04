@@ -1,6 +1,6 @@
 # RoboTwin 2.0 四任务正式实验交接
 
-交付代码：`experiment/robotwin2-mopd` 分支的四组修正版；按第3节获取并记录 commit，全部实验保持同一版本。旧 `efbac9d6` 仅含三组，不能用于本交接。本指南包含实验设计、安装、权重下载、目标机验收、运行及交回结果的完整流程。随附 `checkpoint_results.csv` 为结果模板。74.45 GB 模型/tokenizer 通过 Hugging Face 单独下载，命令见第3节。
+交付代码：`experiment/robotwin2-mopd` 分支的100 rounds / B256版本；按第3节获取并记录 commit，全部实验保持同一版本。旧20轮版本不用于本次正式实验。本指南包含实验设计、安装、权重下载、目标机验收、运行及交回结果的完整流程。随附 `checkpoint_results.csv` 为结果模板。74.45 GB 模型/tokenizer 通过 Hugging Face 单独下载，命令见第3节。
 
 状态：交接候选版，本机配置、协议与小规模GPU检查已通过；Blackwell 实机验收未完成；代码通过下述实验分支交付。不要把本文件理解为已经验证过 Blackwell 的正式 release。
 
@@ -18,14 +18,14 @@
 
 | ID | 分配 / loss 权重 | R | Rollout rounds | Student updates | 保存 / 测评 updates |
 |---|---|---:|---:|---:|---|
-| M0 | Uniform / 等权 | 1 | 20 | 20 | 5 / 10 / 15 / 20 |
-| M1 | Uniform / 等权 | 2，Refresh | 20 | 40 | 10 / 20 / 30 / 40 |
-| M2 | Adaptive / 同步权重 | 2，Refresh | 20 | 40 | 10 / 20 / 30 / 40 |
-| M3 | Adaptive / 同步权重 | 1 | 20 | 20 | 5 / 10 / 15 / 20 |
+| M0 | Uniform / 等权 | 1 | 100 | 100 | 10 / 20 / 40 / 60 / 80 / 100 |
+| M1 | Uniform / 等权 | 2，Refresh | 100 | 200 | 20 / 40 / 80 / 120 / 160 / 200 |
+| M2 | Adaptive / 同步权重 | 2，Refresh | 100 | 200 | 20 / 40 / 80 / 120 / 160 / 200 |
+| M3 | Adaptive / 同步权重 | 1 | 100 | 100 | 10 / 20 / 40 / 60 / 80 / 100 |
 
 四组构成 Uniform / Adaptive-Sync × R1 / R2 的完整 2×2 矩阵；M0/M1、M3/M2比较复用，M0/M3、M1/M2比较联合分配。这里实验编号 M3 与下文的 M3 loss 名称是两个概念。
 
-共同参数：4 GPUs，4 env workers，T32（每轮32轨迹），B128，microbatch4，LR1e-5、constant scheduler、warmup4 **student updates**。每组640条训练轨迹。M3 `analytic_local_kl` loss；全50步action horizon监督，执行H25，10步ODE；FP32可训练参数/optimizer，BF16 AMP，FULL_SHARD、gradient checkpointing。保持已验证的 `enable_gradient_accumulation=false`：仍累积8个microbatches/rank/update，但每个microbatch同步并分片梯度。
+共同参数：4 GPUs，4 env workers，T32（每轮32轨迹），B256，默认单卡microbatch16，LR1e-5、constant scheduler、warmup4 **student updates**。每组3,200条训练轨迹。M3 `analytic_local_kl` loss；全50步action horizon监督，执行H25，10步ODE；FP32可训练参数/optimizer，BF16 AMP，FULL_SHARD、gradient checkpointing。保持已验证的 `enable_gradient_accumulation=false`：默认累积4个microbatches/rank/update，但每个microbatch同步并分片梯度。
 
 Adaptive：rho0.5、epsilon0.01、warmup/window/interval均5 **rollout rounds**，min_task_episodes5，单次quota变化上限4，最低quota4/task，权重 `alpha_i=4*q_i/32`。使用原20/task训练校准；正式teacher评测不回填控制器。校准成本80条轨迹、18,318个控制步单列。
 
@@ -33,19 +33,21 @@ Adaptive：rho0.5、epsilon0.01、warmup/window/interval均5 **rollout rounds**�
 
 ## 2. 所有正式评测均为100 episodes/task
 
-- 共同SFT起点round0、teacher参考、四组的round5/10/**15**/20，均每task100次；每份四任务共400场。
-- **18份结果、72个task-level jobs、7,200 episodes。** 旧方案跳过round15；本交接按“所有保存点都评测”纳入round15。
+- 共同SFT起点round0、teacher参考、四组的round10/20/40/60/80/100，均每task100次；每份四任务共400场。
+- **26份结果、104个task-level jobs、10,400 episodes。** 每组6个保存点全部评测；共同起点与teacher参考各评一次。
 - 冻结池为 `toolkits/robotwin_mopd/formal/formal100.json`：作者cache cohort2，顺序取0–99，固定unseen指令、固定每episode Torch RNG。此前DEV20和formal50成绩属于不同池，不能直接作为这次round0/teacher参考。
 - 所有方法、checkpoint、后续training seeds使用同一池。固定H25、10 ODE，task horizons依次400/600/400/900；保留真实失败，不换seed、不根据teacher成功与否挑场景。
 - 协议是作者已接受场景的cache replay，不声称本地重新通过scripted expert筛选，也不运行PACE动态horizon算法。
-- 主终点固定round20；中间点用于学习曲线，不按正式成绩挑选峰值代替终点。
+- 初版训练终点为round100；同时保留共同预算10/20/40/60/80的学习曲线。若后续采用较短的论文展示窗口，四组使用相同截断点，记录调整理由，保留完整后段结果供审计/附录；不按各组峰值分别截断。
 - 四任务各用一张卡并行；不同checkpoints顺序评测，训练和评测不争用GPU。
+
+保存使用显式 `runner.save_steps`（单位为student updates），`save_interval=-1`；R1与R2均映射到相同物理rounds，不额外保存round30/50/70/90。没有保存的历史权重无法在训练结束后补出来。若需要更密集的前期节点，应在开跑前统一修改四组的 `recipe.json.save_rounds`（仍每task100场测评），或另行安排有明确记录的短程补充实验；不能将重跑结果当成原run的中间点。
 
 论文横轴为rollout rounds；必须保留实际trajectories、simulation/control steps和wall time。训练success_once不能替代独立评测。不同硬件的pilot wall time不和正式Blackwell直接混算。
 
 ## 3. 资源与环境准备
 
-合作者目标：Slurm单节点4张Blackwell，32分配CPU，384GB RAM。现有完整训练checkpoint约66GB，四个保存点约265GB/run，首轮四组约1,060GB；另外需要74.45GB起点/teacher资源、环境和仿真资产空间。GPU更快不保证32 CPU下同比提速，以目标机实测为准。`ntasks=1`，启动器读取`SLURM_CPUS_PER_TASK`并限制Ray CPU数量；线程默认OMP/MKL/OpenBLAS各1。保留Slurm提供的CUDA_VISIBLE_DEVICES。当前训练入口要求四个**数字GPU ID**；若集群提供UUID或其他映射，应先适配/检查，不手工猜测物理卡号。
+合作者目标：Slurm单节点4张Blackwell，32分配CPU，384GB RAM。现有完整训练checkpoint约66GB，六个保存点约400GB/run，首轮四组约1.6TB；另外需要74.45GB起点/teacher资源、环境和仿真资产空间。GPU更快不保证32 CPU下同比提速，以目标机实测为准。`ntasks=1`，启动器读取`SLURM_CPUS_PER_TASK`并限制Ray CPU数量；线程默认OMP/MKL/OpenBLAS各1。保留Slurm提供的CUDA_VISIBLE_DEVICES。当前训练入口要求四个**数字GPU ID**；若集群提供UUID或其他映射，应先适配/检查，不手工猜测物理卡号。
 
 从实验分支获取代码，记录本次交付的commit，并在全部实验期间保持不变。在仓库根目录执行后续命令：
 
@@ -74,7 +76,9 @@ mkdir -p /data/opd-config
 cp toolkits/robotwin_mopd/formal/machine.example.json /data/opd-config/robotwin.json
 ```
 
-编辑machine JSON，填写runtime_root、resource_root、output_root、pace_reference_root。`profile`保留`blackwell-cu128-candidate`；W&B默认disabled，也可offline/online，entity由执行者填写，不存token。启用时project沿用`RoboTwin_MultiTeacher_Pilots`，group为`robotwin_formal_sft2000_100ep`。
+编辑machine JSON，填写runtime_root、resource_root、output_root、pace_reference_root；为100轮/B256正式实验使用新的output_root，避免与旧20轮资料混用。`profile`保留`blackwell-cu128-candidate`；W&B默认disabled，也可offline/online，entity由执行者填写，不存token。启用时project沿用`RoboTwin_MultiTeacher_Pilots`，group为`robotwin_formal_sft2000_100ep`。
+
+`actor_micro_batch_size` 默认16，是允许按硬件适配的参数。先以16执行完整smoke；显存不足可改8或4，有余量也可试32。4卡/B256下每卡分别累计4/8/16/2个microbatch；global B、LR、T和训练预算不变。选择依据为显存和吞吐，不依据正式任务成功率。选定后四组必须统一，首次formal train会将recipe及microbatch锁定到 `prepared/formal_training_settings.json`，后续不匹配会拒绝启动。若需要改变已启动实验的设置，应使用新output_root并重新安排匹配四组。
 
 环境固定Python3.11.14；Blackwell候选使用Torch2.7.1/cu128、torchvision0.22.1；SAPIEN3.0.0b1及UTF-8补丁、固定RoboTwin/OpenPI commit、Transformers4.53.2 overlay沿用已验证协议。公共包snapshot在`runtime-common.lock.txt`，GPU依赖按官方wheel及本次实际安装生成的`cu128.constraints.txt`固定，安装后另存实际freeze。该snapshot继承原环境中非必需包，并非最小依赖集合。系统须有相应编译库、FFmpeg、Vulkan/EGL驱动；脚本不安装驱动。若Vulkan ICD不在`/usr/share/vulkan/icd.d/nvidia_icd.json`，应在machine JSON增加`"vulkan_icd": "/actual/path/nvidia_icd.json"`，入口会设置`VK_ICD_FILENAMES`和`VK_DRIVER_FILES`。
 
@@ -129,6 +133,8 @@ python3 "$entry" --machine "$machine" smoke m1
 
 prepare保留原始校准，只重绑定已验证权重/normalization路径，并把tokenizer实体文件准备到输出目录，兼容资源符号链接和只读挂载；preflight检查四组Hydra配置、实际runtime指纹、100/task评测池、训练/评测seed隔离及teacher校准协议。collective-smoke使用极小模型检查四卡NCCL/FSDP/Adam及文件保存，不代表完整VLA训练验证。smoke跑2次student updates（R2为1个rollout round）并保存checkpoint，输出在独立smoke目录，不计正式结果。它只验证uniform刷新链路，不证明adaptive反馈收益。
 
+smoke目录名包含100轮/B256配方和microbatch，例如 `smoke/robotwin_formal_sft2000_m1_rounds100_b256_seed0_micro16_smoke`。若仅完整模型smoke因显存失败，保留现场；更改machine JSON中的 `actor_micro_batch_size` 后，在四卡allocation中重跑 `preflight` 和 `smoke m1` 即可，不要重复已经完成的同名teacher/tiny smoke。正式Slurm入口会要求所选microbatch对应的完整smoke通过，旧配方或其他microbatch的smoke不能替代。microbatch16/B256在目标Blackwell上的峰值与速度须实测；历史B128/micro4显存不代表新配置。
+
 `teacher-smoke`使用固定DEV20池前2场/task，共8场，只做部署验收、不计正式结果。目标机还须检查其teacher闭环推理/三路图像正常，再运行正式参考；不要通过选择正式池中成功场景调试。任何runtime或推理行为更改都需重新验收，不能静默绕过fingerprint检查。
 
 验收通过后：
@@ -157,7 +163,7 @@ partition名称沿用合作者提供的`hpg-rtx6e0e`，提交前核对集群实�
 
 交回：
 
-1. `output_root/deliverables/checkpoint_results.csv`：18行，逐task SR和等权macro SR，分母均100，必须全部COMPLETE。
+1. `output_root/deliverables/checkpoint_results.csv`：26行，逐task SR和等权macro SR，分母均100，必须全部COMPLETE。
 2. 全部`eval/`原始JSON及log，包含逐episode实际seed、指令、成功标记、控制步数、checkpoint身份和pool hash。
 3. `train/`非checkpoint资料：resolved config、launch/runtime/code快照、JSONL counters、TensorBoard/W&B本地日志、driver/Ray日志，及异常/重启说明。
 4. `prepared/`校准路径绑定、资源校验与preflight记录；目标机实际包freeze、GPU/driver信息、Slurm资源记录及验收日志。
@@ -208,6 +214,6 @@ partition名称沿用合作者提供的`hpg-rtx6e0e`，提交前核对集群实�
 
 2026-11-04：模型资源发布至第3节指定的 Hugging Face revision，19 个文件的远端大小与 SHA256 均验证通过；下载脚本的路径映射、重复运行和覆盖保护检查通过。原 RoboCasa 资源未改动。
 
-2026-11-04 四组修正：补齐 Adaptive-Sync R1（M3），配方、CLI plan/train/eval、Slurm 队列与结果汇总同步支持完整 2×2 矩阵。其余训练参数、HF 资源 revision 和 formal100 场景池保持不变；本次未启动训练或正式评测。
+2026-11-04 当前配方：四组统一100 rounds/B256，默认micro16可在smoke阶段统一调整。保存与正式评测为round10/20/40/60/80/100，模板26行。训练/评测seed隔离检查覆盖每任务最多3,200条训练轨迹及reset retries。初始化、teachers、HF资源revision与formal100池保持不变。新配方的完整GPU训练和目标Blackwell验收尚未执行。
 
-四组修正验证：10 项正式交接回归测试通过；真实 runtime 下四组 Hydra 配置均成功解析，M3 和 M2 的 teacher 校准签名与 rates 一致。M3 的完整 GPU 训练尚未执行，仍须完成目标机验收。
+本次验证：107项CPU回归测试通过（含指定保存节点、smoke第2步保存、microbatch匹配、旧配方兼容）。真实cu128 runtime的四组CLI与完整CPU preflight通过，3200条训练轨迹边界、teacher校准及formal100协议匹配。证据：`outputs/robotwin4/formal100_b256_validation_20261104/validation_summary.json`。这不替代目标机完整模型GPU smoke。

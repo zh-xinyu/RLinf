@@ -123,6 +123,10 @@ def main():
             "runner.logger.logger_backends=[tensorboard]",
             "env.train.total_num_envs=32",
         ]
+        if any(
+            item.lstrip("+").startswith("runner.save_steps=") for item in args.overrides
+        ):
+            overrides += ["++runner.save_steps=[2]", "runner.save_interval=-1"]
     with initialize_config_dir(
         version_base="1.1", config_dir=str(REPO / "examples/embodiment/config")
     ):
