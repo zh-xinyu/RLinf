@@ -347,3 +347,90 @@ accepts `--updates 40 --save-every-updates 20 --timeout-seconds 21600` with
 rounds and saves at updates20/40; it does not modify the150-round candidate YAML.
 The optional save interval must be a positive complete-round multiple within the
 run. Use a new output directory, then independently evaluate both checkpoints.
+
+## Bounded distributed evaluation
+
+`launch_evaluation.py` checks the real Ray evaluation scheduler, independently
+of training. Its default smoke evaluates global tasks 0/10/20/30 over all 50
+official initial states (200 unique episodes). `--all-tasks` expands this to the
+formal 40 tasks × 50 states. It keeps four ranks and 16 environments, uses native
+suite horizons, and derives conservative scheduling budgets of 6,760 or 65,000
+steps respectively. Finished slots freeze physics but still incur policy inference
+until the fixed scheduling budget ends.
+
+For a saved full checkpoint, first obtain `protocol.json` from the strict
+single-process reload command above. Then prepare a private-cluster launch:
+
+```bash
+"$PROBE_PYTHON" toolkits/libero_gr00t/launch_evaluation.py \
+  --python "$PROBE_PYTHON" --student /path/to/original/student \
+  --weights /path/to/global_step_N/actor/model_state_dict/full_weights.pt \
+  --validation-protocol /path/to/full_checkpoint_reload_smoke/protocol.json \
+  --output outputs/evaluation_scheduler_smoke --gpus 0 1 6 7 --dry-run
+```
+
+Use a new output path and replace `--dry-run` with `--run` to execute. Select four
+available physical GPUs; the 20 GiB/card preflight is an availability check, not
+a memory reservation. Default timeout is two hours; use `--timeout-seconds` for a
+larger bounded formal evaluation. A private Ray head and owner-scoped cleanup
+reuse the production launcher safeguards. The driver writes directly into the
+chosen output directory rather than going through the shell wrapper.
+
+The launcher verifies checkpoint and metadata hashes against the strict reload
+protocol and checks the inference contract. Preserve the original student path
+and contents. For the initial-policy reference, replace `--weights` and
+`--validation-protocol` with `--baseline`. The baseline manifest hashes its actual
+config, metadata, shard index and every local safetensors shard; missing indexed
+shards fail before launch. Preserve this content identity with the results.
+Evaluate initialization and trained
+checkpoints through this same distributed protocol: rollout workers seed once
+per rank, whereas the standalone screen reseeds each task/trial.
+
+After a successful driver exit, the launcher requires four environment-worker
+logs and exact selected task/trial coverage. It writes `episodes.csv` and
+`summary.json`; incomplete or conflicting data fails, with no partial success
+rate reported. Preserve `launch.json`, `resolved_config.yaml`, and raw logs with
+the summary. CPU tests and dry-run composition do not establish real distributed
+evaluation acceptance; complete the 200-episode GPU smoke before freezing it.
+
+## Fixed-observation checkpoint diagnostic
+
+If velocity loss falls without improved success, compare velocity agreement and
+physical actions on the **same observations and noise** before changing the loss.
+This tool runs no simulator and performs no updates. Select one available GPU
+with at least20 GiB free; the default allocation cap is16 GiB, not a reservation.
+
+```bash
+CUDA_VISIBLE_DEVICES=<free-device> "$PROBE_PYTHON" -m \
+  toolkits.libero_gr00t.checkpoint_action_diagnostic --run-gpu \
+  --config /path/to/training/resolved_config.yaml \
+  --observations /path/to/saved_four_suite_observations \
+  --teachers /path/to/spatial /path/to/object /path/to/goal /path/to/long \
+  --seeds 2 --seed 1234 --output outputs/action_diagnostic_update0.json
+```
+
+Omitting `--weights` evaluates the original student. Repeat with the same arguments,
+a new output path, and `--weights /path/to/global_step_20/actor/model_state_dict/full_weights.pt`
+(or update40). Full checkpoints undergo the same strict dtype, shape, finiteness
+and frozen-backbone validation as the reload evaluator. Student and teachers are
+loaded sequentially; each policy uses its own full native preprocessing. Exact
+initial-noise equality is asserted before accepting paired action measurements.
+
+The directory input reads `<suite>_obs.npz` for the four standard suites. For up
+to40 observations, replace `--observations` with `--fixture-manifest fixtures.json`:
+
+```json
+[{"suite":"libero_spatial","task_id":0,"initial_state_id":1,"path":"spatial_task0_init1.npz"}]
+```
+
+Paths are relative to the manifest. Task/state IDs are optional provenance fields;
+the tool does not invent them for existing fixtures. NPZ files must contain raw
+LIBERO observation keys and `task_description`, as in the saved feasibility fixtures.
+
+Each result records file hashes, checkpoint identity, seed, per-time velocity MSE
+on the current student flow path, M3-weighted MSE, physical first-six-dimension
+RMSE and gripper disagreement. The teacher velocity is transported into student
+coordinates; the endpoint reference is the native teacher action from the same
+noise. Compare matching fixture/seed rows across checkpoints. These are action
+agreement diagnostics, not SR or evidence that the teacher can recover those states.
+The small existing four-observation bank is an initial smoke, not an all-task study.
