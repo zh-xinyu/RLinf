@@ -12,6 +12,8 @@ from toolkits.libero_gr00t.evaluate_full_checkpoint import (
     candidate_model_config,
     checkpoint_step,
     load_full_weights,
+    parse_args,
+    prepare_evaluation_weights,
 )
 
 
@@ -125,3 +127,42 @@ def test_unchanged_heads_and_changed_non_backbone_version_are_reported(tmp_path)
     assert result["unchanged_backbone_tensors"] == 2
     assert result["other_changed_state_keys"] == ["version"]
     assert target.version.item() == 1
+
+
+def test_baseline_preserves_weights_and_records_content_without_strict_reload(tmp_path):
+    model = policy()
+    before = {key: tensor.clone() for key, tensor in model.state_dict().items()}
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "experiment_cfg").mkdir()
+    (tmp_path / "experiment_cfg/metadata.json").write_text("{}")
+    (tmp_path / "model.safetensors").write_bytes(b"base checkpoint")
+    result = prepare_evaluation_weights(model, None, tmp_path)
+    assert result["baseline"] and result["strict"] is False
+    assert result["weights"] is result["weights_sha256"] is None
+    assert len(result["base_checkpoint_identity"]["files"]) == 3
+    assert "base_comparison" not in result
+    for key, tensor in model.state_dict().items():
+        torch.testing.assert_close(tensor, before[key], rtol=0, atol=0)
+
+
+def test_trained_source_still_requires_strict_load_and_identifies_weights(tmp_path):
+    model = policy()
+    path = tmp_path / "full_weights.pt"
+    torch.save(model.state_dict(), path)
+    result = prepare_evaluation_weights(model, path, tmp_path)
+    assert result["strict"] and result["baseline"] is False
+    assert result["weights"] == str(path.resolve())
+    assert len(result["weights_sha256"]) == 64
+    assert "base_checkpoint_identity" not in result
+
+
+@pytest.mark.parametrize("source", [["--baseline"], ["--weights", "weights.pt"]])
+def test_cli_accepts_explicit_baseline_or_existing_weights_mode(source):
+    args = parse_args(["--config", "config.yaml", "--output", "new-output", *source])
+    assert args.baseline == (source == ["--baseline"])
+
+
+@pytest.mark.parametrize("source", [[], ["--baseline", "--weights", "weights.pt"]])
+def test_cli_rejects_missing_or_ambiguous_policy_source(source):
+    with pytest.raises(SystemExit):
+        parse_args(["--config", "config.yaml", "--output", "new-output", *source])

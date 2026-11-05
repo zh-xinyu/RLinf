@@ -22,7 +22,7 @@ from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf, open_dict
 
 from rlinf.scheduler.cluster.config import ClusterConfig
-from toolkits.libero_gr00t.evaluate_full_checkpoint import sha256
+from toolkits.libero_gr00t.evaluate_full_checkpoint import baseline_identity, sha256
 from toolkits.libero_gr00t.launch_production import (
     REPO,
     choose_ports,
@@ -76,42 +76,6 @@ def build_config(args):
     OmegaConf.resolve(cfg)
     ClusterConfig.from_dict_cfg(cfg.cluster)
     return cfg
-
-
-def baseline_identity(student: Path) -> dict:
-    """Hash the actual base config, metadata, index and all local weight shards."""
-    shards = sorted(student.glob("*.safetensors"))
-    if not shards:
-        raise ValueError("Baseline checkpoint has no safetensors weights")
-    files = [student / "config.json", student / "experiment_cfg/metadata.json", *shards]
-    index = student / "model.safetensors.index.json"
-    if index.exists():
-        mapping = json.loads(index.read_text()).get("weight_map", {})
-        if not mapping:
-            raise ValueError("Baseline shard index has no weight map")
-        for name in set(mapping.values()):
-            shard = (student / name).resolve()
-            if shard.parent != student.resolve() or shard not in [
-                p.resolve() for p in shards
-            ]:
-                raise ValueError(
-                    f"Baseline shard index references unavailable weights: {name}"
-                )
-        files.append(index)
-    records = [
-        {
-            "path": str(path.relative_to(student)),
-            "size_bytes": path.stat().st_size,
-            "sha256": sha256(path),
-        }
-        for path in sorted(files)
-    ]
-    return {
-        "files": records,
-        "content_sha256": hashlib.sha256(
-            json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-    }
 
 
 def validate_checkpoint(args, cfg) -> dict:

@@ -348,6 +348,29 @@ rounds and saves at updates20/40; it does not modify the150-round candidate YAML
 The optional save interval must be a positive complete-round multiple within the
 run. Use a new output directory, then independently evaluate both checkpoints.
 
+## Matched standalone baseline screening
+
+For a before/after screen using the same native policy and per-task/trial RNG
+protocol, `evaluate_full_checkpoint.py` also accepts `--baseline` instead of
+`--weights`. Keep the training resolved config, original student, seed, tasks
+and trials identical to the checkpoint screen. For example, all40 tasks over
+five official states give200 episodes:
+
+```bash
+CUDA_VISIBLE_DEVICES=6 "$PROBE_PYTHON" toolkits/libero_gr00t/evaluate_full_checkpoint.py \
+  --baseline --config /path/to/run/resolved_config.yaml \
+  --tasks 0 1 2 3 4 5 6 7 8 9 --trials 0 1 2 3 4 \
+  --output outputs/standalone_baseline_200
+```
+
+The baseline uses the same candidate model construction and evaluator, records
+update/round0 and hashes its actual base config, metadata and safetensors files.
+It does not export a duplicate full checkpoint or claim a strict trained-weight
+reload (`strict: false`). The original `--weights` mode retains all strict
+state/dtype/finiteness/frozen-backbone checks. Both modes record their source
+identity in `protocol.json`. These standalone screens do not validate the Ray
+scheduler and should not be mixed with its different rank-local RNG protocol.
+
 ## Bounded distributed evaluation
 
 `launch_evaluation.py` checks the real Ray evaluation scheduler, independently

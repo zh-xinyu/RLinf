@@ -1,6 +1,6 @@
 # Copyright 2026 The RLinf Authors.
 # SPDX-License-Identifier: Apache-2.0
-"""Strictly reload production weights and run bounded independent LIBERO episodes.
+"""Evaluate a base policy or strictly reloaded production weights on LIBERO.
 
 This uses one explicitly selected GPU and no Ray. It validates the full-weight
 artifact and real policy inference, not the distributed evaluation scheduler.
@@ -128,6 +128,42 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def baseline_identity(student: Path) -> dict:
+    """Hash the actual base config, metadata, index and all local weight shards."""
+    shards = sorted(student.glob("*.safetensors"))
+    if not shards:
+        raise ValueError("Baseline checkpoint has no safetensors weights")
+    files = [student / "config.json", student / "experiment_cfg/metadata.json", *shards]
+    index = student / "model.safetensors.index.json"
+    if index.exists():
+        mapping = json.loads(index.read_text()).get("weight_map", {})
+        if not mapping:
+            raise ValueError("Baseline shard index has no weight map")
+        for name in set(mapping.values()):
+            shard = (student / name).resolve()
+            if shard.parent != student.resolve() or shard not in [
+                p.resolve() for p in shards
+            ]:
+                raise ValueError(
+                    f"Baseline shard index references unavailable weights: {name}"
+                )
+        files.append(index)
+    records = [
+        {
+            "path": str(path.relative_to(student)),
+            "size_bytes": path.stat().st_size,
+            "sha256": sha256(path),
+        }
+        for path in sorted(files)
+    ]
+    return {
+        "files": records,
+        "content_sha256": hashlib.sha256(
+            json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+
+
 def checkpoint_step(path: Path) -> int:
     """Read the production checkpoint update ID from its directory name."""
     for parent in path.parents:
@@ -136,9 +172,33 @@ def checkpoint_step(path: Path) -> int:
     raise ValueError("Weights must live below a global_step_<N> checkpoint directory")
 
 
-def main() -> None:
+def prepare_evaluation_weights(
+    model: torch.nn.Module, weights: Path | None, base: Path
+) -> dict:
+    """Keep baseline weights intact or strictly load a complete trained policy."""
+    if weights is None:
+        return {
+            "baseline": True,
+            "strict": False,
+            "weights": None,
+            "weights_sha256": None,
+            "base_checkpoint_identity": baseline_identity(base),
+        }
+    loaded = load_full_weights(model, weights)
+    return {
+        "baseline": False,
+        "weights": str(weights.resolve()),
+        "weights_sha256": sha256(weights),
+        **loaded,
+    }
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Require an explicit base-policy or trained-weight evaluation source."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--weights", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--weights", type=Path)
+    source.add_argument("--baseline", action="store_true")
     parser.add_argument(
         "--config", type=Path, required=True, help="Training resolved_config.yaml"
     )
@@ -152,7 +212,11 @@ def main() -> None:
     parser.add_argument("--memory-gib", type=float, default=16)
     parser.add_argument("--minimum-free-gib", type=float, default=20)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
     if args.output.exists():
         raise FileExistsError("Use a new evaluation output directory")
     for values, limit, name in ((args.tasks, 10, "tasks"), (args.trials, 50, "trials")):
@@ -165,7 +229,7 @@ def main() -> None:
     if not 8 <= args.memory_gib <= args.minimum_free_gib:
         raise ValueError("Require 8 <= memory-gib <= minimum-free-gib")
     model_cfg, reuse = candidate_model_config(args.config, args.student)
-    step = checkpoint_step(args.weights)
+    step = 0 if args.baseline else checkpoint_step(args.weights)
     if step % reuse:
         raise ValueError("Checkpoint is not at a complete rollout-round boundary")
     if not os.environ.get("CUDA_VISIBLE_DEVICES") or torch.cuda.device_count() != 1:
@@ -189,13 +253,11 @@ def main() -> None:
 
     os.environ["MUJOCO_EGL_DEVICE_ID"] = str(egl)
     model = get_model(model_cfg).cpu().eval().requires_grad_(False)
-    loaded = load_full_weights(model, args.weights)
+    loaded = prepare_evaluation_weights(model, args.weights, Path(model_cfg.model_path))
     model._probe_expected_state_dim = 11
     model.cuda()
     args.output.mkdir(parents=True)
     protocol = {
-        "weights": str(args.weights.resolve()),
-        "weights_sha256": sha256(args.weights),
         "config": str(args.config.resolve()),
         "config_sha256": sha256(args.config),
         "base_checkpoint": model_cfg.model_path,
@@ -207,6 +269,7 @@ def main() -> None:
         "tasks": args.tasks,
         "trials": args.trials,
         "seed": args.seed,
+        "rng_protocol": "per-task/trial reseeding via pilot.evaluate",
         "optimizer_update": step,
         "rollout_round": step // reuse,
         "physical_cuda_visible_devices": os.environ["CUDA_VISIBLE_DEVICES"],
