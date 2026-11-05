@@ -39,11 +39,13 @@ algorithm:
 
 env:
   train:
+    seed: 0
     total_num_envs: 32
     rollout_epoch: 1
     task_sampling_strategy: suite_quota
 
 actor:
+  seed: 0
   global_batch_size: 64
   micro_batch_size: 1
   optim:

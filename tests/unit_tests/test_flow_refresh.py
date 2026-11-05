@@ -402,3 +402,56 @@ def test_resume_counters_keep_optimizer_and_scheduler_progress(mode):
     assert result["lr"] == 3e-5
     with pytest.raises(ValueError, match="mismatched"):
         inspect.unwrap(Actor.restore_opd_update_counters)(worker, 56)
+
+
+@pytest.mark.parametrize("executed_horizon", [1, 8, 16])
+def test_teacher_transport_crops_state_to_executed_velocity_prefix(executed_horizon):
+    from rlinf.algorithms.flow_opd import (
+        map_target_flow_state_to_source,
+        transport_source_velocity_to_target,
+    )
+
+    scale, shift = torch.full((32,), 1.2), torch.full((32,), 0.1)
+    x = torch.randn(2, 16, 32)
+    steps = torch.tensor([0, 2])
+    expected_source = map_target_flow_state_to_source(x, steps, 4, scale, shift)
+
+    class Teacher(torch.nn.Module):
+        model_path = "fixture"
+        valid_action_dim = 7
+
+        def opd_normalize_state(self, raw):
+            return raw, torch.ones_like(raw, dtype=torch.bool)
+
+        def opd_teacher_embodiment_id(self, size):
+            return torch.full((size,), 31)
+
+        def opd_action_endpoint_affine_to(self, metadata):
+            return scale, shift
+
+        def forward(self, forward_type, forward_inputs, nft_inputs, compute_values):
+            # Keep the complete 16-action latent for the teacher transformer.
+            assert nft_inputs["x_t"].shape == (1, 16, 32)
+            return {"v_theta": 2 * nft_inputs["x_t"][:, :executed_horizon, :7]}
+
+    teacher = Teacher()
+    worker = SimpleNamespace(
+        cfg=OmegaConf.create({"actor": {"micro_batch_size": 1,
+            "model": {"model_type": "gr00t", "denoising_steps": 4}},
+            "algorithm": {"loss_type": "analytic_local_kl", "adv_type": "none",
+                "gr00t_cross_metadata_m3_mode": "student_coordinate_sde"}}),
+        device=torch.device("cpu"), amp_context=nullcontext(),
+        _start_cuda_memory_phase=lambda: False,
+        _finish_cuda_memory_phase=lambda *args: None,
+        _teacher_names=lambda: [], _get_opd_teacher_model=lambda: teacher,
+        _get_opd_student_gr00t_metadata=lambda: {}, _opd_coordinate_log_keys=set(),
+        log_info=lambda message: None,
+    )
+    bind(worker, "_teacher_velocity_pass")
+    actual = worker._teacher_velocity_pass({"_nft_x_t": x, "_nft_tau": steps,
+        "opd_raw_states": torch.zeros(2, 8), "state": torch.zeros(2, 8)}, 2)
+    expected = transport_source_velocity_to_target(
+        expected_source[:, :executed_horizon],
+        2 * expected_source[:, :executed_horizon, :7], steps, 4, scale, shift,
+    )
+    torch.testing.assert_close(actual, expected)

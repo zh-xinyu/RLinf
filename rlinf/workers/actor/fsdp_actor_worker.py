@@ -2054,8 +2054,11 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             velocities = torch.cat(velocities, dim=0)
             if transport is not None:
                 source_x_t, step_idx, endpoint_scale, endpoint_shift = transport
+                # NFT returns only the executed action prefix, while x_t retains
+                # the full generated chunk needed by the teacher transformer.
+                assert source_x_t.shape[1] >= velocities.shape[1]
                 velocities = transport_source_velocity_to_target(
-                    source_x_t,
+                    source_x_t[:, : velocities.shape[1]],
                     velocities,
                     step_idx,
                     int(self.cfg.actor.model.denoising_steps),

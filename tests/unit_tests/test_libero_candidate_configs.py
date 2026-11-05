@@ -56,6 +56,7 @@ def test_all_candidates_validate_and_preserve_round_budget(monkeypatch, tmp_path
     adaptive = arm in (2, 3)
     assert cfg.algorithm.sync_suite_loss_weights is adaptive
     assert cfg.runner.rollout_allocation.mode == ("adaptive" if adaptive else "uniform")
+    assert cfg.actor.seed == cfg.env.train.seed == cfg.runner.rollout_allocation.seed == 0
     assert cfg.runner.rollout_allocation.enabled
     assert cfg.runner.rollout_allocation.max_quota_change == 3
     assert cfg.runner.val_check_interval == -1  # Separate independent evaluator.
