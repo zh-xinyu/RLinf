@@ -89,7 +89,13 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
     )
     ray_dir = tmp_path / "private-ray"
     ray_dir.mkdir()
-    monkeypatch.setattr(launcher.tempfile, "mkdtemp", lambda **kwargs: str(ray_dir))
+    def short_ray_directory(**kwargs):
+        # Ray appends session and socket names; Linux AF_UNIX permits 107 bytes.
+        example = "/tmp/" + kwargs["prefix"] + "abcdefgh/ray/session_2026-11-04_23-35-31_073485_2878406/sockets/plasma_store"
+        assert len(example.encode()) <= 107
+        return str(ray_dir)
+
+    monkeypatch.setattr(launcher.tempfile, "mkdtemp", short_ray_directory)
     ports = {name: 19000 + i for i, name in enumerate(launcher.PORT_NAMES)}
     monkeypatch.setattr(launcher, "choose_ports", lambda: ports)
     calls, cleanups, checks = [], [], []

@@ -200,7 +200,7 @@ def main() -> None:
     args.output.mkdir(parents=True)
     OmegaConf.save(cfg, args.output / "resolved_config.yaml")
     owner = "opd-libero-" + uuid.uuid4().hex
-    ray_root = Path(tempfile.mkdtemp(prefix=owner + "-", dir="/tmp"))
+    ray_root = Path(tempfile.mkdtemp(prefix="opdl-", dir="/tmp"))
     # Keep Ray's standard <RAY_TMPDIR>/ray address-file layout even for children
     # which reconnect without an explicit address; it remains private to this run.
     ray_dir = ray_root / "ray"
