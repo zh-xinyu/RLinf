@@ -91,6 +91,11 @@ def main():
     parser.add_argument("--minimum-free-gib", type=float, default=32)
     parser.add_argument("--atol", type=float, default=1e-5)
     parser.add_argument("--rtol", type=float, default=1e-4)
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Diagnostic control: request deterministic CUDA algorithms",
+    )
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError("Use a new parity output directory")
@@ -108,6 +113,9 @@ def main():
     amp = cfg.actor.fsdp_config.amp_autocast
     if not amp.enabled or amp.precision != "bf16":
         raise ValueError("Parity probe requires BF16 autocast")
+    if args.deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        torch.use_deterministic_algorithms(True)
     if not os.environ.get("CUDA_VISIBLE_DEVICES") or torch.cuda.device_count() != 1:
         raise ValueError("Select exactly one CUDA_VISIBLE_DEVICES explicitly")
     free, total = torch.cuda.mem_get_info()
@@ -178,6 +186,9 @@ def main():
     )
 
     def forward_backward(policy):
+        # Every pass starts from zero gradients and the identical RNG state.
+        policy.zero_grad(set_to_none=True)
+        torch.manual_seed(args.seed + 2)
         policy.train()
         with torch.autocast("cuda", dtype=torch.bfloat16):
             output = policy(
@@ -197,6 +208,31 @@ def main():
         raise ValueError("A selected reference action-head gradient is absent")
     reference_gradients = {
         key: named[key].grad.detach().float().cpu().clone() for key in GRAD_KEYS
+    }
+    repeated_reference, repeated_reference_loss = forward_backward(model)
+    reference_repeat_errors = {
+        key: tensor_difference(
+            named[key].grad.detach().float().cpu(),
+            reference_gradients[key],
+            args.atol,
+            args.rtol,
+        )
+        for key in GRAD_KEYS
+    }
+    reference_repeat_output = tensor_difference(
+        repeated_reference, reference, args.atol, args.rtol
+    )
+    attention_processors = sorted(
+        {
+            type(module.processor).__name__
+            for module in model.modules()
+            if hasattr(module, "processor")
+        }
+    )
+    gradient_checkpointing_modules = {
+        canonical_name(name): bool(module.gradient_checkpointing)
+        for name, module in model.named_modules()
+        if isinstance(getattr(module, "gradient_checkpointing", None), bool)
     }
     original_param_dtypes = {
         "head": sorted(
@@ -222,19 +258,35 @@ def main():
                 "cuda", (1,), mesh_dim_names=("dp",)
             )
             wrapped = FSDPStrategy(cfg.actor, world_size=1).wrap_model(model, mesh)
-            actual, actual_loss = forward_backward(wrapped)
-            selected = {}
-            for prefix, module in wrapped.named_modules():
-                if isinstance(module, FSDP) and module._handle is not None:
-                    selected.update(
-                        selected_flat_gradients(
-                            prefix, module._handle.flat_param, GRAD_KEYS
+
+            def wrapped_gradients():
+                selected = {}
+                for prefix, module in wrapped.named_modules():
+                    if isinstance(module, FSDP) and module._handle is not None:
+                        selected.update(
+                            selected_flat_gradients(
+                                prefix, module._handle.flat_param, GRAD_KEYS
+                            )
                         )
+                if set(selected) != set(GRAD_KEYS):
+                    raise ValueError(
+                        f"Missing wrapped gradients: {set(GRAD_KEYS) - set(selected)}"
                     )
-            if set(selected) != set(GRAD_KEYS):
-                raise ValueError(
-                    f"Missing wrapped gradients: {set(GRAD_KEYS) - set(selected)}"
+                return selected
+
+            actual, actual_loss = forward_backward(wrapped)
+            selected = wrapped_gradients()
+            repeated_actual, repeated_actual_loss = forward_backward(wrapped)
+            repeated_selected = wrapped_gradients()
+            wrapped_repeat_output = tensor_difference(
+                repeated_actual, actual, args.atol, args.rtol
+            )
+            wrapped_repeat_errors = {
+                key: tensor_difference(
+                    repeated_selected[key], selected[key], args.atol, args.rtol
                 )
+                for key in GRAD_KEYS
+            }
             output_error = tensor_difference(actual, reference, args.atol, args.rtol)
             gradient_errors = {
                 key: tensor_difference(
@@ -247,6 +299,10 @@ def main():
                 output_error["close"]
                 and all(value["close"] for value in gradient_errors.values())
                 and wrapped_inverse == original_inverse
+                and reference_repeat_output["close"]
+                and wrapped_repeat_output["close"]
+                and all(value["close"] for value in reference_repeat_errors.values())
+                and all(value["close"] for value in wrapped_repeat_errors.values())
             )
             report = {
                 "passed": passed,
@@ -262,6 +318,30 @@ def main():
                 "wrapped_loss": actual_loss,
                 "output": output_error,
                 "selected_gradients": gradient_errors,
+                "unwrapped_repeat": {
+                    "output": reference_repeat_output,
+                    "loss": repeated_reference_loss,
+                    "selected_gradients": reference_repeat_errors,
+                },
+                "wrapped_repeat": {
+                    "output": wrapped_repeat_output,
+                    "loss": repeated_actual_loss,
+                    "selected_gradients": wrapped_repeat_errors,
+                },
+                "numerical_environment": {
+                    "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+                    "cublas_workspace_config": os.environ.get(
+                        "CUBLAS_WORKSPACE_CONFIG"
+                    ),
+                    "flash_sdp_enabled": torch.backends.cuda.flash_sdp_enabled(),
+                    "memory_efficient_sdp_enabled": torch.backends.cuda.mem_efficient_sdp_enabled(),
+                    "math_sdp_enabled": torch.backends.cuda.math_sdp_enabled(),
+                    "cudnn_deterministic": torch.backends.cudnn.deterministic,
+                    "attention_processor_classes": attention_processors,
+                    "gradient_checkpointing_modules": gradient_checkpointing_modules,
+                    "atol": args.atol,
+                    "rtol": args.rtol,
+                },
                 "parameter_dtypes_before_wrap": original_param_dtypes,
                 "inv_freq_before": original_inverse,
                 "inv_freq_after": wrapped_inverse,
