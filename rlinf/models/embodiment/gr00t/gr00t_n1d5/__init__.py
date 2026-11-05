@@ -265,6 +265,20 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     if cfg.rl_head_config.disable_dropout:
         replace_dropout_with_identity(model)
 
+    if cfg.get("disable_image_tiling", False):
+        for transform in model._modality_transform.transforms:
+            if hasattr(transform, "eagle_processor"):
+                processor = transform.eagle_processor.image_processor
+                processor.min_dynamic_tiles = 1
+                processor.max_dynamic_tiles = 1
+                processor.use_thumbnail = False
+
+    if cfg.get("opd_fixed_text_padding", None) is not None:
+        fixed_padding = cfg.opd_fixed_text_padding
+        if not isinstance(fixed_padding, bool):
+            raise ValueError("opd_fixed_text_padding must be a boolean")
+        model.opd_fixed_text_padding = fixed_padding
+
     if cfg.get("skip_backbone_logits", False):
         from .memory_utils import enable_feature_only_backbone
 

@@ -177,6 +177,36 @@ class LiberoFrankaDataConfig(BaseDataConfig):
         return ComposedModalityTransform(transforms=transforms)
 
 
+class LiberoGroupedDataConfig(LiberoFrankaDataConfig):
+    """Grouped LIBERO schema used by the RLobot-jun few-shot N1.5 model.
+
+    Matches the publisher's ``LiberoDataConfig`` in gr00t-bigenlight commit
+    75a306e8d97fcca101e708e821d02ca2b17d323e. State orientation becomes 6D;
+    actions remain seven controller-command dimensions with min/max scaling.
+    """
+
+    video_keys = ["video.front_view", "video.left_wrist_view"]
+    state_keys = [
+        "state.eef_pos_absolute",
+        "state.eef_rot_absolute",
+        "state.gripper_close",
+    ]
+    action_keys = [
+        "action.eef_pos_delta",
+        "action.eef_rot_delta",
+        "action.gripper_close",
+    ]
+
+    def transform(self) -> ModalityTransform:
+        transforms = super().transform()
+        for transform in transforms.transforms:
+            if isinstance(transform, StateActionTransform) and (
+                "state.eef_rot_absolute" in transform.apply_to
+            ):
+                transform.target_rotations = {"state.eef_rot_absolute": "rotation_6d"}
+        return transforms
+
+
 class RoboCasaPandaOmronDataConfig(BaseDataConfig):
     """Modality config for RoboCasa365 with the Panda + Omron mobile base.
 

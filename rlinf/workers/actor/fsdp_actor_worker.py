@@ -2011,6 +2011,31 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             with torch.no_grad():
                 micro_batches = split_dict_to_chunk(inputs, num_chunks)
                 for micro_idx, micro_batch in enumerate(micro_batches):
+                    # Teachers may retain fixed570 while the student uses native
+                    # prompts. Repair only the explicit native-student OPD path,
+                    # after slicing so a native teacher can use microbatch one.
+                    if (
+                        SupportedModel(self.cfg.actor.model.model_type)
+                        == SupportedModel.GR00T
+                        and self.cfg.actor.model.get("opd_fixed_text_padding", None)
+                        is False
+                    ):
+                        from rlinf.models.embodiment.gr00t.gr00t_n1d5.gr00t_action_model import (
+                            restore_opd_text_padding,
+                        )
+                        from rlinf.models.embodiment.gr00t.simulation_io import (
+                            OBS_CONVERSION,
+                        )
+
+                        fixed_padding = getattr(
+                            model,
+                            "opd_fixed_text_padding",
+                            model.obs_convert_fn is not OBS_CONVERSION["robocasa365"],
+                        )
+                        micro_batch = restore_opd_text_padding(
+                            micro_batch,
+                            fixed_length=model.padding_value if fixed_padding else None,
+                        )
                     micro_batch = put_tensor_device(micro_batch, self.device)
                     nft_inputs = {
                         "x_t": micro_batch["_nft_x_t"],

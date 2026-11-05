@@ -1,134 +1,151 @@
-# GR00T N1.5 / LIBERO feasibility probe
+# GR00T N1.5 / LIBERO MOPD exploration
 
-This experimental branch starts at `opd-project-main` commit `251ac605`. It
-uses existing public checkpoints, real LIBERO simulation, and the production
-Method-3 loss. It does not replace the RoboCasa recipe or implement the full
-Ray/FSDP multi-suite LIBERO runner.
+This branch explores four-suite capability consolidation with public checkpoints,
+real LIBERO rollouts, and the production Method-3 loss. The standalone pilot and
+production Ray/FSDP configuration are separate paths; neither is a frozen paper recipe.
 
-## Checkpoints and input contract
+## Checkpoints and screening
 
-- Student: `twanghcmut/GR00T-N1.5-LIBERO-4suite-combined`, revision
-  `aee73136d034537f68c4e34d2619d3d357c7a2b1`.
-- Teachers: RLinf GR00T RL Spatial-Step400, Object-Step400, Goal-Step500,
-  Long-Step300. The download manifest pins revisions and checks LFS hashes.
-- Generate 16 actions, execute 8, four ODE steps; standard rotated main/wrist
-  images and 8-dimensional proprioception. The probe explicitly disables
-  image tiling. Episode horizons are 240/320/320/520.
-- Both selected checkpoint tags use projector **31** in N1.5. The names differ:
-  student `new_embodiment`, teachers `libero_franka`. A process-global patched
-  table is insufficient: Pydantic captures defaults at import time. The explicit
-  `embodiment_projector_id` pins each transform instance independently.
-- `data_config_class` separates the LIBERO schema from the projector tag.
-- Each model retains its original metadata. Before teacher supervision, the
-  probe compares the lightweight state adapter and projector ID with the full
-  teacher transform, and checks exact equality of reused image/token inputs.
-- Checkpoint policy keys and tensor shapes are checked; extra critic keys are
-  allowed, missing policy tensors are not.
+| Candidate | Source | Screening successes |
+| --- | --- | --- |
+| Original strong student | `twanghcmut/GR00T-N1.5-LIBERO-4suite-combined` | 39/40 |
+| Current few-shot student, native text padding | `RLobot-jun/gr00t-n1.5-libero-fewshot-combined-1k` | 9/40 |
+| Routed RL specialists | RLinf Spatial-Step400, Object-Step400, Goal-Step500, Long-Step300 | 33/40 |
 
-## Cross-metadata M3
+Each screen covers ten tasks per suite and one official initial state per task.
+These small counts motivate the weaker candidate; they are not formal scores or
+proof that distillation improves the student. The earlier strong pairing had no
+observed teacher headroom. An earlier B=4, two-round joint smoke verified finite
+updates and synchronized replicas, not improved task success.
 
-Reuse RoboCasa's endpoint map, `a_student = scale * a_teacher + shift`, and
-its time-dependent ODE coordinate transport:
+The current student is pinned to revision
+`9f0ac4146e3bbd54daa1efad285b334a48d1aa79`; the original student used
+`aee73136d034537f68c4e34d2619d3d357c7a2b1`. Download manifests record teacher
+revisions and file hashes. The few-shot release does not identify its exact
+training-code revision, so compatibility does not establish reproduction of its
+training procedure.
 
-```
+## Model and metadata contract
+
+- Generate 16 actions, execute eight, and use four ODE steps. Main/wrist images
+  are rotated according to the LIBERO adapter; image tiling is disabled.
+  Episode horizons are 240/320/320/520, with ten settling steps after reset.
+- The few-shot student now supports training through the production
+  `LiberoGroupedDataConfig` and `libero_grouped` observation adapter. Its grouped
+  state converts axis-angle rotation to 6D rotation (11 valid state dimensions);
+  controller actions remain 7D. Teachers retain their scalar LIBERO schema.
+- Student tag `new_embodiment` and teacher tag `libero_franka` both explicitly
+  select projector 31. Each checkpoint keeps its own normalization metadata.
+- Student inference uses native, unpadded **B=1** prompts. Teachers use their own
+  fixed-570 token contract. Production native rollout splits batches into B=1
+  calls and pads token fields only for storage; student training/refresh removes
+  storage padding. Keep training microbatch one for mixed prompt lengths.
+- The pilot audits the lightweight teacher state adapter against the full
+  transform, the projector ID, actual image tensors, and unpadded token contents.
+  Teacher preprocessing is built independently. A separate endpoint audit checks
+  that transported actions decode to the same physical commands using the actual
+  checkpoint transforms. Policy keys/shapes are checked; extra critic keys are allowed.
+
+Cross-metadata M3 uses the existing endpoint map and ODE transport:
+
+```text
+a_student = scale * a_teacher + shift
 A(t) = 1 + t * (scale - 1)
 x_student(t) = A(t) * x_teacher(t) + t * shift
 v_teacher_in_student = A(t) * v_teacher + (scale - 1) * x_teacher + shift
 ```
 
-This preserves the common Gaussian prior and continuous ODE endpoint semantics.
-It does not assert exact equality of coarse four-step Euler samplers.
+`gr00t_cross_metadata_m3_mode: student_coordinate_sde` defines both local Gaussian
+kernels in student coordinates with the same student noise schedule, retaining
+M3's weighted velocity MSE. This is not the pushforward of the teacher's native
+SDE, nor a claim that coarse four-step Euler samplers are exactly equivalent.
 
-The explicit experimental option
-`algorithm.gr00t_cross_metadata_m3_mode: student_coordinate_sde` constructs
-**both local Gaussian transition kernels in student coordinates**, with the
-same student noise schedule. The existing M3 weighted velocity MSE is then
-unchanged. This is **not the pushforward of the teacher's native SDE**. The
-native-SDE interpretation would require a transported covariance and Jacobian.
-Default cross-metadata M3 rejection and the M4 rejection remain intact.
+## Standalone full-episode pilot
 
-## Local execution
+The executable recipe is [configs/pilot_uniform_r2.yaml](configs/pilot_uniform_r2.yaml):
 
-The verified action01 runtime is an isolated wrapper at
-`outputs/runtime/bin/python` inside this worktree. It reuses the read-only
-`/localscratch2/liyifa11/XyFile/opd/venv` environment and an environment-only
-LIBERO overlay. See `outputs/runtime/provenance.json` and `env.sh` for exact
-versions and asset paths. This is a local feasibility setup, not a portable
-installation profile. No shared environment or Ray cluster is modified.
+| Item | Setting |
+| --- | --- |
+| Collection | Four GPU ranks, one suite and one complete episode per rank per round (T=4) |
+| Updates | Refresh-R2, 20 rounds / 40 optimizer updates, fresh pool each round |
+| Batch | Global B=64, microbatch=1; 16 samples per suite per update |
+| Optimizer | LR=3e-5, four-update warmup, AdamW betas=(0.9, 0.95), weight decay=0 |
+| Precision / M3 | FP32 student action head, BF16 autocast, noise level=0.3 |
+| Training coverage | Cycle all ten tasks per suite; initial states 0 then 2 |
+| Evaluation | All ten tasks per suite at initial state 1, at rounds 0/10/20 |
 
-From the worktree root, set paths to the existing artifact directories:
+NCCL averages gradients after equal local accumulation, giving every suite equal
+weight. Replica fingerprints and finite gradients are checked after updates.
+Evaluation restores training RNG state. One held-out initial state per task is
+still a screening protocol, not the final multi-episode evaluation.
+
+From the worktree root, use the configured local runtime and downloaded assets:
 
 ```bash
 PROBE_PYTHON="$PWD/outputs/runtime/bin/python"
 PROBE_MODELS="$PWD/../../libero_gr00t_20261104/models"
 PROBE_SPATIAL="$PWD/../../libero_feasibility_20261104/models/groot_spatial_rl"
 
-# Independent paired screening: all 10 tasks, one official init state each.
-python3 toolkits/libero_gr00t/launch.py --mode eval \
-  --python "$PROBE_PYTHON" --models "$PROBE_MODELS" \
-  --spatial-teacher "$PROBE_SPATIAL" --output outputs/paired_screen
-
-# One shared student: four suite ranks average gradients before every update.
-python3 toolkits/libero_gr00t/launch.py --mode mopd \
-  --python "$PROBE_PYTHON" --models "$PROBE_MODELS" \
-  --spatial-teacher "$PROBE_SPATIAL" --output outputs/joint_smoke \
-  --student-head-precision fp32 --rounds 2 --reuse 2 --rollout-chunks 4
+"$PROBE_PYTHON" toolkits/libero_gr00t/launch_pilot.py \
+  --python "$PROBE_PYTHON" \
+  --config toolkits/libero_gr00t/configs/pilot_uniform_r2.yaml \
+  --models "$PROBE_MODELS" --student "$PROBE_MODELS/student_fewshot" \
+  --spatial-teacher "$PROBE_SPATIAL" --output outputs/libero_mopd_pilot
 ```
 
-The launcher selects the GPUs with most free memory and requires 30 GiB free
-on each at launch. `--gpus` can explicitly select them. Each child uses a
-24-GiB PyTorch allocator limit, low CPU priority and one CPU thread. This limit
-does not reserve memory or guarantee exclusivity; CUDA contexts/EGL allocations
-are outside the allocator limit. Existing jobs are never stopped. Shared GPU
-compute makes these timings unsuitable as dedicated-machine throughput results.
+The output directory must be new. Optionally pass `--gpus ID ID ID ID`; otherwise
+the launcher selects the four GPUs with most free memory and requires at least
+30 GiB free on each. The 24-GiB PyTorch allocator cap does not reserve memory or
+include every CUDA/EGL allocation. Existing jobs are not stopped. Timings on
+shared GPUs are not dedicated-machine throughput measurements.
 
-MOPD uses one observation per suite per update (global B=4), LR=3e-5,
-AdamW, equal suite gradients and two fresh-flow updates per physical segment.
-Every round replaces the observation pool with current-student observations.
-Each rank owns a different frozen teacher; Gloo averages CPU copies of gradients.
-Post-update parameter fingerprints must agree across all ranks. The first round
-and second round therefore exercise rollout both before and after joint updates.
-This intentionally simple communication path is for correctness, not speed.
+Outputs include `recipe.yaml`, `launch.json`, per-suite logs/JSONL, separate
+training/evaluation interaction counts, and action-head checkpoints at updates
+20 and 40. Saved heads reference the unchanged base checkpoint and are reloaded
+for a consistency check. They contain no optimizer state; resume is unsupported.
+This README does not claim that the current full pilot has completed or improved SR.
 
-The default BF16 action head matches the initial inference/single-teacher smoke.
-The joint probe can restore the student's original FP32 head and use autocast;
-precision is logged. Short training segments are explicitly marked incomplete
-and do not estimate success rates. No trained checkpoint is saved by this probe.
-Ten episodes per suite are screening evidence, not formal evaluation.
+The local `outputs/runtime/bin/python` wrapper reuses a read-only base environment
+and a LIBERO overlay. Inspect `outputs/runtime/env.sh` and `provenance.json` for
+versions and asset paths. This is not a portable installation profile and does
+not modify shared Ray state. The older `launch.py` entrypoint remains available
+for paired screening and short correctness probes.
 
-## Completed four-card joint smoke
+## Production configuration draft
 
-The FP32 student action-head probe completed two physical rollout rounds and
-four joint optimizer updates (Refresh-R2), global B=4, LR=3e-5. Four suite ranks
-averaged gradients before each update. Sampled parameter fingerprints agreed
-across all ranks after every update, and fresh noise hashes differed at every
-update. Teacher-input audits and finite-gradient checks passed.
+[libero_four_suite_mopd_refresh_r2_gr00t_pilot.yaml](../../examples/embodiment/config/libero_four_suite_mopd_refresh_r2_gr00t_pilot.yaml)
+uses the production runner with four collocated actor/env/rollout ranks. Each
+rank receives all four suites: **T=16**, B=64, microbatch=1, R2, 20 rounds. Routing
+keys are `libero_spatial`, `libero_object`, `libero_goal`, and `libero_10`.
+Checkpoint paths come from the `OPD_*` environment variables listed in the YAML.
 
-Total interaction was 256 policy steps plus 80 settling steps. Maximum PyTorch
-reserved memory was 23.08 GiB per process, allocated memory 20.48 GiB. These
-short incomplete segments do not measure task SR. No trained checkpoint was
-saved; this is a correctness probe, not evidence of performance improvement.
-The full production Ray/FSDP LIBERO multi-suite runner remains future work.
+Hydra composition, algorithm contracts, environment sampling, metadata adapters,
+and logging have CPU tests. Full production GPU training remains unverified.
+Unlike the standalone recipe, this draft samples all official initial states
+and disables in-training evaluation; it does not implement the [0, 2]/[1] split.
+The two paths therefore are not matched experimental controls.
 
-Raw evidence: `outputs/libero_gr00t_20261104/joint_mopd_smoke/*.jsonl` and
-`joint_mopd_summary.json` in that artifact directory. All 22 targeted unit tests
-and Ruff checks passed. No branch has been pushed or merged.
+For an integration-only production smoke, prepare a plan first:
 
-Paired screening (10 tasks × one init state per suite): student 9/10, 10/10,
-10/10, 10/10; specialists 8/10, 8/10, 8/10, 9/10 for Spatial, Object, Goal,
-Long respectively. This pairing has no demonstrated teacher headroom, so no
-long training run was started. These are screening counts, not formal scores.
+```bash
+"$PROBE_PYTHON" toolkits/libero_gr00t/launch_production.py \
+  --python "$PROBE_PYTHON" --models "$PROBE_MODELS" \
+  --student "$PROBE_MODELS/student_fewshot" --spatial-teacher "$PROBE_SPATIAL" \
+  --gpus 0 1 4 5 --output outputs/production_smoke_plan --dry-run
+```
 
-## Few-shot candidate screening
+GPU IDs are physical and must be chosen for the current machine. The default
+only writes a resolved config and launch manifest. To execute, use a new output
+directory and explicit `--run`; it requires 30 GiB free on each selected GPU.
+The launcher uses private Ray ports/address files and owner-scoped cleanup,
+without joining or stopping existing clusters. Defaults are two updates,
+checkpoint at update two, and **32-step incomplete episodes** with capped suite
+horizons; this measures integration, not success rate. `--rollout-steps 520`
+retains full native suite horizons. No production smoke completion is claimed.
 
-`launch.py --student PATH` overrides only the student checkpoint. The optional
-`fewshot.py` adapter supports the grouped schema published in
-`RLobot-jun/gr00t-n1.5-libero-fewshot-combined-1k` (revision
-`9f0ac4146e3bbd54daa1efad285b334a48d1aa79`). It preserves the checkpoint's
-normalization and uses the publisher's public `LiberoDataConfig` convention:
-axis-angle state becomes 6D rotation (11 valid state dimensions), while controller
-actions remain 7D. It is **evaluation-only**; MOPD rejects this schema until
-state and action-coordinate transport are audited. The exact training-code
-revision is absent from the checkpoint release, so this is a provisional
-compatibility assessment, not a reproduction claim. The shared screening
-protocol retains RLinf's text padding and BF16 inference.
+Opt-in `runner.log_physics_step_counts` records actual policy, settling, total
+simulator calls, and resets by summing all ranks. The metrics end in `_session`
+because they restart after process recreation. Existing mask-based
+`interaction/env_steps` remains distinct and also appears as
+`interaction/valid_policy_steps`. LIBERO still steps completed slots until the
+round ends, so actual simulator calls can exceed valid policy steps.

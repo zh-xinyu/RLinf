@@ -117,10 +117,6 @@ def load_model(path: Path, args):
         raise ValueError(f"Expected one explicitly identifiable embodiment in {path}")
     tag = next(iter(metadata))
     grouped = "eef_pos_absolute" in metadata[tag]["statistics"]["state"]
-    if grouped and args.mode != "eval":
-        raise NotImplementedError(
-            "Few-shot grouped metadata is evaluation-only until OPD transport is audited"
-        )
     cfg = OmegaConf.load("examples/embodiment/config/model/gr00t.yaml")
     cfg.model_path = str(path.resolve())
     cfg.embodiment_tag = tag
@@ -128,7 +124,8 @@ def load_model(path: Path, args):
     cfg.obs_converter_type = "libero"
     cfg.data_config_class = "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoFrankaDataConfig"
     if grouped:
-        cfg.data_config_class = "toolkits.libero_gr00t.fewshot:FewshotLiberoDataConfig"
+        cfg.data_config_class = "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoGroupedDataConfig"
+        cfg.obs_converter_type = "libero_grouped"
     cfg.num_action_chunks = args.execute
     cfg.denoising_steps = args.denoise_steps
     if path.resolve() == args.student.resolve():
@@ -140,11 +137,9 @@ def load_model(path: Path, args):
     cfg.rl_head_config.noise_level = args.noise_level
     model = get_model(cfg).eval()
     if grouped:
-        from toolkits.libero_gr00t.fewshot import convert_action, convert_observation
-
-        model.obs_convert_fn = convert_observation
-        model.action_convert_fn = convert_action
         model._probe_expected_state_dim = 11
+    if path.resolve() == args.student.resolve():
+        model.opd_fixed_text_padding = args.student_text_padding == "fixed"
     for transform in model._modality_transform.transforms:
         if hasattr(transform, "eagle_processor"):
             processor = transform.eagle_processor.image_processor
@@ -197,20 +192,37 @@ def audit_teacher_inputs(student_inputs: dict, raw: dict, teacher) -> dict:
     torch.testing.assert_close(
         embodiment.reshape(-1).cpu(), full["embodiment_id"].reshape(-1).cpu()
     )
+    # Each policy retains its own text-padding contract. GR00T's downstream
+    # attention does not consistently mask padding, so teacher tokens cannot
+    # simply reuse a native-length student's tensors.
+    expected_tokens = full["eagle_input_ids"].cpu()[
+        full["eagle_attention_mask"].cpu().bool()
+    ]
+    observed_tokens = student_inputs["eagle_input_ids"].cpu()[
+        student_inputs["eagle_attention_mask"].cpu().bool()
+    ]
+    torch.testing.assert_close(expected_tokens, observed_tokens, rtol=0, atol=0)
     for key in ("eagle_input_ids", "eagle_attention_mask"):
         expected = full[key].cpu()
-        observed = student_inputs[key].cpu()
-        if expected.shape[-1] > observed.shape[-1]:
-            raise ValueError(f"Teacher {key} longer than student payload")
-        expected = torch.nn.functional.pad(
-            expected, (0, observed.shape[-1] - expected.shape[-1])
-        )
-        torch.testing.assert_close(expected, observed, rtol=0, atol=0)
+        if getattr(teacher, "opd_fixed_text_padding", True):
+            if expected.shape[-1] > teacher.padding_value:
+                raise ValueError("Teacher prompt exceeds fixed padding length")
+            full[key] = torch.nn.functional.pad(
+                expected, (0, teacher.padding_value - expected.shape[-1])
+            )
     for key in ("eagle_pixel_values", "eagle_image_sizes"):
         expected = full[key].cpu().reshape(-1).to(student_inputs[key].dtype)
         observed = student_inputs[key].cpu().reshape(-1)
         torch.testing.assert_close(expected, observed, rtol=0, atol=0)
     adapted = dict(student_inputs)
+    for key, value in full.items():
+        if torch.is_tensor(value):
+            adapted[key] = (
+                value.to(torch.bfloat16) if value.dtype == torch.float32 else value
+            )
+    # NFT expects the rollout payload's batch/image layout.
+    for key in ("eagle_pixel_values", "eagle_image_sizes"):
+        adapted[key] = adapted[key].reshape(student_inputs[key].shape)
     adapted["state"] = state.to(dtype=student_inputs["state"].dtype)
     adapted["state_mask"] = mask
     adapted["embodiment_id"] = embodiment
@@ -519,6 +531,15 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tasks", type=int, nargs="+", default=list(range(10)))
     parser.add_argument("--trials", type=int, default=1)
+    parser.add_argument(
+        "--student-text-padding", choices=("fixed", "native"), default="fixed"
+    )
+    parser.add_argument(
+        "--eval-roles",
+        nargs="+",
+        choices=("student", "teacher"),
+        default=["student", "teacher"],
+    )
     parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--reuse", type=int, default=2)
     parser.add_argument("--rollout-chunks", type=int, default=4)
@@ -595,6 +616,8 @@ def main():
                     "Run evaluation as independent suite processes, without WORLD_SIZE"
                 )
             for role, path in (("student", args.student), ("teacher", args.teacher)):
+                if role not in args.eval_roles:
+                    continue
                 model = load_model(path, args).cuda().eval()
                 for task in args.tasks:
                     for trial in range(args.trials):

@@ -29,6 +29,10 @@ from rlinf.utils.distributed import ScopedTimer
 from rlinf.utils.logging import get_logger
 from rlinf.utils.metric_logger import MetricLogger
 from rlinf.utils.metric_utils import compute_evaluate_metrics, print_metrics_table
+from rlinf.utils.physics_step_counts import (
+    physics_session_metrics,
+    sum_physics_step_counts,
+)
 from rlinf.utils.rollout_allocation import RolloutAllocator, load_teacher_reference
 from rlinf.utils.runner_utils import check_progress
 from rlinf.utils.timers import Timer
@@ -432,6 +436,17 @@ class EmbodiedRunner:
 
         return eval_metrics
 
+    def _log_physics_step_counts(self, step: int) -> None:
+        """Log opt-in exact session counts after training environment work completes."""
+        if not self.cfg.runner.get("log_physics_step_counts", False):
+            return
+        rank_counts = self.env.get_physics_step_counts().wait()
+        metrics = physics_session_metrics(sum_physics_step_counts(rank_counts))
+        if self.optimizer_update_steps:
+            # Alias the existing mask-based count; do not redefine its meaning.
+            metrics["interaction/valid_policy_steps"] = self.cumulative_env_steps
+        self.metric_logger.log(metrics, step)
+
     def _log_step_metrics(
         self,
         step: int,
@@ -478,6 +493,7 @@ class EmbodiedRunner:
             )
 
         env_results = env_handle.wait()
+        self._log_physics_step_counts(step)
         env_results_list = [results for results in env_results if results is not None]
         env_metrics = compute_evaluate_metrics(env_results_list)
         env_metrics = {f"env/{k}": v for k, v in env_metrics.items()}

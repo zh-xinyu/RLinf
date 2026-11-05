@@ -28,6 +28,16 @@ def main():
     parser.add_argument("--suites", nargs="+", choices=SUITES, default=SUITES)
     parser.add_argument("--tasks", nargs="+", type=int, default=list(range(10)))
     parser.add_argument("--rounds", type=int, default=2)
+    parser.add_argument("--trials", type=int, default=1)
+    parser.add_argument(
+        "--student-text-padding", choices=("fixed", "native"), default="fixed"
+    )
+    parser.add_argument(
+        "--eval-roles",
+        nargs="+",
+        choices=("student", "teacher"),
+        default=["student", "teacher"],
+    )
     parser.add_argument("--reuse", type=int, default=2)
     parser.add_argument(
         "--student-head-precision", choices=["bf16", "fp32"], default="bf16"
@@ -84,6 +94,12 @@ def main():
                 suite,
                 "--output",
                 str((args.output / f"{name}.jsonl").resolve()),
+                "--trials",
+                str(args.trials),
+                "--student-text-padding",
+                args.student_text_padding,
+                "--eval-roles",
+                *args.eval_roles,
                 "--rounds",
                 str(args.rounds),
                 "--reuse",

@@ -1,0 +1,26 @@
+# Uniform four-suite collection. Each worker needs a multiple of four slots.
+defaults:
+  - libero_spatial
+  - _self_
+
+task_suite_names: [libero_spatial, libero_object, libero_goal, libero_10]
+task_sampling_strategy: suite_balanced
+task_suite_horizons:
+  libero_spatial: 240
+  libero_object: 320
+  libero_goal: 320
+  libero_10: 520
+
+total_num_envs: 16
+rollout_epoch: 1
+group_size: 1
+auto_reset: false
+ignore_terminations: false
+use_fixed_reset_state_ids: true
+use_ordered_reset_state_ids: false
+reset_settle_steps: 10
+max_episode_steps: 520
+max_steps_per_rollout_epoch: 520
+
+video_cfg:
+  save_video: false

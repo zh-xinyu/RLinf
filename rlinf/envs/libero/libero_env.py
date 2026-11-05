@@ -24,6 +24,10 @@ import numpy as np
 import torch
 from omegaconf.omegaconf import OmegaConf
 
+from rlinf.envs.libero.multi_suite import (
+    CombinedLiberoBenchmark,
+    SuiteBalancedResetSampler,
+)
 from rlinf.envs.libero.utils import (
     build_interleaved_eval_reset_state_ids,
     distribute_reset_state_ids_round_robin,
@@ -111,9 +115,78 @@ class LiberoEnv(gym.Env):
         self._generator_ordered = np.random.default_rng(seed=0)
         self.start_idx = 0
 
-        self.task_suite: Benchmark = get_benchmark_overridden(cfg.task_suite_name)()
-
+        requested_suites = cfg.get("task_suite_names", None)
+        if isinstance(requested_suites, str):
+            raise ValueError("task_suite_names must be a list, not a string")
+        self.task_suite_names = (
+            list(requested_suites)
+            if requested_suites is not None
+            else [cfg.task_suite_name]
+        )
+        if requested_suites is not None:
+            if get_libero_type() != "standard":
+                raise ValueError(
+                    "Multi-suite LIBERO currently supports only the standard benchmark"
+                )
+            self.task_suite = CombinedLiberoBenchmark(
+                self.task_suite_names, lambda name: get_benchmark_overridden(name)()
+            )
+            self._task_suite_labels = [
+                self.task_suite.suite_for_task(i)
+                for i in range(self.task_suite.get_num_tasks())
+            ]
+        else:
+            self.task_suite: Benchmark = get_benchmark_overridden(cfg.task_suite_name)()
+            self._task_suite_labels = [
+                cfg.task_suite_name
+            ] * self.task_suite.get_num_tasks()
+        self._balanced_reset_sampler = None
         self._compute_total_num_group_envs()
+        if (
+            cfg.get("task_sampling_strategy", None) == "suite_balanced"
+            and not self.is_eval
+        ):
+            if self.group_size != 1 or self.num_envs % len(self.task_suite_names):
+                raise ValueError(
+                    "Suite-balanced LIBERO requires group_size=1 and per-worker envs divisible by suites"
+                )
+            if (
+                self.auto_reset
+                or self.specific_reset_id is not None
+                or cfg.use_ordered_reset_state_ids
+            ):
+                raise ValueError(
+                    "Suite-balanced LIBERO requires full-round resets, no specific_reset_id, and unordered reset mode"
+                )
+            self._balanced_reset_sampler = SuiteBalancedResetSampler(
+                self._task_suite_labels,
+                self.trial_id_bins,
+                self._generator,
+                self.task_id_filter,
+            )
+        horizon_cfg = cfg.get("task_suite_horizons", None)
+        self._suite_horizons = None
+        if horizon_cfg is not None:
+            if set(horizon_cfg) != set(self.task_suite_names):
+                raise ValueError(
+                    "task_suite_horizons must specify every selected suite exactly once"
+                )
+            self._suite_horizons = {
+                name: int(horizon_cfg[name]) for name in self.task_suite_names
+            }
+            if any(
+                value <= 0 or value > cfg.max_steps_per_rollout_epoch
+                for value in self._suite_horizons.values()
+            ):
+                raise ValueError(
+                    "Suite horizons must be positive and fit within the rollout epoch"
+                )
+        self._simulation_steps = 0
+        self._settling_steps = 0
+        self._reset_episodes = 0
+        self._reset_settle_steps = int(cfg.get("reset_settle_steps", 15))
+        if self._reset_settle_steps < 1:
+            raise ValueError("reset_settle_steps must be positive")
         self.reset_state_ids_all = self.get_reset_state_ids_all()
         if self.is_eval:
             pool = self.reset_state_ids_all[self.seed_offset]
@@ -237,7 +310,7 @@ class LiberoEnv(gym.Env):
 
             bddl_root = get_libero_path("bddl_files")
 
-        suite_name = self.cfg.task_suite_name.lower()
+        suite_name = self.task_suite_names[0].lower()
         suite_keyword = suite_name.replace("libero_", "").strip()
 
         task_descriptions = []
@@ -441,6 +514,8 @@ class LiberoEnv(gym.Env):
         )
 
     def _get_random_reset_state_ids(self, num_reset_states):
+        if self._balanced_reset_sampler is not None:
+            return self._balanced_reset_sampler.sample(num_reset_states)
         if self.specific_reset_id is not None:
             reset_state_ids = self.specific_reset_id * np.ones(
                 (num_reset_states,), dtype=int
@@ -543,6 +618,21 @@ class LiberoEnv(gym.Env):
         return self._elapsed_steps
 
     @property
+    def physics_step_counts(self) -> dict[str, int]:
+        """Count actual simulator calls, including post-done work and settling.
+
+        Counts are cumulative and do not reset with episodes. Existing LIBERO
+        keeps stepping done slots until the round ends; this counter therefore
+        differs from valid-transition-mask counts used by the training loss.
+        """
+        return {
+            "policy_simulation_steps": self._simulation_steps,
+            "settling_simulation_steps": self._settling_steps,
+            "total_simulation_steps": self._simulation_steps + self._settling_steps,
+            "reset_episodes": self._reset_episodes,
+        }
+
+    @property
     def info_logging_keys(self):
         return []
 
@@ -643,6 +733,9 @@ class LiberoEnv(gym.Env):
             "wrist_images": wrist_image_tensor,
             "states": states,
             "task_descriptions": self.task_descriptions,
+            "task_groups": [
+                self._task_suite_labels[int(task)] for task in self.task_ids
+            ],
         }
         return obs
 
@@ -689,7 +782,10 @@ class LiberoEnv(gym.Env):
                 self._eval_reset_pool = pool[pool >= 0].copy()
                 self.update_reset_state_ids()
             reset_state_ids = (
-                self.reset_state_ids if self.use_fixed_reset_state_ids else None
+                self.reset_state_ids
+                if self.use_fixed_reset_state_ids
+                or self._balanced_reset_sampler is not None
+                else None
             )
             self._is_start = False
 
@@ -698,13 +794,15 @@ class LiberoEnv(gym.Env):
             reset_state_ids = self._get_random_reset_state_ids(num_reset_states)
 
         self._reconfigure(reset_state_ids, env_idx)
-        for _ in range(15):
+        for _ in range(self._reset_settle_steps):
             zero_actions = np.zeros((len(env_idx), 7))
             if self.cfg.reset_gripper_open:
                 zero_actions[:, -1] = -1
             raw_obs, _reward, terminations, info_lists = self.env.step(
                 zero_actions, env_idx
             )
+            self._settling_steps += len(env_idx)
+        self._reset_episodes += len(env_idx)
         if self.current_raw_obs is None:
             self.current_raw_obs = [None] * self.num_envs
         for i, idx in enumerate(env_idx):
@@ -722,9 +820,20 @@ class LiberoEnv(gym.Env):
 
         self._elapsed_steps += 1
         raw_obs, _reward, terminations, info_lists = self.env.step(actions)
+        self._simulation_steps += self.num_envs
         self.current_raw_obs = raw_obs
         infos = list_of_dict_to_dict_of_list(info_lists)
-        truncations = self.elapsed_steps >= self.cfg.max_episode_steps
+        horizons = (
+            np.asarray(
+                [
+                    self._suite_horizons[self._task_suite_labels[int(task)]]
+                    for task in self.task_ids
+                ]
+            )
+            if self._suite_horizons is not None
+            else self.cfg.max_episode_steps
+        )
+        truncations = self.elapsed_steps >= horizons
         obs = self._wrap_obs(raw_obs)
 
         step_reward = self._calc_step_reward(terminations)

@@ -46,6 +46,7 @@ from rlinf.utils.nested_dict_process import (
     split_dict_to_chunk,
     update_nested_cfg,
 )
+from rlinf.utils.physics_step_counts import sum_physics_step_counts
 from rlinf.utils.placement import HybridComponentPlacement
 from rlinf.utils.utils import (
     flatten_embodied_batch,
@@ -960,6 +961,12 @@ class EnvWorker(Worker):
             )
         self._prefetched_train_bootstrap = self._bootstrap_and_send_train(
             rollout_channel
+        )
+
+    def get_physics_step_counts(self) -> dict[str, int]:
+        """Read exact training-only counters across stages in this worker session."""
+        return sum_physics_step_counts(
+            get_env_attr(env, "physics_step_counts") for env in self.env_list
         )
 
     def describe_rollout_allocation(self) -> dict:

@@ -1,0 +1,26 @@
+# Feasibility pilot, not the frozen paper recipe. Four suite ranks; one complete
+# episode per suite per physical round, all ten tasks covered every ten rounds.
+world_size: 4
+rounds: 20
+reuse: 2
+reuse_mode: refresh
+global_batch_size: 64
+micro_batch_size: 1
+rollout_chunks: 0
+train_initial_states: [0, 2]
+eval_initial_states: [1]
+eval_tasks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+eval_interval_rounds: 10
+lr: 3.0e-5
+warmup_updates: 4
+execute: 8
+denoise_steps: 4
+noise_level: 0.3
+seed: 1234
+memory_gib: 24.0
+student_head_precision: fp32
+student_text_padding: native
+backend: nccl
+
+student_repo: RLobot-jun/gr00t-n1.5-libero-fewshot-combined-1k
+student_revision: 9f0ac4146e3bbd54daa1efad285b334a48d1aa79

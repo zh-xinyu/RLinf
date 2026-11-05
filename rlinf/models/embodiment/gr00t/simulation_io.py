@@ -41,6 +41,34 @@ def convert_libero_obs_to_gr00t_format(env_obs):
     return groot_obs
 
 
+def convert_libero_grouped_obs_to_gr00t_format(env_obs: dict) -> dict:
+    """Map raw LIBERO state to the grouped few-shot checkpoint schema.
+
+    The raw orientation remains axis-angle here. The checkpoint's modality
+    transform converts it to rotation_6d before state concatenation.
+    """
+    state = env_obs["states"].unsqueeze(1).cpu().numpy()
+    return {
+        "video.front_view": env_obs["main_images"].unsqueeze(1).cpu().numpy(),
+        "video.left_wrist_view": env_obs["wrist_images"].unsqueeze(1).cpu().numpy(),
+        "state.eef_pos_absolute": state[..., :3],
+        "state.eef_rot_absolute": state[..., 3:6],
+        "state.gripper_close": state[..., 6:8],
+        "annotation.human.action.task_description": env_obs["task_descriptions"],
+    }
+
+
+def convert_to_libero_grouped_action_n1d5(
+    action_chunk: dict, chunk_size: int = 1
+) -> np.ndarray:
+    """Decode grouped controller commands with the RLDS gripper convention."""
+    keys = ("action.eef_pos_delta", "action.eef_rot_delta", "action.gripper_close")
+    action = np.concatenate([action_chunk[k][:, :chunk_size] for k in keys], axis=-1)
+    if action.shape[-1] != 7:
+        raise ValueError("Expected seven physical LIBERO action dimensions")
+    return normalize_gripper_action(action, binarize=True)
+
+
 def convert_maniskill_obs_to_gr00t_format(env_obs):
     """
     Convert the observation to the format expected by GR00T models.
@@ -228,7 +256,9 @@ def convert_robocasa_obs_to_gr00t_format(env_obs):
     """
     groot_obs = {}
     # [B, H, W, C] -> [B, T, H, W, C]
-    groot_obs["video.robot0_agentview_left"] = env_obs["main_images"].unsqueeze(1).numpy()
+    groot_obs["video.robot0_agentview_left"] = (
+        env_obs["main_images"].unsqueeze(1).numpy()
+    )
     groot_obs["video.robot0_eye_in_hand"] = env_obs["wrist_images"].unsqueeze(1).numpy()
     # (concat order is the data config's video_keys, not this insertion order)
     extra = env_obs.get("extra_view_images", None)
@@ -278,12 +308,14 @@ def convert_to_robocasa_action(
 OBS_CONVERSION = {
     "maniskill": convert_maniskill_obs_to_gr00t_format,
     "libero": convert_libero_obs_to_gr00t_format,
+    "libero_grouped": convert_libero_grouped_obs_to_gr00t_format,
     "isaaclab_stack_cube": convert_libero_obs_to_gr00t_format,
     "robocasa365": convert_robocasa_obs_to_gr00t_format,
 }
 
 ACTION_CONVERSION_N1D5 = {
     "libero": convert_to_libero_action_n1d5,
+    "libero_grouped": convert_to_libero_grouped_action_n1d5,
     "maniskill": convert_to_maniskill_action,
     "isaaclab_stack_cube": convert_to_isaaclab_stack_cube_action,
     "robocasa365": convert_to_robocasa_action,

@@ -45,6 +45,138 @@ from rlinf.models.embodiment.gr00t.utils import (
 from rlinf.models.embodiment.modules.explore_noise_net import ExploreNoiseNet
 from rlinf.models.embodiment.modules.value_head import ValueHead
 
+_LIBERO_ACTION_SCHEMAS = (
+    (
+        ("x", 1),
+        ("y", 1),
+        ("z", 1),
+        ("roll", 1),
+        ("pitch", 1),
+        ("yaw", 1),
+        ("gripper", 1),
+    ),
+    (("eef_pos_delta", 3), ("eef_rot_delta", 3), ("gripper_close", 1)),
+)
+
+
+def restore_opd_text_padding(
+    inputs: dict[str, torch.Tensor], fixed_length: Optional[int] = None
+) -> dict[str, torch.Tensor]:
+    """Recover each unmasked token sequence, then apply its model's contract.
+
+    Cached collection can add right padding on top of processor left padding.
+    GR00T's action head does not consistently mask these positions, so native
+    inference requires equal true token lengths (or microbatch size one). This
+    helper assumes identical tokenization and image preprocessing across models;
+    it cannot adapt different processors.
+    """
+    ids, mask = inputs["eagle_input_ids"], inputs["eagle_attention_mask"]
+    if ids.ndim != 2 or ids.shape != mask.shape or ids.shape[0] == 0:
+        raise ValueError(
+            "GR00T OPD text IDs/mask must have matching nonempty [B, L] shapes"
+        )
+    if not torch.all((mask == 0) | (mask == 1)):
+        raise ValueError("GR00T OPD attention mask must be binary")
+    valid = mask.bool()
+    lengths = valid.sum(dim=-1)
+    if torch.any(lengths == 0):
+        raise ValueError("GR00T OPD text sequences must contain unmasked tokens")
+    if fixed_length is None:
+        if not torch.all(lengths == lengths[0]):
+            raise ValueError(
+                "Native GR00T OPD requires equal true text lengths per batch; "
+                "use microbatch size one or bucket by token length"
+            )
+        length = int(lengths[0])
+    else:
+        length = int(fixed_length)
+        if length <= 0 or torch.any(lengths > length):
+            raise ValueError(
+                "GR00T OPD text exceeds the configured fixed padding length"
+            )
+    out_ids = ids.new_zeros((ids.shape[0], length))
+    out_mask = mask.new_zeros((mask.shape[0], length))
+    for row in range(ids.shape[0]):
+        count = int(lengths[row])
+        out_ids[row, :count] = ids[row, valid[row]]
+        out_mask[row, :count] = 1
+    result = dict(inputs)
+    result["eagle_input_ids"], result["eagle_attention_mask"] = out_ids, out_mask
+    return result
+
+
+def _cat_native_rollout_outputs(rows: list[dict]) -> dict:
+    """Concatenate B1 results, padding only stored text and preserving None."""
+    result = {}
+    if any(row.keys() != rows[0].keys() for row in rows):
+        raise ValueError("Native GR00T rollout results have inconsistent keys")
+    for key, value in rows[0].items():
+        values = [row[key] for row in rows]
+        if isinstance(value, dict):
+            result[key] = _cat_native_rollout_outputs(values)
+        elif isinstance(value, torch.Tensor):
+            if key in ("eagle_input_ids", "eagle_attention_mask"):
+                length = max(item.shape[-1] for item in values)
+                values = [
+                    torch.nn.functional.pad(item, (0, length - item.shape[-1]), value=0)
+                    for item in values
+                ]
+            result[key] = torch.cat(values, dim=0)
+        elif value is None and all(item is None for item in values):
+            result[key] = None
+        else:
+            raise ValueError(
+                f"Unsupported native GR00T rollout output {key}: {type(value)}"
+            )
+    return result
+
+
+def _libero_action_bounds(
+    metadata: DatasetMetadata,
+) -> tuple[list[str], torch.Tensor, torch.Tensor]:
+    """Read supported metadata in physical controller order, independent of JSON order.
+
+    RLinf's scalar schema marks all actions ``absolute`` even though its converter
+    emits controller deltas. We intentionally use the two verified converters'
+    command semantics instead of interpreting that legacy metadata flag.
+    """
+    fields = metadata.modalities.action
+    schema = next(
+        (s for s in _LIBERO_ACTION_SCHEMAS if set(fields) == {k for k, _ in s}), None
+    )
+    if schema is None:
+        raise ValueError("Unsupported LIBERO action metadata schema")
+    minima, maxima = [], []
+    for name, dim in schema:
+        modality = fields[name]
+        if list(modality.shape) != [dim] or modality.rotation_type is not None:
+            raise ValueError(f"Unsupported LIBERO controller field {name}")
+        stats = metadata.statistics.action[name]
+        low, high = (
+            torch.as_tensor(stats.min, dtype=torch.float32),
+            torch.as_tensor(stats.max, dtype=torch.float32),
+        )
+        if low.shape != (dim,) or high.shape != (dim,):
+            raise ValueError(f"Incorrect LIBERO normalization dimensions for {name}")
+        if not torch.isfinite(low).all() or not torch.isfinite(high).all():
+            raise ValueError(f"Nonfinite LIBERO normalization for {name}")
+        minima.append(low)
+        maxima.append(high)
+    low, high = torch.cat(minima), torch.cat(maxima)
+    if low[-1] != 0 or high[-1] != 1:
+        raise ValueError("LIBERO gripper metadata must use the RLDS [0, 1] convention")
+    return [f"action.{name}" for name, _ in schema], low, high
+
+
+def _validate_libero_action_transform(transform, keys, expected_keys) -> None:
+    """Require canonical order and the audited affine action normalization."""
+    if list(keys) != expected_keys:
+        raise ValueError("LIBERO action concatenation is not canonical")
+    if any(transform.normalization_modes.get(k) != "min_max" for k in expected_keys):
+        raise ValueError("LIBERO OPD supports only min_max controller actions")
+    if any(transform.target_rotations.get(k) is not None for k in expected_keys):
+        raise ValueError("LIBERO OPD does not support transformed action rotations")
+
 
 class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
     def __init__(
@@ -735,6 +867,10 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         velocity is sliced to the executed action chunk, matching how log-probs are
         sliced elsewhere in this class.
         """
+        # Only explicit native mode opts into repairing collection padding.
+        # Historical fixed-padding and RoboCasa defaults remain unchanged.
+        if getattr(self, "opd_fixed_text_padding", None) is False:
+            forward_inputs = restore_opd_text_padding(forward_inputs)
         normalized_input = {
             "state": forward_inputs["state"],
             "state_mask": forward_inputs["state_mask"],
@@ -781,6 +917,22 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         mode: Literal["train", "eval"] = "train",
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
+        if (
+            getattr(self, "opd_fixed_text_padding", None) is False
+            and env_obs["states"].shape[0] > 1
+        ):
+            # Native prompts must reach the unmasked action head independently.
+            # Pad only the returned storage payload, never the policy inference.
+            from rlinf.utils.nested_dict_process import split_dict_to_chunk
+
+            rows = split_dict_to_chunk(env_obs, int(env_obs["states"].shape[0]))
+            predictions = [
+                self.predict_action_batch(row, mode=mode, **kwargs) for row in rows
+            ]
+            return torch.cat([item[0] for item in predictions], dim=0), (
+                _cat_native_rollout_outputs([item[1] for item in predictions])
+            )
+
         # Here we have a source causing tiny inference-training inconsistency,
         # force convert the state to bf16 then back to float32 to reproduce the info loss in training.
         env_obs["states"] = env_obs["states"].to(torch.bfloat16)
@@ -789,6 +941,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         if self.obs_convert_fn in (
             OBS_CONVERSION["robocasa365"],
             OBS_CONVERSION["libero"],
+            OBS_CONVERSION["libero_grouped"],
         ):
             # Keep the exact (BF16-round-tripped) raw state that the student transform
             # sees.  A frozen suite teacher has different checkpoint statistics and must
@@ -836,7 +989,11 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         # padding alone moves the first action dimension from -0.0070 to -0.0746 and takes
         # success_once from 0.88 to 0.00. The processor already pads to the longest prompt
         # in the batch, which is what the reference implementation relies on.
-        if self.obs_convert_fn is not OBS_CONVERSION["robocasa365"]:
+        if getattr(
+            self,
+            "opd_fixed_text_padding",
+            self.obs_convert_fn is not OBS_CONVERSION["robocasa365"],
+        ):
             normalized_input["eagle_input_ids"] = torch.nn.functional.pad(
                 normalized_input["eagle_input_ids"],
                 pad=(
@@ -856,6 +1013,9 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
                 mode="constant",
                 value=0,
             )
+
+        if getattr(self, "opd_fixed_text_padding", None) is False:
+            normalized_input = restore_opd_text_padding(normalized_input)
 
         normalized_action, result = self._get_rl_action(normalized_input, mode=mode)
         if opd_raw_states is not None:
@@ -948,17 +1108,27 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         """Reproduce this checkpoint's state transform for routed supervision."""
         if self.obs_convert_fn is OBS_CONVERSION["robocasa365"]:
             return self.opd_normalize_robocasa_state(raw_states)
-        if self.obs_convert_fn is not OBS_CONVERSION["libero"]:
+        if self.obs_convert_fn not in (
+            OBS_CONVERSION["libero"],
+            OBS_CONVERSION["libero_grouped"],
+        ):
             raise NotImplementedError("OPD state adapter supports RoboCasa/LIBERO")
         if raw_states.shape[-1] != 8:
             raise ValueError("LIBERO raw state must have eight dimensions")
         states = raw_states.detach().cpu().float().unsqueeze(-2)
-        names = ["x", "y", "z", "roll", "pitch", "yaw"]
-        data = {
-            f"state.{name}": states[..., i : i + 1].clone()
-            for i, name in enumerate(names)
-        }
-        data["state.gripper"] = states[..., 6:8].clone()
+        if self.obs_convert_fn is OBS_CONVERSION["libero_grouped"]:
+            data = {
+                "state.eef_pos_absolute": states[..., :3].clone(),
+                "state.eef_rot_absolute": states[..., 3:6].clone(),
+                "state.gripper_close": states[..., 6:8].clone(),
+            }
+        else:
+            names = ["x", "y", "z", "roll", "pitch", "yaw"]
+            data = {
+                f"state.{name}": states[..., i : i + 1].clone()
+                for i, name in enumerate(names)
+            }
+            data["state.gripper"] = states[..., 6:8].clone()
         transform = next(
             t
             for t in self._modality_transform.transforms
@@ -1026,13 +1196,20 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         return state, state_mask
 
     def opd_action_endpoint_affine_to(
-        self, target_metadata: DatasetMetadata
+        self,
+        target_metadata: DatasetMetadata,
+        *,
+        target_action_transform: Optional[StateActionTransform] = None,
+        target_action_keys: Optional[list[str]] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return the teacher-endpoint to target-normalized affine action map.
 
         The returned vectors cover GR00T's padded action dimension.  Continuous RoboCasa
         actions use checkpoint-specific ``min_max`` statistics; binary and padded
-        dimensions have an identity map.
+        dimensions have an identity map. LIBERO accepts its two explicit schemas,
+        which decode to the same controller-command ordering and gripper polarity.
+        Pass the target executable transform/keys to validate both pipelines; when
+        omitted, the target must use the canonical min/max config for its schema.
         """
         action_dim = int(self.config.action_head_cfg["action_dim"])
         scale = torch.ones(action_dim, dtype=torch.float32)
@@ -1049,6 +1226,44 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         assert action_transform is not None, (
             "GR00T modality pipeline has no action normalization transform."
         )
+
+        if self.obs_convert_fn in (
+            OBS_CONVERSION["libero"],
+            OBS_CONVERSION["libero_grouped"],
+        ):
+            source_keys, source_min, source_max = _libero_action_bounds(self.metadata)
+            target_keys, target_min, target_max = _libero_action_bounds(target_metadata)
+            _validate_libero_action_transform(
+                action_transform,
+                self._modality_config["action"].modality_keys,
+                source_keys,
+            )
+            if (
+                target_action_keys is not None
+                and list(target_action_keys) != target_keys
+            ):
+                raise ValueError("Target LIBERO action concatenation is not canonical")
+            if target_action_transform is not None:
+                _validate_libero_action_transform(
+                    target_action_transform,
+                    target_keys if target_action_keys is None else target_action_keys,
+                    target_keys,
+                )
+            source_range, target_range = (
+                source_max - source_min,
+                target_max - target_min,
+            )
+            if not torch.all(source_range > 0) or not torch.all(target_range > 0):
+                raise ValueError(
+                    "LIBERO action ranges must be nondegenerate and increasing"
+                )
+            if self.valid_action_dim != 7 or action_dim < 7:
+                raise ValueError("LIBERO OPD requires seven valid action dimensions")
+            scale[:7] = source_range / target_range
+            shift[:7] = (
+                source_min + source_max - target_min - target_max
+            ) / target_range
+            return scale, shift
 
         offset = 0
         for key in self._modality_config["action"].modality_keys:
