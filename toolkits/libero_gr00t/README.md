@@ -118,3 +118,17 @@ Paired screening (10 tasks × one init state per suite): student 9/10, 10/10,
 10/10, 10/10; specialists 8/10, 8/10, 8/10, 9/10 for Spatial, Object, Goal,
 Long respectively. This pairing has no demonstrated teacher headroom, so no
 long training run was started. These are screening counts, not formal scores.
+
+## Few-shot candidate screening
+
+`launch.py --student PATH` overrides only the student checkpoint. The optional
+`fewshot.py` adapter supports the grouped schema published in
+`RLobot-jun/gr00t-n1.5-libero-fewshot-combined-1k` (revision
+`9f0ac4146e3bbd54daa1efad285b334a48d1aa79`). It preserves the checkpoint's
+normalization and uses the publisher's public `LiberoDataConfig` convention:
+axis-angle state becomes 6D rotation (11 valid state dimensions), while controller
+actions remain 7D. It is **evaluation-only**; MOPD rejects this schema until
+state and action-coordinate transport are audited. The exact training-code
+revision is absent from the checkpoint release, so this is a provisional
+compatibility assessment, not a reproduction claim. The shared screening
+protocol retains RLinf's text padding and BF16 inference.

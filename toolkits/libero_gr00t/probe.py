@@ -116,12 +116,19 @@ def load_model(path: Path, args):
     if len(metadata) != 1:
         raise ValueError(f"Expected one explicitly identifiable embodiment in {path}")
     tag = next(iter(metadata))
+    grouped = "eef_pos_absolute" in metadata[tag]["statistics"]["state"]
+    if grouped and args.mode != "eval":
+        raise NotImplementedError(
+            "Few-shot grouped metadata is evaluation-only until OPD transport is audited"
+        )
     cfg = OmegaConf.load("examples/embodiment/config/model/gr00t.yaml")
     cfg.model_path = str(path.resolve())
     cfg.embodiment_tag = tag
     cfg.embodiment_projector_id = 31
     cfg.obs_converter_type = "libero"
     cfg.data_config_class = "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoFrankaDataConfig"
+    if grouped:
+        cfg.data_config_class = "toolkits.libero_gr00t.fewshot:FewshotLiberoDataConfig"
     cfg.num_action_chunks = args.execute
     cfg.denoising_steps = args.denoise_steps
     if path.resolve() == args.student.resolve():
@@ -132,6 +139,12 @@ def load_model(path: Path, args):
     cfg.rl_head_config.joint_logprob = True
     cfg.rl_head_config.noise_level = args.noise_level
     model = get_model(cfg).eval()
+    if grouped:
+        from toolkits.libero_gr00t.fewshot import convert_action, convert_observation
+
+        model.obs_convert_fn = convert_observation
+        model.action_convert_fn = convert_action
+        model._probe_expected_state_dim = 11
     for transform in model._modality_transform.transforms:
         if hasattr(transform, "eagle_processor"):
             processor = transform.eagle_processor.image_processor
@@ -258,6 +271,9 @@ def collect(model, suite, task_id: int, trial: int, args, *, max_chunks: int | N
                 raise RuntimeError(
                     "Selected LIBERO N1.5 checkpoint must use embodiment ID31"
                 )
+            expected_state_dim = getattr(model, "_probe_expected_state_dim", 8)
+            if int(payload["forward_inputs"]["state_mask"].sum()) != expected_state_dim:
+                raise RuntimeError("Unexpected transformed state dimension")
             torch.cuda.synchronize()
             inference_s += time.perf_counter() - start
             pool.append(

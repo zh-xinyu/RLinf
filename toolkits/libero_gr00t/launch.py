@@ -18,6 +18,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", type=Path, required=True)
     parser.add_argument("--models", type=Path, required=True)
+    parser.add_argument(
+        "--student", type=Path, help="Optional student checkpoint override"
+    )
     parser.add_argument("--spatial-teacher", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mode", choices=["eval", "mopd"], required=True)
@@ -74,7 +77,7 @@ def main():
                 "--student-head-precision",
                 args.student_head_precision,
                 "--student",
-                str((args.models / "student").resolve()),
+                str((args.student or args.models / "student").resolve()),
                 "--teacher",
                 str(teacher.resolve()),
                 "--suite",
