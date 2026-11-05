@@ -230,7 +230,12 @@ full weights alone do not replace those assets. The tool reads the exact actor
 model config, checks the grouped-state/native-text/FP32-head contract, then loads
 all keys strictly on CPU before moving the policy to GPU. Partial head files,
 nested training states, mismatched shapes/dtypes and nonfinite weights fail.
-In particular, it does not silently cast a BF16 saved head to FP32.
+In particular, it does not silently cast a BF16 saved head to FP32. Before
+loading, it also requires every `backbone.*` tensor to exactly match the original
+base policy. The protocol records changed/unchanged action-head tensor counts,
+unchanged backbone counts, and separately lists changes to other state such as
+version buffers. Unchanged individual head tensors are permitted; frozen VLM
+drift is rejected rather than silently accepted.
 
 Defaults evaluate one task and one official initial state per suite at native
 horizons with first-success stopping and ten settling steps. These are complete

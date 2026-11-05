@@ -27,6 +27,7 @@ def policy():
 
 def test_exact_full_state_restores_both_frozen_backbone_and_fp32_head(tmp_path):
     source, target = policy(), policy()
+    source["backbone"].load_state_dict(target["backbone"].state_dict())
     path = tmp_path / "full_weights.pt"
     torch.save(source.state_dict(), path)
     result = load_full_weights(target, path)
@@ -34,13 +35,24 @@ def test_exact_full_state_restores_both_frozen_backbone_and_fp32_head(tmp_path):
     for key, tensor in source.state_dict().items():
         torch.testing.assert_close(target.state_dict()[key], tensor, rtol=0, atol=0)
     assert target["action_head"].weight.dtype == torch.float32
+    assert result["base_comparison"]["unchanged_backbone_tensors"] == 2
+    assert result["base_comparison"]["changed_action_head_tensors"] == 2
 
 
-@pytest.mark.parametrize("fault", ["partial", "nested", "shape", "dtype", "nonfinite"])
+@pytest.mark.parametrize(
+    "fault", ["partial", "nested", "shape", "dtype", "nonfinite", "backbone"]
+)
 def test_invalid_checkpoint_fails_before_mutating_model(tmp_path, fault):
     target = policy()
     before = {key: value.clone() for key, value in target.state_dict().items()}
     state = {key: value.clone() for key, value in policy().state_dict().items()}
+    state.update(
+        {
+            key: value.clone()
+            for key, value in before.items()
+            if key.startswith("backbone.")
+        }
+    )
     if fault == "partial":
         del state["backbone.weight"]
     elif fault == "nested":
@@ -49,8 +61,10 @@ def test_invalid_checkpoint_fails_before_mutating_model(tmp_path, fault):
         state["action_head.weight"] = torch.zeros(1, 3)
     elif fault == "dtype":
         state["action_head.weight"] = state["action_head.weight"].bfloat16()
-    else:
+    elif fault == "nonfinite":
         state["action_head.weight"][0, 0] = float("nan")
+    else:
+        state["backbone.weight"][0, 0] += 1
     path = tmp_path / "full_weights.pt"
     torch.save(state, path)
     with pytest.raises(ValueError):
@@ -96,3 +110,18 @@ def test_config_preserves_native_input_contract_and_rejects_padding(tmp_path):
     OmegaConf.save(cfg, path)
     with pytest.raises(ValueError, match="opd_fixed_text_padding"):
         candidate_model_config(path)
+
+
+def test_unchanged_heads_and_changed_non_backbone_version_are_reported(tmp_path):
+    target = policy()
+    target.register_buffer("version", torch.tensor(0))
+    state = {key: value.clone() for key, value in target.state_dict().items()}
+    state["version"] += 1
+    path = tmp_path / "full_weights.pt"
+    torch.save(state, path)
+    result = load_full_weights(target, path)["base_comparison"]
+    assert result["changed_action_head_tensors"] == 0
+    assert result["unchanged_action_head_tensors"] == 2
+    assert result["unchanged_backbone_tensors"] == 2
+    assert result["other_changed_state_keys"] == ["version"]
+    assert target.version.item() == 1

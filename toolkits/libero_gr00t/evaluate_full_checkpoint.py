@@ -25,7 +25,9 @@ def load_full_weights(model: torch.nn.Module, path: Path) -> dict:
     """Validate the complete CPU state before copying into an unsharded model.
 
     Reject partial heads, nested training checkpoints, wrong shapes/dtypes and
-    nonfinite values. Never silently coerce BF16 head weights into an FP32 model.
+    nonfinite values and frozen-backbone drift. Never silently coerce BF16 head
+    weights into an FP32 model. Other state (for example a version counter) is
+    compared and reported, but is not classified as frozen VLM parameters.
     """
     state = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
     expected = model.state_dict()
@@ -40,6 +42,13 @@ def load_full_weights(model: torch.nn.Module, path: Path) -> dict:
             f"unexpected={sorted(set(state) - set(expected))[:5]}"
         )
     count = 0
+    comparison = {
+        "changed_action_head_tensors": 0,
+        "unchanged_action_head_tensors": 0,
+        "unchanged_backbone_tensors": 0,
+        "other_changed_state_keys": [],
+        "other_unchanged_state_tensors": 0,
+    }
     for key, target in expected.items():
         tensor = state[key]
         if tensor.shape != target.shape:
@@ -54,12 +63,31 @@ def load_full_weights(model: torch.nn.Module, path: Path) -> dict:
             torch.isfinite(tensor).all()
         ):
             raise ValueError(f"Nonfinite checkpoint tensor: {key}")
+        identical = torch.equal(tensor, target.cpu())
+        if key.startswith("backbone."):
+            if not identical:
+                raise ValueError(
+                    f"Frozen backbone drift relative to base checkpoint: {key}"
+                )
+            comparison["unchanged_backbone_tensors"] += 1
+        elif key.startswith("action_head."):
+            field = (
+                "unchanged_action_head_tensors"
+                if identical
+                else "changed_action_head_tensors"
+            )
+            comparison[field] += 1
+        elif identical:
+            comparison["other_unchanged_state_tensors"] += 1
+        else:
+            comparison["other_changed_state_keys"].append(key)
         count += tensor.numel()
     model.load_state_dict(state, strict=True)
     return {
         "state_tensor_count": len(state),
         "state_element_count": count,
         "strict": True,
+        "base_comparison": comparison,
     }
 
 
