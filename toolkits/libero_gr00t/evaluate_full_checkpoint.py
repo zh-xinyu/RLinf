@@ -18,6 +18,11 @@ from types import SimpleNamespace
 import torch
 from omegaconf import OmegaConf
 
+from toolkits.libero_gr00t.padding_profile import (
+    PADDING_PROFILES,
+    student_input_contract,
+)
+
 SUITES = ("libero_spatial", "libero_object", "libero_goal", "libero_10")
 
 
@@ -91,7 +96,12 @@ def load_full_weights(model: torch.nn.Module, path: Path) -> dict:
     }
 
 
-def candidate_model_config(config_path: Path, student: Path | None = None):
+def candidate_model_config(
+    config_path: Path,
+    student: Path | None = None,
+    *,
+    student_padding_profile: str = "native",
+):
     """Extract the exact supported actor input contract from a resolved run config."""
     cfg = OmegaConf.load(config_path)
     model = OmegaConf.create(OmegaConf.to_container(cfg.actor.model, resolve=True))
@@ -102,7 +112,6 @@ def candidate_model_config(config_path: Path, student: Path | None = None):
         "inference_autocast_dtype": "bf16",
         "obs_converter_type": "libero_grouped",
         "embodiment_projector_id": 31,
-        "opd_fixed_text_padding": False,
         "disable_image_tiling": True,
         "num_action_chunks": 8,
         "denoising_steps": 4,
@@ -110,6 +119,13 @@ def candidate_model_config(config_path: Path, student: Path | None = None):
     for key, value in required.items():
         if model.get(key) != value:
             raise ValueError(f"Unsupported reload contract {key}: expected {value!r}")
+    student_input_contract(model, student_padding_profile)
+    rollout_model = OmegaConf.select(cfg, "rollout.model")
+    if rollout_model is not None:
+        # Actor and rollout can differ in loading controls, but not in the
+        # declared student policy input contract.
+        effective_rollout = OmegaConf.merge(model, rollout_model)
+        student_input_contract(effective_rollout, student_padding_profile)
     if model.rl_head_config.noise_method != "flow_ode":
         raise ValueError("Reload smoke requires the candidate ODE inference policy")
     if not model.rl_head_config.get("disable_dropout", False):
@@ -205,6 +221,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--student", type=Path, help="Relocated original base checkpoint"
     )
+    parser.add_argument(
+        "--student-padding-profile",
+        choices=PADDING_PROFILES,
+        default="native",
+        help="Must match the training config; canonical-fixed570 needs its own baseline",
+    )
     parser.add_argument("--suites", nargs="+", choices=SUITES, default=list(SUITES))
     parser.add_argument("--tasks", nargs="+", type=int, default=[0])
     parser.add_argument("--trials", nargs="+", type=int, default=[1])
@@ -228,7 +250,9 @@ def main() -> None:
         raise ValueError("Duplicate evaluation suites")
     if not 8 <= args.memory_gib <= args.minimum_free_gib:
         raise ValueError("Require 8 <= memory-gib <= minimum-free-gib")
-    model_cfg, reuse = candidate_model_config(args.config, args.student)
+    model_cfg, reuse = candidate_model_config(
+        args.config, args.student, student_padding_profile=args.student_padding_profile
+    )
     step = 0 if args.baseline else checkpoint_step(args.weights)
     if step % reuse:
         raise ValueError("Checkpoint is not at a complete rollout-round boundary")
@@ -265,6 +289,10 @@ def main() -> None:
             Path(model_cfg.model_path) / "experiment_cfg/metadata.json"
         ),
         "model_config": OmegaConf.to_container(model_cfg, resolve=True),
+        "student_padding_profile": args.student_padding_profile,
+        "student_input_contract": student_input_contract(
+            model_cfg, args.student_padding_profile
+        ),
         "suites": args.suites,
         "tasks": args.tasks,
         "trials": args.trials,

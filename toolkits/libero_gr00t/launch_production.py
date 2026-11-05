@@ -24,6 +24,11 @@ from omegaconf import OmegaConf, open_dict
 
 from rlinf.config import validate_flow_refresh_cfg, validate_rollout_allocation_cfg
 from rlinf.scheduler.cluster.config import ClusterConfig
+from toolkits.libero_gr00t.padding_profile import (
+    PADDING_PROFILES,
+    apply_student_padding_profile,
+    student_input_contract,
+)
 from toolkits.robocasa_mopd.owned_ray import OWNER_KEY, check_gpus, stop_owned
 
 REPO = Path(__file__).resolve().parents[2]
@@ -152,6 +157,16 @@ def validate_resume_checkpoint(checkpoint: Path, cfg) -> dict:
         if OmegaConf.is_config(before):
             before = OmegaConf.to_container(before, resolve=True)
             after = OmegaConf.to_container(after, resolve=True)
+        if key in {"actor", "rollout"}:
+            # A historical missing flag has exactly the current boolean False
+            # semantics. Normalize only this field, never True or false-like 0.
+            for section in (before, after):
+                models = [section.get("model", {})]
+                if key == "rollout":
+                    models.extend(section.get("expert_models", {}).values())
+                for model in models:
+                    if model.get("opd_canonical_fixed_padding") is False:
+                        model.pop("opd_canonical_fixed_padding")
         if before != after:
             raise ValueError(f"Resume recipe changed at {key}")
     before = OmegaConf.to_container(source.env.train, resolve=True)
@@ -205,6 +220,14 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
     if allocation_smoke and resume_checkpoint is not None:
         raise ValueError("allocation-smoke cannot be combined with resume-checkpoint")
     config_name = getattr(args, "config_name", CONFIG_NAME)
+    padding_profile = getattr(args, "student_padding_profile", "native")
+    if padding_profile not in PADDING_PROFILES:
+        raise ValueError("Unknown student padding profile")
+    if (
+        padding_profile == "canonical-fixed570"
+        and config_name != "libero_mopd_candidate_m1"
+    ):
+        raise ValueError("canonical-fixed570 is an experimental M1/R2 profile only")
     if allocation_smoke and config_name not in {
         "libero_mopd_candidate_m2",
         "libero_mopd_candidate_m3",
@@ -229,6 +252,25 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             "Save interval must be a complete-round multiple within the run"
         )
     with open_dict(cfg):
+        if padding_profile == "canonical-fixed570":
+            # This changes both input policy and update batch; it is not a
+            # throughput-equivalent version of the native B64/micro1 run.
+            cfg.actor.global_batch_size = 256
+            cfg.actor.micro_batch_size = 4
+            if (
+                int(cfg.algorithm.flow_refresh_updates) != 2
+                or int(cfg.env.train.total_num_envs) != 32
+                or float(cfg.actor.optim.lr) != 3e-6
+            ):
+                raise ValueError("canonical-fixed570 expects M1 T32/R2/LR3e-6")
+            apply_student_padding_profile(cfg.actor.model, padding_profile)
+            cfg.rollout.model.rl_head_config = OmegaConf.create(
+                OmegaConf.to_container(cfg.actor.model.rl_head_config, resolve=True)
+            )
+            apply_student_padding_profile(cfg.rollout.model, padding_profile)
+            for expert in cfg.rollout.expert_models.values():
+                # Actor teacher construction starts from the student model config.
+                expert.opd_canonical_fixed_padding = False
         if resume_checkpoint is not None:
             cfg.runner.resume_dir = str(resume_checkpoint.resolve(strict=True))
             cfg.runner.resume_mode = "adaptive_round_boundary"
@@ -277,6 +319,8 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             for suite, horizon in cfg.env.train.task_suite_horizons.items()
         }
     OmegaConf.resolve(cfg)
+    student_input_contract(cfg.actor.model, padding_profile)
+    student_input_contract(cfg.rollout.model, padding_profile)
     if resume_checkpoint is not None:
         args.resume_summary = validate_resume_checkpoint(resume_checkpoint, cfg)
     validate_flow_refresh_cfg(cfg)
@@ -388,6 +432,12 @@ def main() -> None:
         "--resume-checkpoint",
         type=Path,
         help="Completed global_step_N directory; --updates is the total target, not additional updates",
+    )
+    parser.add_argument(
+        "--student-padding-profile",
+        choices=PADDING_PROFILES,
+        default="native",
+        help="Experimental canonical-fixed570 changes policy inputs and uses M1 B256/micro4; needs a new matched baseline",
     )
     parser.add_argument("--updates", type=int, default=2)
     parser.add_argument(
@@ -519,6 +569,16 @@ def main() -> None:
         "rollout_steps": args.rollout_steps,
         "incomplete_episodes": args.rollout_steps < 520,
         "performance_evidence": False,
+        "student_padding_profile": args.student_padding_profile,
+        "student_input_contract": student_input_contract(
+            cfg.actor.model, args.student_padding_profile
+        ),
+        "batch_recipe": {
+            "global_batch_size": int(cfg.actor.global_batch_size),
+            "micro_batch_size": int(cfg.actor.micro_batch_size),
+            "microbatches_per_rank": int(cfg.actor.global_batch_size)
+            // (4 * int(cfg.actor.micro_batch_size)),
+        },
         "smoke_only": True,
         "allocation_smoke": args.allocation_smoke,
         "allocation_smoke_overrides": (

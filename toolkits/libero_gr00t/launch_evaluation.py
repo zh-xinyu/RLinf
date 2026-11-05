@@ -29,6 +29,11 @@ from toolkits.libero_gr00t.launch_production import (
     read_runtime_environment,
     run_logged,
 )
+from toolkits.libero_gr00t.padding_profile import (
+    PADDING_PROFILES,
+    apply_student_padding_profile,
+    student_input_contract,
+)
 from toolkits.libero_gr00t.summarize_evaluation import EPISODE, SUITES
 from toolkits.robocasa_mopd.owned_ray import OWNER_KEY, check_gpus, stop_owned
 
@@ -50,6 +55,9 @@ def build_config(args):
         )
     with open_dict(cfg):
         cfg.rollout.model.model_path = str(args.student)
+        apply_student_padding_profile(
+            cfg.rollout.model, getattr(args, "student_padding_profile", "native")
+        )
         cfg.runner.ckpt_path = str(args.weights) if args.weights else None
         cfg.runner.logger.log_path = str(args.output)
         cfg.runner.logger.experiment_name = "libero_independent_evaluation"
@@ -85,12 +93,16 @@ def validate_checkpoint(args, cfg) -> dict:
     beside the four Ray workers. This launcher verifies artifact identity and
     inference settings, not merely a user-provided success boolean.
     """
+    profile = getattr(args, "student_padding_profile", "native")
+    input_contract = student_input_contract(cfg.rollout.model, profile)
     metadata = args.student / "experiment_cfg/metadata.json"
     if args.weights is None:
         if args.validation_protocol:
             raise ValueError("Baseline must not supply a trained-weight protocol")
         return {
             "baseline": True,
+            "student_padding_profile": profile,
+            "student_input_contract": input_contract,
             "metadata_sha256": sha256(metadata),
             "base_checkpoint_identity": baseline_identity(args.student),
         }
@@ -108,6 +120,14 @@ def validate_checkpoint(args, cfg) -> dict:
     if Path(protocol["base_checkpoint"]).resolve() != args.student:
         raise ValueError("Use the same base checkpoint path as the validation protocol")
     validated = OmegaConf.create(protocol["model_config"])
+    student_input_contract(validated, profile)
+    # Historical native protocols predate this field; missing canonical flag
+    # means False. Canonical profiles always require explicit captured identity.
+    if protocol.get("student_padding_profile", "native") != profile:
+        raise ValueError("Validated student padding profile differs")
+    if "student_input_contract" in protocol or profile != "native":
+        if protocol.get("student_input_contract") != input_contract:
+            raise ValueError("Validated student input contract differs")
     for key in (
         "model_type",
         "precision",
@@ -132,6 +152,8 @@ def validate_checkpoint(args, cfg) -> dict:
             raise ValueError(f"Validated model contract differs at {key}")
     return {
         "baseline": False,
+        "student_padding_profile": profile,
+        "student_input_contract": input_contract,
         "weights_sha256": protocol["weights_sha256"],
         "metadata_sha256": protocol["metadata_sha256"],
         "validation_protocol": str(args.validation_protocol),
@@ -207,6 +229,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpus", nargs=4, type=int, required=True)
     parser.add_argument("--all-tasks", action="store_true")
+    parser.add_argument(
+        "--student-padding-profile",
+        choices=PADDING_PROFILES,
+        default="native",
+        help="Explicit changed-policy profile; canonical-fixed570 requires a matched baseline",
+    )
     parser.add_argument("--cpus", type=int, default=16)
     parser.add_argument("--timeout-seconds", type=float, default=7200)
     mode = parser.add_mutually_exclusive_group()

@@ -171,3 +171,21 @@ def test_real_small_dcp_checks_scheduler_and_detects_truncated_shard(tmp_path):
     shard.write_bytes(shard.read_bytes()[:100])
     with pytest.raises(ValueError, match="truncated"):
         launch.inspect_resume_dcp(path, 20)
+
+
+def test_native_resume_accepts_only_missing_or_boolean_false_canonical_flag(
+    tmp_path, monkeypatch
+):
+    args, paths, source, _, _ = resume_fixture(tmp_path, monkeypatch)
+    del source.actor.model.opd_canonical_fixed_padding
+    config_path = args.resume_checkpoint.parents[2] / "resolved_config.yaml"
+    OmegaConf.save(source, config_path)
+    cfg = launch.build_config(args, paths)
+    assert cfg.actor.model.opd_canonical_fixed_padding is False
+    for invalid in [True, 0, "false"]:
+        OmegaConf.update(
+            source, "actor.model.opd_canonical_fixed_padding", invalid, force_add=True
+        )
+        OmegaConf.save(source, config_path)
+        with pytest.raises(ValueError, match="recipe changed at actor"):
+            launch.build_config(args, paths)
