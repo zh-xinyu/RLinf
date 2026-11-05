@@ -8,6 +8,7 @@ launcher never joins an existing Ray cluster or invokes global Ray cleanup.
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import signal
@@ -61,6 +62,137 @@ def choose_ports() -> dict[str, int]:
             sock.close()
 
 
+def inspect_resume_dcp(path: Path, expected_updates: int) -> dict:
+    """Check checkpoint metadata, shard completeness and the small scheduler record."""
+    import torch
+    from torch.distributed.checkpoint import FileSystemReader
+
+    metadata_path = path / ".metadata"
+    metadata = FileSystemReader(path).read_metadata()
+    keys = list(metadata.state_dict_metadata)
+    for prefix in ("fsdp_checkpoint.model.", "fsdp_checkpoint.optimizers.state."):
+        if not any(key.startswith(prefix) for key in keys):
+            raise ValueError(f"Resume checkpoint is missing {prefix}")
+    scheduler_key = "fsdp_checkpoint.lr_schedulers.0.last_epoch"
+    scheduler_epoch = None
+    sizes = {}
+    for index, storage in metadata.storage_data.items():
+        shard = (path / storage.relative_path).resolve()
+        if shard.parent != path.resolve() or not shard.is_file():
+            raise ValueError("Resume checkpoint has an unavailable shard")
+        required = storage.offset + storage.length
+        if storage.offset < 0 or storage.length <= 0 or shard.stat().st_size < required:
+            raise ValueError("Resume checkpoint contains a truncated shard")
+        sizes[shard.name] = shard.stat().st_size
+        if index.fqn == scheduler_key:
+            if storage.length > 1024 * 1024:
+                raise ValueError("Unexpectedly large scheduler metadata record")
+            with shard.open("rb") as stream:
+                stream.seek(storage.offset)
+                scheduler_epoch = torch.load(
+                    io.BytesIO(stream.read(storage.length)), weights_only=True
+                )
+    if type(scheduler_epoch) is not int or scheduler_epoch != expected_updates:
+        raise ValueError("Resume scheduler epoch differs from optimizer-update count")
+    return {
+        "scheduler_last_epoch": scheduler_epoch,
+        "metadata_sha256": hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
+        "shard_sizes": sizes,
+    }
+
+
+def validate_resume_checkpoint(checkpoint: Path, cfg) -> dict:
+    """Require the same learning recipe at a completed quota-rollout boundary."""
+    checkpoint = checkpoint.resolve(strict=True)
+    # Checkpoints from this launcher have <run>/<experiment>/checkpoints/step.
+    source_config = checkpoint.parents[2] / "resolved_config.yaml"
+    source = OmegaConf.load(source_config)
+    state_path = checkpoint / "runner_state.json"
+    allocation_path = checkpoint / "rollout_allocation_state.json"
+    state = json.loads(state_path.read_text())
+    allocation = json.loads(allocation_path.read_text())
+    step, reuse = state["optimizer_updates"], int(cfg.algorithm.flow_refresh_updates)
+    if cfg.runner.max_steps > cfg.runner.max_epochs:
+        raise ValueError("Total --updates exceeds runner.max_epochs")
+    if (
+        type(step) is not int
+        or step <= 0
+        or step % reuse
+        or checkpoint.name != f"global_step_{step}"
+        or state["step_unit"] != "optimizer_update"
+        or state["rollout_count"] != step // reuse
+        or allocation["rounds"] != state["rollout_count"]
+        or allocation["simulation_steps"] != state["env_steps"]
+        or step >= min(cfg.runner.max_steps, cfg.runner.max_epochs)
+    ):
+        raise ValueError(
+            "Resume requires a complete round and a larger total --updates"
+        )
+    if (
+        cfg.runner.step_unit != "optimizer_update"
+        or not cfg.runner.rollout_allocation.enabled
+        or cfg.runner.ckpt_path is not None
+    ):
+        raise ValueError(
+            "Resume requires quota collection and no weights-only checkpoint"
+        )
+    # Ignore only output placement. Keep all numerical/model/teacher semantics.
+    for key in (
+        "actor",
+        "algorithm",
+        "rollout",
+        "weight_syncer",
+        "runner.step_unit",
+        "runner.rollout_allocation",
+        "runner.weight_sync_interval",
+        "runner.use_training_pipeline",
+        "runner.overlap_env_bootstrap",
+    ):
+        before, after = OmegaConf.select(source, key), OmegaConf.select(cfg, key)
+        if OmegaConf.is_config(before):
+            before = OmegaConf.to_container(before, resolve=True)
+            after = OmegaConf.to_container(after, resolve=True)
+        if before != after:
+            raise ValueError(f"Resume recipe changed at {key}")
+    before = OmegaConf.to_container(source.env.train, resolve=True)
+    after = OmegaConf.to_container(cfg.env.train, resolve=True)
+    for env in (before, after):
+        env.get("video_cfg", {}).pop("video_base_dir", None)
+    if before != after:
+        raise ValueError("Resume recipe changed at env.train")
+    source_placement = source.cluster.component_placement["actor,env,rollout"].placement
+    if len(set(str(source_placement).split(","))) != 4:
+        raise ValueError("Resume requires the original four-rank layout")
+    trajectories_per_round = int(
+        cfg.env.train.total_num_envs * cfg.env.train.rollout_epoch
+    )
+    if allocation["trajectories"] != allocation["rounds"] * trajectories_per_round:
+        raise ValueError("Resume trajectory budget or counters changed")
+    if allocation["config"] != OmegaConf.to_container(
+        cfg.runner.rollout_allocation, resolve=True
+    ):
+        raise ValueError(
+            "Resume allocation state differs from the configured controller"
+        )
+    dcp = inspect_resume_dcp(checkpoint / "actor/dcp_checkpoint", step)
+    return {
+        "source_checkpoint": str(checkpoint),
+        "source_config": str(source_config),
+        "source_config_sha256": hashlib.sha256(source_config.read_bytes()).hexdigest(),
+        "runner_state_sha256": hashlib.sha256(state_path.read_bytes()).hexdigest(),
+        "allocation_state_sha256": hashlib.sha256(
+            allocation_path.read_bytes()
+        ).hexdigest(),
+        "starting_optimizer_update": step,
+        "starting_rollout_round": state["rollout_count"],
+        "additional_optimizer_updates": cfg.runner.max_steps - step,
+        "additional_rollout_rounds": (cfg.runner.max_steps - step) // reuse,
+        "exact_replay": False,
+        "limitations": "Fresh simulator instances and restarted rollout RNG; physics session counters restart. Allocation policy-step totals and task cursors continue.",
+        "dcp": dcp,
+    }
+
+
 def build_config(args, checkpoint_paths: dict[str, Path]):
     """Compose a complete launch recipe without starting Cluster or loading models."""
     gpus = sorted(args.gpus)
@@ -69,6 +201,9 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
     if args.rollout_steps < 8 or args.rollout_steps > 520 or args.rollout_steps % 8:
         raise ValueError("rollout-steps must be a multiple of eight in [8, 520]")
     allocation_smoke = getattr(args, "allocation_smoke", False)
+    resume_checkpoint = getattr(args, "resume_checkpoint", None)
+    if allocation_smoke and resume_checkpoint is not None:
+        raise ValueError("allocation-smoke cannot be combined with resume-checkpoint")
     config_name = getattr(args, "config_name", CONFIG_NAME)
     if allocation_smoke and config_name not in {
         "libero_mopd_candidate_m2",
@@ -94,6 +229,9 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             "Save interval must be a complete-round multiple within the run"
         )
     with open_dict(cfg):
+        if resume_checkpoint is not None:
+            cfg.runner.resume_dir = str(resume_checkpoint.resolve(strict=True))
+            cfg.runner.resume_mode = "adaptive_round_boundary"
         if allocation_smoke:
             if (
                 cfg.runner.rollout_allocation.mode != "adaptive"
@@ -139,6 +277,8 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             for suite, horizon in cfg.env.train.task_suite_horizons.items()
         }
     OmegaConf.resolve(cfg)
+    if resume_checkpoint is not None:
+        args.resume_summary = validate_resume_checkpoint(resume_checkpoint, cfg)
     validate_flow_refresh_cfg(cfg)
     validate_rollout_allocation_cfg(cfg)
     ClusterConfig.from_dict_cfg(cfg.cluster)
@@ -243,6 +383,11 @@ def main() -> None:
         "--allocation-smoke",
         action="store_true",
         help="M2/M3 only: shorten controller coverage window for integration checks, not performance evidence",
+    )
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=Path,
+        help="Completed global_step_N directory; --updates is the total target, not additional updates",
     )
     parser.add_argument("--updates", type=int, default=2)
     parser.add_argument(
@@ -366,6 +511,7 @@ def main() -> None:
         "driver_command": driver_command,
         "checkpoints": {k: str(v) for k, v in checkpoint_paths.items()},
         "optimizer_updates": args.updates,
+        "resume": getattr(args, "resume_summary", None),
         "save_interval": int(cfg.runner.save_interval),
         "rollout_rounds": args.updates // int(cfg.algorithm.flow_refresh_updates),
         "config_name": args.config_name,

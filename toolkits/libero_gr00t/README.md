@@ -457,3 +457,44 @@ coordinates; the endpoint reference is the native teacher action from the same
 noise. Compare matching fixture/seed rows across checkpoints. These are action
 agreement diagnostics, not SR or evidence that the teacher can recover those states.
 The small existing four-observation bank is an initial smoke, not an all-task study.
+
+
+## Continue a completed production rollout boundary
+
+`launch_production.py --resume-checkpoint /path/to/global_step_40` restores a
+complete DCP checkpoint, optimizer, scheduler, update count, allocation history
+and task cursors. Keep the original model/teacher paths and all learning settings;
+provide a new output directory. For example, extend the same candidate to80 total
+updates with the usual model/runtime arguments:
+
+```bash
+"$PROBE_PYTHON" toolkits/libero_gr00t/launch_production.py \
+  --python "$PROBE_PYTHON" --models /path/to/models \
+  --student /path/to/student --spatial-teacher /path/to/spatial \
+  --config-name libero_mopd_candidate_m1 --rollout-steps 520 \
+  --resume-checkpoint /path/to/run/libero_production_smoke/checkpoints/global_step_40 \
+  --updates 80 --save-every-updates 20 --timeout-seconds 21600 \
+  --output outputs/continued_pilot --gpus 0 1 6 7 --dry-run
+```
+
+Here `--updates 80` means the total target, so update40 resumes for40 additional
+updates /20 new rollout rounds. Replace `--dry-run` with `--run` and choose a new
+output path after reviewing the plan. The source run's `resolved_config.yaml`
+must remain beside its experiment directory. The launcher sets the required
+`adaptive_round_boundary` resume mode and rejects changed B, microbatch, optimizer,
+loss/R, precision, model/teacher paths, environment semantics or controller.
+Output locations, selected physical GPU IDs (stillfour ranks), final budget and
+save interval may change. `--allocation-smoke` cannot be combined with resume.
+
+Preflight checks consistent complete-round runner/allocation counters, DCP model
+and optimizer metadata, shard extents and the saved scheduler epoch. The actor
+also validates optimizer state and scheduler count when loading. Both controller
+and actor sample-draw counters continue; constant-LR warmup does not restart.
+This is **continuation, not bitwise replay**: new simulator instances are created,
+rollout proposal RNG restarts, and physical session counters reset. The cumulative
+allocation policy-step/trajectory counters continue from the source. Preserve
+source and continuation logs to total actual simulation/settling/reset work.
+Actor RNG is checkpointed, but this does not establish rank-exact RNG replay for
+the complete distributed pipeline. `resume_metadata.json` records these limits.
+A real GPU resume still needs validation before treating continuation as an
+accepted formal experiment workflow.
