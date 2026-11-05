@@ -15,7 +15,10 @@
 # or override that field during Hydra composition before resolving it).
 #
 # Launch from an isolated, correctly configured Ray/runtime session:
-#   bash evaluations/run_eval.sh libero libero_four_suite_gr00t_mopd_eval
+#   bash evaluations/run_eval.sh libero libero_four_suite_gr00t_mopd_eval \
+#     "runner.logger.log_path=${OPD_RUN_DIR}"
+# The wrapper otherwise overrides OPD_RUN_DIR with its timestamped logs directory.
+# Its console log still lives there; worker logs use the explicit override.
 # Explicitly set MUJOCO_GL=egl and PYOPENGL_PLATFORM=egl before the shell wrapper.
 # CPU composition validated; FP32-head GPU standalone inference/reload parity
 # must pass before launching the full 2000 episodes. Native policy inference

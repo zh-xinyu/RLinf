@@ -193,6 +193,22 @@ these files do not launch experiments automatically.
 
 ## Independent evaluation result audit
 
+The evaluation shell wrapper overrides the YAML output directory. To preserve
+`OPD_RUN_DIR` for worker logs and evaluation artifacts, explicitly pass:
+
+```bash
+bash evaluations/run_eval.sh libero libero_four_suite_gr00t_mopd_eval \
+  "runner.logger.log_path=${OPD_RUN_DIR}"
+```
+
+Use the isolated runtime and private Ray setup; set the checkpoint and asset
+variables described in the evaluation YAML first. The wrapper's console log
+still goes to its timestamped `logs/` directory. Single-process strict reload
+has passed, but distributed trial-pool exhaustion still requires a GPU smoke.
+The formal scheduler uses a conservative fixed budget and continues B1 policy
+inference after slots finish; terminal slots freeze physics. Do not interpret
+this idle inference as additional environment interactions.
+
 After one checkpoint evaluation, pass its raw per-worker logs to:
 
 ```bash
