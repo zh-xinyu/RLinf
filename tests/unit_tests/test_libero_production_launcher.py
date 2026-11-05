@@ -95,6 +95,8 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
             "8",
             "--rollout-steps",
             "520",
+            "--seed",
+            "2",
         ]
         monkeypatch.setenv(
             "OPD_LIBERO_TEACHER_REFERENCE", str(tmp_path / "reference.json")
@@ -154,6 +156,21 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
     assert manifest["physical_gpus"] == [0, 1, 3, 4]
     assert manifest["incomplete_episodes"] is not allocation_smoke
     assert not manifest["performance_evidence"] and manifest["smoke_only"]
+    assert manifest["seed_override"] == (2 if allocation_smoke else None)
+    if allocation_smoke:
+        assert manifest["effective_seeds"] == dict.fromkeys(
+            (
+                "actor.seed",
+                "rollout.seed",
+                "env.train.seed",
+                "runner.rollout_allocation.seed",
+            ),
+            2,
+        )
+    else:
+        assert manifest["effective_seeds"]["actor.seed"] == 1234
+        assert manifest["effective_seeds"]["env.train.seed"] == 1234
+        assert manifest["effective_seeds"]["rollout.seed"] is None
     assert manifest["allocation_smoke"] is allocation_smoke
     assert manifest["allocation_smoke_overrides"] == (
         launcher.ALLOCATION_SMOKE_OVERRIDES if allocation_smoke else {}
@@ -444,3 +461,41 @@ def test_smoke_window_covers_all_tasks_before_first_decision(tmp_path, monkeypat
     ]
     for worker in range(4):
         assert {r["suite"] for r in plan if r["worker"] == worker} == set(suites)
+
+
+@pytest.mark.parametrize("arm", range(4))
+@pytest.mark.parametrize("seed", [0, 1, 2, 2**31 - 1])
+def test_explicit_seed_sets_all_four_candidate_streams(
+    tmp_path, monkeypatch, arm, seed
+):
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, arm)
+    args.allocation_smoke = False
+    args.seed = seed
+    cfg = launcher.build_config(args, paths)
+    assert (
+        cfg.actor.seed
+        == cfg.rollout.seed
+        == cfg.env.train.seed
+        == cfg.runner.rollout_allocation.seed
+        == seed
+    )
+
+
+def test_omitted_seed_and_none_preserve_config_exactly(tmp_path, monkeypatch):
+    from omegaconf import OmegaConf
+
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 1)
+    args.allocation_smoke = False
+    original = launcher.build_config(args, paths)
+    args.seed = None
+    unchanged = launcher.build_config(args, paths)
+    assert OmegaConf.to_container(original, resolve=True) == OmegaConf.to_container(
+        unchanged, resolve=True
+    )
+
+
+@pytest.mark.parametrize("seed", [-1, 2**31, True, 1.0, "1"])
+def test_invalid_seed_rejected_before_composition(tmp_path, seed):
+    args = SimpleNamespace(gpus=[0, 1, 2, 3], rollout_steps=520, seed=seed)
+    with pytest.raises(ValueError, match="seed must be an integer"):
+        launcher.build_config(args, {})

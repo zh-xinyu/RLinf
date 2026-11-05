@@ -189,3 +189,19 @@ def test_native_resume_accepts_only_missing_or_boolean_false_canonical_flag(
         OmegaConf.save(source, config_path)
         with pytest.raises(ValueError, match="recipe changed at actor"):
             launch.build_config(args, paths)
+
+
+def test_resume_cannot_change_any_seed_with_explicit_override(tmp_path, monkeypatch):
+    args, paths, _, _, _ = resume_fixture(tmp_path, monkeypatch)
+    args.seed = 0
+    cfg = launch.build_config(args, paths)
+    assert (
+        cfg.actor.seed
+        == cfg.rollout.seed
+        == cfg.env.train.seed
+        == cfg.runner.rollout_allocation.seed
+        == 0
+    )
+    args.seed = 1
+    with pytest.raises(ValueError, match="Resume recipe changed at actor"):
+        launch.build_config(args, paths)

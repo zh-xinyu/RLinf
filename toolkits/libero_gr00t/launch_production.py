@@ -215,6 +215,9 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
         raise ValueError("Specify four distinct nonnegative physical GPU IDs")
     if args.rollout_steps < 8 or args.rollout_steps > 520 or args.rollout_steps % 8:
         raise ValueError("rollout-steps must be a multiple of eight in [8, 520]")
+    seed = getattr(args, "seed", None)
+    if seed is not None and (type(seed) is not int or not 0 <= seed < 2**31):
+        raise ValueError("seed must be an integer in [0, 2147483647]")
     allocation_smoke = getattr(args, "allocation_smoke", False)
     resume_checkpoint = getattr(args, "resume_checkpoint", None)
     if allocation_smoke and resume_checkpoint is not None:
@@ -252,6 +255,15 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             "Save interval must be a complete-round multiple within the run"
         )
     with open_dict(cfg):
+        if seed is not None:
+            cfg.actor.seed = seed
+            cfg.rollout.seed = seed
+            cfg.env.train.seed = seed
+            # The legacy short smoke has no allocation block; adding only a
+            # seed does not enable allocation. Candidate arms already have it.
+            OmegaConf.update(
+                cfg, "runner.rollout_allocation.seed", seed, force_add=True
+            )
         if padding_profile == "canonical-fixed570":
             # This changes both input policy and update batch; it is not a
             # throughput-equivalent version of the native B64/micro1 run.
@@ -439,6 +451,12 @@ def main() -> None:
         default="native",
         help="Experimental canonical-fixed570 changes policy inputs and uses M1 B256/micro4; needs a new matched baseline",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Set actor/rollout/environment/allocation seeds together (0..2147483647); omitted preserves YAML seeds",
+    )
     parser.add_argument("--updates", type=int, default=2)
     parser.add_argument(
         "--save-every-updates",
@@ -565,6 +583,16 @@ def main() -> None:
         "save_interval": int(cfg.runner.save_interval),
         "rollout_rounds": args.updates // int(cfg.algorithm.flow_refresh_updates),
         "config_name": args.config_name,
+        "seed_override": args.seed,
+        "effective_seeds": {
+            key: OmegaConf.select(cfg, key)
+            for key in (
+                "actor.seed",
+                "rollout.seed",
+                "env.train.seed",
+                "runner.rollout_allocation.seed",
+            )
+        },
         "trajectories_per_round": int(cfg.env.train.total_num_envs),
         "rollout_steps": args.rollout_steps,
         "incomplete_episodes": args.rollout_steps < 520,
