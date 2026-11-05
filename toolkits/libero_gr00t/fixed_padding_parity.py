@@ -15,7 +15,7 @@ import inspect
 import json
 import math
 import os
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -70,6 +70,49 @@ def inject_initial_noise(noise: torch.Tensor, *, policy_call: bool = True):
         yield
     if draws != 1:
         raise RuntimeError("Policy did not consume exactly one initial-noise draw")
+
+
+@contextmanager
+def fp32_head_control(head):
+    """Disable autocast only inside the FP32 head; preserve the BF16 backbone."""
+    parameters = list(head.parameters())
+    if not parameters or any(
+        p.dtype != torch.float32 for p in parameters if p.is_floating_point()
+    ):
+        raise ValueError("Head-only control requires existing FP32 head parameters")
+    device_type = parameters[0].device.type
+
+    def wrap(original):
+        def wrapped(*args, **kwargs):
+            args = list(args)
+            kwargs = dict(kwargs)
+            for index, name in enumerate(("backbone_output", "action_input")):
+                if len(args) > index:
+                    args[index] = head._cast_batch_feature_floats(
+                        args[index], torch.float32
+                    )
+                elif name in kwargs:
+                    kwargs[name] = head._cast_batch_feature_floats(
+                        kwargs[name], torch.float32
+                    )
+            with torch.autocast(device_type, enabled=False):
+                return original(*args, **kwargs)
+
+        return wrapped
+
+    matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        with (
+            patch.object(head, "forward", wrap(head.forward)),
+            patch.object(head, "get_rl_action", wrap(head.get_rl_action)),
+        ):
+            yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+        torch.backends.cudnn.allow_tf32 = cudnn_tf32
 
 
 def combine_observations(rows: list[dict]) -> dict:
@@ -147,6 +190,11 @@ def main() -> None:
     parser.add_argument("--atol", type=float, default=1e-5)
     parser.add_argument("--rtol", type=float, default=1e-4)
     parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument(
+        "--fp32-head-control",
+        action="store_true",
+        help="Diagnostic only: BF16 frozen VLM, FP32 head compute with head autocast/TF32 disabled",
+    )
     args = parser.parse_args()
     if not args.run_gpu:
         print("No GPU work performed; pass --run-gpu with exactly one selected device")
@@ -180,12 +228,29 @@ def main() -> None:
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     torch.cuda.set_per_process_memory_fraction(min(args.memory_gib * 2**30 / total, 1))
-    from rlinf.models.embodiment.base_policy import ForwardType
     from rlinf.models.embodiment.gr00t.gr00t_n1d5 import get_model
 
     model = get_model(cfg).cuda().eval()
     model.backbone.requires_grad_(False)
     model.action_head.requires_grad_(True)
+    captured_backbone = {}
+
+    def capture_backbone(module, inputs, output):
+        value = output["backbone_features"]
+        captured_backbone["features"] = value.detach().cpu().clone()
+
+    with ExitStack() as stack:
+        if args.fp32_head_control:
+            stack.enter_context(fp32_head_control(model.action_head))
+        handle = model.backbone.register_forward_hook(capture_backbone)
+        stack.callback(handle.remove)
+        run_audit(args, cfg, rows, model, captured_backbone)
+
+
+def run_audit(args, cfg, rows, model, captured_backbone):
+    """Run one recorded precision condition without changing checkpoint weights."""
+    from rlinf.models.embodiment.base_policy import ForwardType
+
     raw = [raw_fixture(row) for row in rows]
     # BF16 values are exactly representable in either requested inference dtype.
     noise = torch.randn(4, 16, 32, device="cpu", dtype=torch.bfloat16)
@@ -202,6 +267,15 @@ def main() -> None:
         "atol": args.atol,
         "rtol": args.rtol,
         "deterministic": args.deterministic,
+        "fp32_head_control": args.fp32_head_control,
+        "effective_compute": {
+            "backbone": "BF16 parameters and BF16 autocast",
+            "head": "FP32 without autocast"
+            if args.fp32_head_control
+            else "FP32 parameters with BF16 autocast",
+            "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+            "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+        },
         "physical_cuda_visible_devices": os.environ["CUDA_VISIBLE_DEVICES"],
         "noise_sha256": hashlib.sha256(noise.float().numpy().tobytes()).hexdigest(),
         "comparisons": {},
@@ -229,17 +303,25 @@ def main() -> None:
     save()
     with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
         individual = []
+        individual_backbones = []
         for i, row in enumerate(raw):
             model.opd_canonical_fixed_padding = False
             with inject_initial_noise(noise[i : i + 1]):
                 old_actions, old_payload = model.predict_action_batch(
                     copy.deepcopy(row), mode="eval"
                 )
+            legacy_backbone = captured_backbone["features"]
             model.opd_canonical_fixed_padding = True
             with inject_initial_noise(noise[i : i + 1]):
                 actions, payload = model.predict_action_batch(
                     copy.deepcopy(row), mode="eval"
                 )
+            compare(
+                f"legacy_vs_canonical_b1_backbone/{i}",
+                captured_backbone["features"],
+                legacy_backbone,
+            )
+            individual_backbones.append(captured_backbone["features"])
             compare(
                 f"preprocessing/legacy_initial_noise/{i}",
                 old_payload["forward_inputs"]["chains"][:, 0],
@@ -270,6 +352,12 @@ def main() -> None:
                 combine_observations(raw), mode="eval"
             )
         inputs = batch_payload["forward_inputs"]
+        report["backbone_output_dtype"] = str(captured_backbone["features"].dtype)
+        compare(
+            "backbone_b4_vs_b1",
+            captured_backbone["features"],
+            torch.cat(individual_backbones),
+        )
         compare("preprocessing/b4_initial_noise", inputs["chains"][:, 0], noise)
         compare(
             "canonical_b4_vs_b1_actions", actions, torch.cat([a for a, _ in individual])
@@ -314,7 +402,15 @@ def main() -> None:
         compare("flow_refresh_b4_vs_b1", refreshed, torch.cat(single_refresh))
         compare("rollout_vs_refresh_b4", inputs["chains"], refreshed)
         x = inputs["chains"][:, 2].detach().clone()
-        del individual, actions, batch_payload, single_refresh, refreshed
+        del (
+            individual,
+            individual_backbones,
+            legacy_backbone,
+            actions,
+            batch_payload,
+            single_refresh,
+            refreshed,
+        )
     torch.cuda.empty_cache()
 
     def nft(policy_inputs, state):
@@ -354,6 +450,7 @@ def main() -> None:
     b1_repeat, g1_repeat = backward(False)
     b4, g4 = backward(True)
     b4_repeat, g4_repeat = backward(True)
+    report["nft_output_dtype"] = str(b4.dtype)
     compare("nft_b4_vs_b1", b4, b1)
     compare("nft_b1_repeat", b1_repeat, b1)
     compare("nft_b4_repeat", b4_repeat, b4)

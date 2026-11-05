@@ -56,3 +56,24 @@ calibration source fingerprints; re-prepare an empty calibration manifest using
 the reviewed source revision before collecting episodes. Do not relabel existing
 calibration results as having used the new source. No current candidate training
 recipe or evaluation guard is switched by adding this capability.
+
+
+## Optional diagnostic precision control
+
+Add `--fp32-head-control` with a **new output directory** to keep the frozen VLM
+in BF16 and perform action-head computation in FP32. This temporarily wraps only
+`action_head.forward` and `action_head.get_rl_action`, casts their floating boundary
+inputs to FP32, disables autocast inside those calls, and disables TF32 for the
+control. Original methods and TF32 flags are restored on exit. No production model
+or training configuration is changed. Turning off outer autocast alone would not
+provide this controlled head/backbone boundary.
+
+The report records the execution override, effective TF32 flags and separate
+B4/B1 frozen-backbone feature error. This helps determine whether batch numerical
+differences remain upstream of the head. It retains the original strict tolerance
+and exact-repeat requirements; the existing BF16 report is never overwritten.
+Within each run, NFT/gradient comparisons use exactly the same flow state. Across
+precision-control runs the state is drawn from that run's own student flow, so
+changes in gradient discrepancy are diagnostic rather than a pure fixed-state
+causal decomposition. This control is not a recommendation to change training
+precision, padding, or the initialization, and it makes no performance claim.

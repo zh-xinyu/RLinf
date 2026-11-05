@@ -191,3 +191,51 @@ def test_diagnostic_rejects_same_shape_noise_from_an_unrelated_callsite():
         with inject_initial_noise(torch.ones(1, 2, 4)):
             torch.randn(1, 2, 4)
     assert torch.randn is original
+
+
+def test_head_precision_control_is_local_reversible_and_casts_boundaries():
+    from toolkits.libero_gr00t.fixed_padding_parity import fp32_head_control
+
+    class Head(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(2, 2, bias=False)
+            self.seen = []
+
+        @staticmethod
+        def _cast_batch_feature_floats(feature, dtype):
+            return {
+                key: value.to(dtype) if value.is_floating_point() else value
+                for key, value in feature.items()
+            }
+
+        def forward(self, backbone_output, action_input):
+            self.seen.append(
+                (
+                    backbone_output["x"].dtype,
+                    action_input["x"].dtype,
+                    torch.is_autocast_enabled("cpu"),
+                )
+            )
+            return self.linear(backbone_output["x"]) + action_input["x"]
+
+        def get_rl_action(self, backbone_output, action_input):
+            return self.forward(backbone_output, action_input)
+
+    head = Head()
+    original_forward = head.forward
+    features = {"x": torch.ones(1, 2, dtype=torch.bfloat16)}
+    prior_tf32 = torch.backends.cuda.matmul.allow_tf32
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        with fp32_head_control(head):
+            out = head(backbone_output=features, action_input=features)
+            rollout = head.get_rl_action(features, features)
+            assert out.dtype == rollout.dtype == torch.float32
+            assert head.seen == [(torch.float32, torch.float32, False)] * 2
+            assert torch.is_autocast_enabled("cpu")
+    assert head.forward == original_forward
+    assert torch.backends.cuda.matmul.allow_tf32 == prior_tf32
+    assert features["x"].dtype == torch.bfloat16
+    with pytest.raises(ValueError, match="FP32"):
+        with fp32_head_control(head.bfloat16()):
+            pass
