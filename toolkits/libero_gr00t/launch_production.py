@@ -7,6 +7,7 @@ launcher never joins an existing Ray cluster or invokes global Ray cleanup.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -204,6 +205,14 @@ def main() -> None:
     runtime_vars = read_runtime_environment(args.python)
     cfg = build_config(args, checkpoint_paths)
     args.output.mkdir(parents=True)
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    diff = subprocess.check_output(["git", "diff", "HEAD"], cwd=REPO)
+    tree_status = subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO, text=True)
+    (args.output / "code_provenance.json").write_text(json.dumps({
+        "git_commit": revision, "working_tree_status": tree_status,
+        "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
+        "clean_worktree": not bool(tree_status.strip()),
+    }, indent=2) + "\n")
     OmegaConf.save(cfg, args.output / "resolved_config.yaml")
     owner = "opd-libero-" + uuid.uuid4().hex
     ray_root = Path(tempfile.mkdtemp(prefix="opdl-", dir="/tmp"))
