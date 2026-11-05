@@ -3,6 +3,8 @@
 This branch explores four-suite capability consolidation with public checkpoints,
 real LIBERO rollouts, and the production Method-3 loss. The standalone pilot and
 production Ray/FSDP configuration are separate paths; neither is a frozen paper recipe.
+See [candidate four-arm commands](candidate_commands.md) for the planned150-round
+run matrix, synchronized seed selection, and independent evaluation requirements.
 
 ## Checkpoints and screening
 
