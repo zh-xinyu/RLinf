@@ -71,3 +71,47 @@ and an actual M2/M3 production smoke remain required before declaring adaptive
 LIBERO experiments ready. Existing runtime dependencies are reused; the manifest
 captures local policy source and checkpoint content, not a portable environment
 lockfile or remote execution attestation.
+
+## Bounded adaptive integration smoke
+
+After the actual calibration is complete, use `--allocation-smoke` with M2 or M3
+to exercise allocation and synchronized loss weighting without waiting20 rounds.
+This flag leaves formal YAMLs unchanged and applies only these controller values:
+`warmup_rounds=2`, `window_rounds=2`, `interval_rounds=1`, `min_task_episodes=1`,
+and `rho=1.0`. Epsilon0.01 and the quota-change bound3 remain unchanged.
+
+The first two T32 rounds provide16 episodes/suite and cover all10 tasks. The first
+eligible decision is therefore before round3. At least three complete rounds and
+full native horizons are required; the launcher rejects uniform arms, truncated
+rollouts, and shorter jobs. Four rounds are recommended to check consecutive
+rounds. For M2 use eight updates; for M3 use four. For example, after setting the
+real `OPD_LIBERO_TEACHER_REFERENCE` file:
+
+```bash
+outputs/runtime/bin/python toolkits/libero_gr00t/launch_production.py \
+  --python outputs/runtime/bin/python \
+  --models /absolute/path/to/models \
+  --student /absolute/path/to/student_fewshot \
+  --spatial-teacher /absolute/path/to/groot_spatial_rl \
+  --output /absolute/path/to/adaptive_integration_smoke \
+  --config-name libero_mopd_candidate_m2 --allocation-smoke \
+  --rollout-steps 520 --updates 8 --timeout-seconds 7200 \
+  --gpus <four_available_physical_GPU_IDs> --run
+```
+
+The launch manifest explicitly records the overrides and marks the run as smoke
+only, with `performance_evidence=false`. Do not reuse this shortened success
+window as the formal method's tuning result.
+
+Acceptance requires a real `decision=true, reason=gap` in round3 or later and at
+least one nonuniform quota vector. Quotas must sum32, remain at least4/suite,
+change by at most3/suite/decision, and match actual completed episode counts.
+Each optimizer record's `train/actor/suite_loss_weight/<suite>` must equal that
+round's quota divided by8 (mean-one weights); both M2 inner updates must use the
+same weights. Also check finite losses/gradients, the expected update/interaction
+counts, final checkpoint reload, and preserved per-worker suite coverage.
+
+Unequal measured gaps are not guaranteed. If all quotas remain8 because actual
+gaps are equal or integer rounding preserves uniformity, report the nonuniform
+path as unexercised and extend with real episodes; never fabricate a reference
+or silently force quotas to declare the adaptive smoke successful.

@@ -55,10 +55,16 @@ def test_config_uses_physical_ids_and_labels_incomplete_rollout(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "run,fail_driver", [(False, False), (True, False), (True, True)]
+    "run,fail_driver,allocation_smoke",
+    [
+        (False, False, False),
+        (True, False, False),
+        (True, True, False),
+        (False, False, True),
+    ],
 )
 def test_default_dry_run_and_explicit_run_are_owner_scoped(
-    tmp_path, monkeypatch, run, fail_driver
+    tmp_path, monkeypatch, run, fail_driver, allocation_smoke
 ):
     python, models = fixture_paths(tmp_path)
     output = tmp_path / "out"
@@ -80,6 +86,19 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
         "1",
         "3",
     ] + (["--run"] if run else [])
+    if allocation_smoke:
+        argv += [
+            "--allocation-smoke",
+            "--config-name",
+            "libero_mopd_candidate_m2",
+            "--updates",
+            "8",
+            "--rollout-steps",
+            "520",
+        ]
+        monkeypatch.setenv(
+            "OPD_LIBERO_TEACHER_REFERENCE", str(tmp_path / "reference.json")
+        )
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setenv("RAY_ADDRESS", "other-cluster:6379")
     monkeypatch.setattr(
@@ -133,7 +152,12 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
         launcher.main()
     manifest = json.loads((output / "launch.json").read_text())
     assert manifest["physical_gpus"] == [0, 1, 3, 4]
-    assert manifest["incomplete_episodes"] and not manifest["performance_evidence"]
+    assert manifest["incomplete_episodes"] is not allocation_smoke
+    assert not manifest["performance_evidence"] and manifest["smoke_only"]
+    assert manifest["allocation_smoke"] is allocation_smoke
+    assert manifest["allocation_smoke_overrides"] == (
+        launcher.ALLOCATION_SMOKE_OVERRIDES if allocation_smoke else {}
+    )
     assert (output / "resolved_config.yaml").is_file()
     if run:
         assert len(calls) == 2
@@ -307,3 +331,116 @@ def test_checkpoint_interval_must_preserve_round_boundaries(tmp_path):
         args.save_every_updates = invalid
         with pytest.raises(ValueError, match="complete-round"):
             launcher.build_config(args, paths)
+
+
+def adaptive_smoke_fixture(tmp_path, monkeypatch, arm):
+    python, models = fixture_paths(tmp_path)
+    monkeypatch.setenv("OPD_LIBERO_TEACHER_REFERENCE", str(tmp_path / "reference.json"))
+    args = SimpleNamespace(
+        python=python,
+        output=tmp_path / "out",
+        gpus=[0, 1, 2, 3],
+        updates=8 if arm == 2 else 4,
+        rollout_steps=520,
+        config_name=f"libero_mopd_candidate_m{arm}",
+        allocation_smoke=True,
+    )
+    paths = {
+        "student": models / "student",
+        "libero_spatial": models / "spatial",
+        "libero_object": models / "object",
+        "libero_goal": models / "goal",
+        "libero_10": models / "long",
+    }
+    return args, paths
+
+
+@pytest.mark.parametrize("arm", [2, 3])
+def test_adaptive_smoke_only_changes_controller_window(tmp_path, monkeypatch, arm):
+    from omegaconf import OmegaConf
+
+    from rlinf.utils.rollout_allocation import training_signature
+
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, arm)
+    smoke = launcher.build_config(args, paths)
+    args.allocation_smoke = False
+    default = launcher.build_config(args, paths)
+    assert training_signature(smoke) == training_signature(default)
+    assert smoke.runner.rollout_allocation.max_quota_change == 3
+    assert smoke.runner.rollout_allocation.epsilon == 0.01
+    assert default.runner.rollout_allocation.warmup_rounds == 20
+    assert default.runner.rollout_allocation.window_rounds == 20
+    assert default.runner.rollout_allocation.min_task_episodes == 5
+    assert default.runner.rollout_allocation.rho == 0.5
+    for key, value in launcher.ALLOCATION_SMOKE_OVERRIDES.items():
+        assert smoke.runner.rollout_allocation[key] == value
+        smoke.runner.rollout_allocation[key] = default.runner.rollout_allocation[key]
+    assert OmegaConf.to_container(smoke, resolve=True) == OmegaConf.to_container(
+        default, resolve=True
+    )
+
+
+@pytest.mark.parametrize("fault", ["uniform", "truncated", "too_short"])
+def test_invalid_allocation_smoke_rejected(tmp_path, monkeypatch, fault):
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 2)
+    if fault == "uniform":
+        args.config_name = "libero_mopd_candidate_m1"
+    elif fault == "truncated":
+        args.rollout_steps = 32
+    else:
+        args.updates = 4
+    with pytest.raises(ValueError, match="allocation-smoke"):
+        launcher.build_config(args, paths)
+
+
+def test_smoke_window_covers_all_tasks_before_first_decision(tmp_path, monkeypatch):
+    from collections import Counter
+
+    from rlinf.algorithms.suite_distillation import normalized_suite_loss_weights
+    from rlinf.utils.rollout_allocation import RolloutAllocator
+
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 2)
+    cfg = launcher.build_config(args, paths)
+    suites = list(cfg.env.train.task_suite_names)
+    tasks = [
+        {
+            "task_id": i * 10 + t,
+            "task": f"{suite}/{t}",
+            "suite": suite,
+            "horizon": int(cfg.env.train.task_suite_horizons[suite]),
+        }
+        for i, suite in enumerate(suites)
+        for t in range(10)
+    ]
+    # Synthetic outcomes/reference are exclusively a CPU unit-test fixture.
+    allocation = RolloutAllocator(
+        tasks, 4, 8, 1, cfg.runner.rollout_allocation, dict.fromkeys(suites, 0.8)
+    )
+    for round_index in range(2):
+        plan = allocation.plan()
+        assert allocation.quotas == [8] * 4
+        assert allocation.last_diagnostics["reason"] == "uniform_or_warmup"
+        allocation.observe(
+            [
+                dict(
+                    row,
+                    success_once=row["suite"] == suites[0],
+                    simulation_steps=1 if row["suite"] == suites[0] else row["horizon"],
+                )
+                for row in plan
+            ]
+        )
+    plan = allocation.plan()
+    assert allocation.last_diagnostics["decision"]
+    assert allocation.last_diagnostics["reason"] == "gap"
+    assert min(allocation.last_diagnostics["task_counts"].values()) >= 1
+    assert len(allocation.last_diagnostics["task_counts"]) == 40
+    assert allocation.quotas != [8] * 4
+    assert sum(allocation.quotas) == 32 and min(allocation.quotas) >= 4
+    assert all(abs(q - 8) <= 3 for q in allocation.quotas)
+    counts = Counter(row["suite"] for row in plan)
+    assert normalized_suite_loss_weights(counts, suites) == [
+        q / 8 for q in allocation.quotas
+    ]
+    for worker in range(4):
+        assert {r["suite"] for r in plan if r["worker"] == worker} == set(suites)

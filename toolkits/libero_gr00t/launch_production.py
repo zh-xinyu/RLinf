@@ -27,6 +27,13 @@ from toolkits.robocasa_mopd.owned_ray import OWNER_KEY, check_gpus, stop_owned
 
 REPO = Path(__file__).resolve().parents[2]
 CONFIG_NAME = "libero_four_suite_mopd_refresh_r2_gr00t_pilot"
+ALLOCATION_SMOKE_OVERRIDES = {
+    "warmup_rounds": 2,
+    "window_rounds": 2,
+    "interval_rounds": 1,
+    "min_task_episodes": 1,
+    "rho": 1.0,
+}
 PORT_NAMES = (
     "port",
     "dashboard-port",
@@ -61,13 +68,24 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
         raise ValueError("Specify four distinct nonnegative physical GPU IDs")
     if args.rollout_steps < 8 or args.rollout_steps > 520 or args.rollout_steps % 8:
         raise ValueError("rollout-steps must be a multiple of eight in [8, 520]")
+    allocation_smoke = getattr(args, "allocation_smoke", False)
+    config_name = getattr(args, "config_name", CONFIG_NAME)
+    if allocation_smoke and config_name not in {
+        "libero_mopd_candidate_m2",
+        "libero_mopd_candidate_m3",
+    }:
+        raise ValueError("allocation-smoke is only valid for adaptive M2/M3")
+    if allocation_smoke and args.rollout_steps != 520:
+        raise ValueError("allocation-smoke requires full native horizons (520)")
     with initialize_config_dir(
         version_base=None, config_dir=str(REPO / "examples/embodiment/config")
     ):
-        cfg = compose(config_name=getattr(args, "config_name", CONFIG_NAME))
+        cfg = compose(config_name=config_name)
     reuse = int(cfg.algorithm.flow_refresh_updates)
     if args.updates < reuse or args.updates % reuse:
         raise ValueError("Smoke updates must be positive multiples of reuse R")
+    if allocation_smoke and args.updates // reuse < 3:
+        raise ValueError("allocation-smoke requires at least three complete rounds")
     save_interval = getattr(args, "save_every_updates", None)
     if save_interval is None:
         save_interval = args.updates
@@ -76,6 +94,16 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             "Save interval must be a complete-round multiple within the run"
         )
     with open_dict(cfg):
+        if allocation_smoke:
+            if (
+                cfg.runner.rollout_allocation.mode != "adaptive"
+                or not cfg.algorithm.sync_suite_loss_weights
+            ):
+                raise ValueError(
+                    "allocation-smoke requires adaptive synchronized weights"
+                )
+            for key, value in ALLOCATION_SMOKE_OVERRIDES.items():
+                cfg.runner.rollout_allocation[key] = value
         cfg.actor.model.model_path = str(checkpoint_paths["student"])
         for suite, path in checkpoint_paths.items():
             if suite != "student":
@@ -211,6 +239,11 @@ def main() -> None:
         choices=[CONFIG_NAME] + [f"libero_mopd_candidate_m{i}" for i in range(4)],
         default=CONFIG_NAME,
     )
+    parser.add_argument(
+        "--allocation-smoke",
+        action="store_true",
+        help="M2/M3 only: shorten controller coverage window for integration checks, not performance evidence",
+    )
     parser.add_argument("--updates", type=int, default=2)
     parser.add_argument(
         "--save-every-updates",
@@ -340,6 +373,11 @@ def main() -> None:
         "rollout_steps": args.rollout_steps,
         "incomplete_episodes": args.rollout_steps < 520,
         "performance_evidence": False,
+        "smoke_only": True,
+        "allocation_smoke": args.allocation_smoke,
+        "allocation_smoke_overrides": (
+            dict(ALLOCATION_SMOKE_OVERRIDES) if args.allocation_smoke else {}
+        ),
         "timeout_seconds": args.timeout_seconds,
         "differences_from_standalone": [
             "Production Ray/FSDP, all suites on each actor rank; see trajectories_per_round",
