@@ -262,3 +262,29 @@ current head tensor is576 MiB. Actual GPU peak still requires measurement. The
 bounded production launcher now aborts reported CUDA OOMs even when they occur
 in background worker threads; `--timeout-seconds` bounds the driver runtime
 (default3600). Cleanup remains limited to this launch's owned Ray processes.
+
+## Candidate precision and noise seeds
+
+Before learning validation, the LIBERO actor uses AMP-only mixed precision:
+FSDP parameter, reduction and buffer dtype overrides are `null`, input casting is
+false, and BF16 autocast is enabled. The loaded frozen VLM stays BF16 while the
+head and explicitly preserved rotary buffers stay FP32. The earlier production
+smokes used FSDP BF16 casting; those are integration records, not matched learning
+controls for the standalone pilot. Real FSDP parity/memory checks are required
+before accepting the updated recipe.
+
+Candidates explicitly set `rollout.seed: 0` in addition to actor, environment
+and controller seeds. Rollout workers are separate processes: actor/environment
+seeds alone did not determine their flow noise. The opt-in seed is applied after
+model initialization/warmup as `rollout.seed + worker_rank`. Changing training
+seed must change all four fields together. Recipes omitting `rollout.seed` keep
+the previous behavior. This is start-of-run determinism, not exact RNG restoration
+on checkpoint resume or invariance to worker count. Independent distributed
+evaluation uses its own fixed rollout seed 1234.
+
+Production warmup retains its existing convention: with four warmup updates,
+LR multipliers start at `[0, .25, .5, .75, 1]`; the standalone pilot used
+`[.25, .5, .75, 1]`. The first production call updates Adam moments but not weights.
+Compare `velocity_mse` or `analytic_kl`: logged production `total_loss` is divided
+by the gradient-accumulation count. No change to the underlying M3 objective or
+gradient normalization is introduced here.

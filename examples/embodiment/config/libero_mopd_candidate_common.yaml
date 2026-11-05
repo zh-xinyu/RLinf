@@ -53,3 +53,6 @@ actor:
     value_lr: 3.0e-6
     lr_warmup_steps: 4
     lr_scheduler: constant
+
+rollout:
+  seed: 0

@@ -159,11 +159,19 @@ actor:
         - FlowMatchingActionHeadForRLActionPrediction
         - TimestepEncoder
         - TimestepEmbedding
+    # Preserve the checkpoint's BF16 frozen VLM, FP32 trainable head and FP32
+    # rotary inv_freq buffers. FSDP buffer_dtype=bf16 would round those buffers
+    # again after get_model restored them. AMP controls compute, not master dtype.
+    # This aligns training with standalone pilot/rollout precision; validate GPU
+    # parity and memory separately from the exact bucket-sync transport change.
     mixed_precision:
-      param_dtype: bf16
-      reduce_dtype: bf16
-      buffer_dtype: bf16
-      cast_forward_inputs: true
+      param_dtype: null
+      reduce_dtype: null
+      buffer_dtype: null
+      cast_forward_inputs: false
+    amp_autocast:
+      enabled: true
+      precision: bf16
 
 rollout:
   group_name: RolloutGroup

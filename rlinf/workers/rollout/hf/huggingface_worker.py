@@ -37,6 +37,7 @@ from rlinf.models import get_model
 from rlinf.models.embodiment.base_policy import BasePolicy
 from rlinf.scheduler import Channel, Cluster, Worker, split_channel_message
 from rlinf.utils.placement import HybridComponentPlacement
+from rlinf.utils.utils import seed_everything
 
 
 class MultiStepRolloutWorker(Worker):
@@ -195,6 +196,21 @@ class MultiStepRolloutWorker(Worker):
         self.setup_sample_params()
         if self.enable_offload:
             self.offload_model()
+        self._seed_rollout_rng()
+
+    def _seed_rollout_rng(self) -> None:
+        """Initialize opt-in rank-local policy noise after model setup/warmup.
+
+        Environment and actor seeds live in different processes. Without this
+        explicit setting they do not determine rollout flow noise. Existing
+        recipes without rollout.seed retain their previous behavior.
+        """
+        seed = self.cfg.rollout.get("seed", None)
+        if seed is not None:
+            if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+                raise ValueError("rollout.seed must be a nonnegative integer")
+            actual = seed_everything(seed + self._rank)
+            self.log_info(f"Initialized rollout RNG with rank-local seed {actual}.")
 
     def setup_sample_params(self):
         # sampling parameters for rollout

@@ -94,6 +94,7 @@ env:
       camera_widths: 256
 
 rollout:
+  seed: 1234
   group_name: RolloutGroup
   generation_backend: huggingface
   enable_offload: false

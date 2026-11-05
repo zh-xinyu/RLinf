@@ -51,18 +51,40 @@ def test_all_candidates_validate_and_preserve_round_budget(monkeypatch, tmp_path
     assert cfg.actor.optim.lr == cfg.actor.optim.value_lr == 3e-6
     assert cfg.actor.optim.lr_warmup_steps == 4
     assert cfg.rollout.model.model_path == cfg.actor.model.model_path
-    assert cfg.rollout.model.action_head_precision == cfg.actor.model.action_head_precision == "fp32"
+    assert (
+        cfg.rollout.model.action_head_precision
+        == cfg.actor.model.action_head_precision
+        == "fp32"
+    )
     assert cfg.weight_syncer.type == "bucket"
     assert cfg.weight_syncer.bucket.bucket_size == 32 * 1024**2
     assert cfg.weight_syncer.bucket.bucket_dtype is None
     assert cfg.weight_syncer.bucket.load_instant
+    assert cfg.actor.model.precision == cfg.rollout.model.precision == "bf16"
+    assert cfg.actor.model.require_fp32_trainable_params
+    precision = cfg.actor.fsdp_config.mixed_precision
+    assert (
+        precision.param_dtype
+        is precision.reduce_dtype
+        is precision.buffer_dtype
+        is None
+    )
+    assert not precision.cast_forward_inputs
+    assert cfg.actor.fsdp_config.amp_autocast.enabled
+    assert cfg.actor.fsdp_config.amp_autocast.precision == "bf16"
     assert cfg.runner.resume_dir is None and cfg.runner.ckpt_path is None
     assert cfg.runner.logger.project_name == "LIBERO_MOPD_Candidates"
     assert list(cfg.runner.logger.logger_backends) == ["tensorboard"]
     adaptive = arm in (2, 3)
     assert cfg.algorithm.sync_suite_loss_weights is adaptive
     assert cfg.runner.rollout_allocation.mode == ("adaptive" if adaptive else "uniform")
-    assert cfg.actor.seed == cfg.env.train.seed == cfg.runner.rollout_allocation.seed == 0
+    assert (
+        cfg.actor.seed
+        == cfg.rollout.seed
+        == cfg.env.train.seed
+        == cfg.runner.rollout_allocation.seed
+        == 0
+    )
     assert cfg.runner.rollout_allocation.enabled
     assert cfg.runner.rollout_allocation.max_quota_change == 3
     assert cfg.runner.val_check_interval == -1  # Separate independent evaluator.
