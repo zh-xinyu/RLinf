@@ -208,3 +208,52 @@ withholds SR with a nonzero exit if coverage is incomplete. Identical duplicated
 log lines count once; conflicting duplicates and out-of-range IDs fail. Preserve
 raw logs, their recorded hashes, resolved evaluation configuration and checkpoint
 identity. Log coverage alone cannot verify correct horizons or checkpoint loading.
+
+## Production checkpoint reload smoke
+
+Once production training writes a complete `full_weights.pt`, validate it in a
+new single-GPU process. This does not join or start Ray. Select an available GPU
+with at least20 GiB free (the default preflight); the PyTorch cap is16 GiB and is
+not a memory reservation. From the worktree root:
+
+```bash
+CUDA_VISIBLE_DEVICES=6 "$PROBE_PYTHON" toolkits/libero_gr00t/evaluate_full_checkpoint.py \
+  --weights /path/to/run/checkpoints/global_step_4/actor/model_state_dict/full_weights.pt \
+  --config /path/to/run/resolved_config.yaml \
+  --suites libero_spatial libero_object libero_goal libero_10 \
+  --tasks 0 --trials 1 --output outputs/full_checkpoint_reload_smoke
+```
+
+Use the actual saved checkpoint path and a new output directory. `--student`
+optionally relocates the original base checkpoint with its config and metadata;
+full weights alone do not replace those assets. The tool reads the exact actor
+model config, checks the grouped-state/native-text/FP32-head contract, then loads
+all keys strictly on CPU before moving the policy to GPU. Partial head files,
+nested training states, mismatched shapes/dtypes and nonfinite weights fail.
+In particular, it does not silently cast a BF16 saved head to FP32.
+
+Defaults evaluate one task and one official initial state per suite at native
+horizons with first-success stopping and ten settling steps. These are complete
+episodes but only a reload/inference smoke, not formal performance evidence.
+`protocol.json` records weight/config/metadata hashes, the model contract and
+checkpoint update/round; `episodes.jsonl` records individual outcomes and timing;
+`summary.json` is written only after all requested episodes complete. This
+standalone check does not validate the distributed evaluator's episode scheduler.
+The exact full-weight GPU reload remains unverified until a real produced
+checkpoint passes this smoke.
+
+## Shared-GPU smoke synchronization
+
+The LIBERO recipes use the existing bucket synchronizer with original dtypes
+(`bucket_dtype: null`) and immediate loading. Actor and rollout start from the
+same frozen base checkpoint, so unchanged frozen parameters need no repeated
+transfer. Dense FP32 action-head updates made the earlier COO patch sync allocate
+large temporary index/value tensors and caused an OOM between rounds, after two
+successful optimizer updates. Bucket sync avoids that patch assembly without
+changing the optimizer, objective, or weight precision.
+
+The32 MiB bucket setting is a target: a tensor is never split, and the largest
+current head tensor is576 MiB. Actual GPU peak still requires measurement. The
+bounded production launcher now aborts reported CUDA OOMs even when they occur
+in background worker threads; `--timeout-seconds` bounds the driver runtime
+(default3600). Cleanup remains limited to this launch's owned Ray processes.
