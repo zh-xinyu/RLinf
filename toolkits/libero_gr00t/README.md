@@ -413,8 +413,13 @@ After a successful driver exit, the launcher requires four environment-worker
 logs and exact selected task/trial coverage. It writes `episodes.csv` and
 `summary.json`; incomplete or conflicting data fails, with no partial success
 rate reported. Preserve `launch.json`, `resolved_config.yaml`, and raw logs with
-the summary. CPU tests and dry-run composition do not establish real distributed
-evaluation acceptance; complete the 200-episode GPU smoke before freezing it.
+the summary. CPU tests and dry-run composition alone do not establish real
+GPU acceptance. The native four-rank smoke at commit `a7db89ce` completed all
+200 unique pairs for tasks 0/10/20/30, with 50 official states each and no missing,
+conflicting, or repeated accepted records. This validates that scheduling case;
+it is not the full 40-task / 2,000-episode benchmark result. Rates from selected
+tasks must not be presented as full-suite scores. Preserve exact coverage checks
+when scaling to the full protocol.
 
 ## Fixed-observation checkpoint diagnostic
 
@@ -496,5 +501,9 @@ allocation policy-step/trajectory counters continue from the source. Preserve
 source and continuation logs to total actual simulation/settling/reset work.
 Actor RNG is checkpointed, but this does not establish rank-exact RNG replay for
 the complete distributed pipeline. `resume_metadata.json` records these limits.
-A real GPU resume still needs validation before treating continuation as an
-accepted formal experiment workflow.
+A native four-rank GPU continuation at commit `e5a95b96` restored update40,
+scheduler epoch40 and LR3e-6 on every actor. Its first resumed round completed
+32 episodes with the expected policy version, task occurrence16 and suite quotas;
+updates41/42 produced finite losses and gradients. This validates initial resume
+execution and cursor continuity, not bitwise equivalence or eventual performance.
+The longer continuation and formal learning comparison remain in progress.
