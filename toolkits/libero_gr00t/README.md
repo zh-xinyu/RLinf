@@ -189,3 +189,22 @@ rounds. Evaluate the initial policy and every saved 25 rounds separately with
 M2/M3 require `OPD_LIBERO_TEACHER_REFERENCE` pointing to a validated calibration
 JSON. M0/M1 do not require it. Config composition and validation are CPU-tested;
 these files do not launch experiments automatically.
+
+
+## Independent evaluation result audit
+
+After one checkpoint evaluation, pass its raw per-worker logs to:
+
+```bash
+"$PROBE_PYTHON" toolkits/libero_gr00t/summarize_evaluation.py \
+  --logs /path/to/one-evaluation/worker-0.log /path/to/one-evaluation/worker-1.log \
+         /path/to/one-evaluation/worker-2.log /path/to/one-evaluation/worker-3.log \
+  --output outputs/one_checkpoint_evaluation_summary
+```
+
+Use actual worker filenames; do not combine checkpoints or runs. The default
+requires all40 tasks x50 trials, writes `episodes.csv` and `summary.json`, and
+withholds SR with a nonzero exit if coverage is incomplete. Identical duplicated
+log lines count once; conflicting duplicates and out-of-range IDs fail. Preserve
+raw logs, their recorded hashes, resolved evaluation configuration and checkpoint
+identity. Log coverage alone cannot verify correct horizons or checkpoint loading.
