@@ -1,0 +1,9 @@
+# Candidate M1: uniform Joint-MOPD + Refresh-R2; learning acceptance is pending.
+# 150 rounds / 300 updates; save every 25 rounds (50 updates).
+defaults:
+  - libero_mopd_candidate_common
+  - _self_
+
+runner:
+  logger:
+    experiment_name: libero_mopd_candidate_m1_uniform_refresh_r2_T32_B64

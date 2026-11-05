@@ -27,6 +27,7 @@ from omegaconf.omegaconf import OmegaConf
 from rlinf.envs.libero.multi_suite import (
     CombinedLiberoBenchmark,
     SuiteBalancedResetSampler,
+    validate_rollout_plan,
 )
 from rlinf.envs.libero.utils import (
     build_interleaved_eval_reset_state_ids,
@@ -110,6 +111,11 @@ class LiberoEnv(gym.Env):
         self.ignore_terminations = cfg.ignore_terminations
         self.auto_reset = cfg.auto_reset
         self.is_eval = cfg.get("is_eval", False)
+        self.freeze_finished_episodes = bool(cfg.get("freeze_finished_episodes", False))
+        self.task_sampling_strategy = cfg.get("task_sampling_strategy", None)
+        self._allocation_episode_plan = None
+        if self.freeze_finished_episodes and self.ignore_terminations:
+            raise ValueError("Frozen LIBERO episodes require ignore_terminations=false")
 
         self._generator = np.random.default_rng(seed=self.seed)
         self._generator_ordered = np.random.default_rng(seed=0)
@@ -187,6 +193,19 @@ class LiberoEnv(gym.Env):
         self._reset_settle_steps = int(cfg.get("reset_settle_steps", 15))
         if self._reset_settle_steps < 1:
             raise ValueError("reset_settle_steps must be positive")
+        if self.task_sampling_strategy == "suite_quota" and (
+            not self.freeze_finished_episodes
+            or self._suite_horizons is None
+            or self.group_size != 1
+            or self.auto_reset
+            or self.is_eval
+            or self.specific_reset_id is not None
+            or cfg.use_ordered_reset_state_ids
+            or self.num_envs < len(self.task_suite_names)
+        ):
+            raise ValueError(
+                "LIBERO suite_quota requires frozen full-round training with native suite horizons and all suites per worker"
+            )
         self.reset_state_ids_all = self.get_reset_state_ids_all()
         if self.is_eval:
             pool = self.reset_state_ids_all[self.seed_offset]
@@ -206,6 +225,7 @@ class LiberoEnv(gym.Env):
 
         self.video_cfg = cfg.video_cfg
         self.current_raw_obs = None
+        self._last_raw_infos = [{} for _ in range(self.num_envs)]
 
     def _log_evaluation_mode(self):
         """Log the LIBERO evaluation mode banner (rank 0 env worker only)."""
@@ -457,7 +477,11 @@ class LiberoEnv(gym.Env):
                 {
                     **base_env_args,
                     "bddl_file_name": final_path,
-                    "seed": self.seed,
+                    "seed": (
+                        self._allocation_episode_plan[env_id]["reset_seed"]
+                        if self._allocation_episode_plan is not None
+                        else self.seed
+                    ),
                 }
             )
             task_descriptions.append(task.language)
@@ -502,6 +526,8 @@ class LiberoEnv(gym.Env):
             self._valid_reset_state_ids = None
 
     def update_reset_state_ids(self):
+        if self.task_sampling_strategy == "suite_quota" and hasattr(self, "task_ids"):
+            return
         if self.is_eval or self.cfg.use_ordered_reset_state_ids:
             reset_state_ids = self._get_ordered_reset_state_ids(self.num_group)
         else:
@@ -614,6 +640,77 @@ class LiberoEnv(gym.Env):
         return init_state
 
     @property
+    def episode_horizon_source(self) -> str:
+        return (
+            "task_horizon" if self._suite_horizons is not None else "max_episode_steps"
+        )
+
+    @property
+    def rollout_task_catalog(self) -> list[dict]:
+        """Expose suite-qualified identities independently of RoboCasa metadata."""
+        task_ids = (
+            range(self.task_suite.get_num_tasks())
+            if self.task_id_filter is None
+            else self.task_id_filter
+        )
+        return [
+            {
+                "task_id": int(task_id),
+                "task": (
+                    self.task_suite.task_identity(task_id)
+                    if isinstance(self.task_suite, CombinedLiberoBenchmark)
+                    else f"{self.task_suite_names[0]}/{task_id}"
+                ),
+                "suite": self._task_suite_labels[task_id],
+                "horizon": int(
+                    self._suite_horizons[self._task_suite_labels[task_id]]
+                    if self._suite_horizons is not None
+                    else self.cfg.max_episode_steps
+                ),
+            }
+            for task_id in task_ids
+        ]
+
+    def set_rollout_tasks(self, rows: list[dict]) -> None:
+        """Stage exact tasks/seeds for the next full-round reset.
+
+        Initial-state IDs cycle with task-local occurrence, independent of worker
+        placement and allocation. The reset seed is applied separately per slot.
+        """
+        if self.task_sampling_strategy != "suite_quota":
+            raise ValueError("Explicit rollout plans require suite_quota")
+        if self._allocation_episode_plan is not None and not np.all(
+            self._episode_terminated | self._episode_truncated
+        ):
+            raise ValueError("Cannot replace an unfinished episode plan")
+        ordered = validate_rollout_plan(
+            rows, self.rollout_task_catalog, self.num_envs, self.task_suite_names
+        )
+        reset_ids = []
+        for row in ordered:
+            task_id = row["task_id"]
+            row["trial_id"] = row["occurrence"] % self.trial_id_bins[task_id]
+            offset = self.cumsum_trial_id_bins[task_id - 1] if task_id else 0
+            reset_ids.append(int(offset) + row["trial_id"])
+        self._allocation_episode_plan = ordered
+        self.reset_state_ids = np.asarray(reset_ids, dtype=np.int64)
+
+    def rollout_episode_records(self) -> list[dict]:
+        """Return completed native-horizon outcomes; exclude reset settling steps."""
+        if self._allocation_episode_plan is None or not np.all(
+            self._episode_terminated | self._episode_truncated
+        ):
+            raise ValueError("Episode records require a complete rollout plan")
+        return [
+            dict(
+                row,
+                success_once=bool(self.success_once[i]),
+                simulation_steps=int(self._elapsed_steps[i]),
+            )
+            for i, row in enumerate(self._allocation_episode_plan)
+        ]
+
+    @property
     def elapsed_steps(self):
         return self._elapsed_steps
 
@@ -621,9 +718,9 @@ class LiberoEnv(gym.Env):
     def physics_step_counts(self) -> dict[str, int]:
         """Count actual simulator calls, including post-done work and settling.
 
-        Counts are cumulative and do not reset with episodes. Existing LIBERO
-        keeps stepping done slots until the round ends; this counter therefore
-        differs from valid-transition-mask counts used by the training loss.
+        Counts are cumulative and do not reset with episodes. Strict frozen
+        episodes stop at their first terminal transition; legacy mode also
+        counts simulator work after termination. Settling is always separate.
         """
         return {
             "policy_simulation_steps": self._simulation_steps,
@@ -645,6 +742,8 @@ class LiberoEnv(gym.Env):
         self._is_start = value
 
     def _init_metrics(self):
+        self._episode_terminated = np.zeros(self.num_envs, dtype=bool)
+        self._episode_truncated = np.zeros(self.num_envs, dtype=bool)
         self.success_once = np.zeros(self.num_envs, dtype=bool)
         self.fail_once = np.zeros(self.num_envs, dtype=bool)
         self.returns = np.zeros(self.num_envs)
@@ -662,6 +761,8 @@ class LiberoEnv(gym.Env):
             self.returns[mask] = 0
             self.success_episode_len[mask] = 0
             self._elapsed_steps[env_idx] = 0
+            self._episode_terminated[env_idx] = False
+            self._episode_truncated[env_idx] = False
         else:
             self.prev_step_reward[:] = 0
             self.success_once[:] = False
@@ -669,6 +770,8 @@ class LiberoEnv(gym.Env):
             self.returns[:] = 0.0
             self.success_episode_len[:] = 0
             self._elapsed_steps[:] = 0
+            self._episode_terminated[:] = False
+            self._episode_truncated[:] = False
 
     def _record_metrics(self, step_reward, terminations, infos):
         episode_info = {}
@@ -753,7 +856,11 @@ class LiberoEnv(gym.Env):
         if reconfig_env_idx:
             env_fn_params = self.get_env_fn_params(reconfig_env_idx)
             self.env.reconfigure_env_fns(env_fn_params, reconfig_env_idx)
-        self.env.seed(self.seed * len(env_idx))
+        self.env.seed(
+            [row["reset_seed"] for row in self._allocation_episode_plan]
+            if self._allocation_episode_plan is not None
+            else self.seed * len(env_idx)
+        )
         self.env.reset(id=env_idx)
         variant = os.environ.get(
             "LIBERO_TYPE",
@@ -773,6 +880,18 @@ class LiberoEnv(gym.Env):
         if env_idx is None:
             env_idx = np.arange(self.num_envs)
 
+        if self.task_sampling_strategy == "suite_quota":
+            if self._allocation_episode_plan is None:
+                raise ValueError("LIBERO quota reset requires an explicit rollout plan")
+            if (
+                list(env_idx) != list(range(self.num_envs))
+                or reset_state_ids is not None
+            ):
+                raise ValueError(
+                    "LIBERO quota resets must consume the complete staged plan"
+                )
+            reset_state_ids = self.reset_state_ids
+
         if self.is_start:
             if self.is_eval:
                 self._task_success_stats = {}
@@ -785,6 +904,7 @@ class LiberoEnv(gym.Env):
                 self.reset_state_ids
                 if self.use_fixed_reset_state_ids
                 or self._balanced_reset_sampler is not None
+                or self.task_sampling_strategy == "suite_quota"
                 else None
             )
             self._is_start = False
@@ -807,6 +927,7 @@ class LiberoEnv(gym.Env):
             self.current_raw_obs = [None] * self.num_envs
         for i, idx in enumerate(env_idx):
             self.current_raw_obs[idx] = raw_obs[i]
+            self._last_raw_infos[idx] = info_lists[i]
 
         obs = self._wrap_obs(self.current_raw_obs)
         self._reset_metrics(env_idx)
@@ -817,6 +938,9 @@ class LiberoEnv(gym.Env):
         """Step the environment with the given actions."""
         if isinstance(actions, torch.Tensor):
             actions = actions.detach().cpu().numpy()
+
+        if self.freeze_finished_episodes:
+            return self._step_frozen(actions, auto_reset)
 
         self._elapsed_steps += 1
         raw_obs, _reward, terminations, info_lists = self.env.step(actions)
@@ -846,6 +970,53 @@ class LiberoEnv(gym.Env):
         dones = terminations | truncations
         _auto_reset = auto_reset and self.auto_reset
         if dones.any() and _auto_reset:
+            obs, infos, _ = self._handle_auto_reset(dones, obs, infos)
+        return (
+            obs,
+            to_tensor(step_reward),
+            to_tensor(terminations),
+            to_tensor(truncations),
+            infos,
+        )
+
+    def _step_frozen(self, actions: np.ndarray, auto_reset: bool):
+        """Advance only unfinished slots; terminal padding cannot change outcomes."""
+        if self.current_raw_obs is None:
+            raise RuntimeError("Reset LIBERO before stepping frozen episodes")
+        active = ~(self._episode_terminated | self._episode_truncated)
+        active_ids = np.flatnonzero(active)
+        successes = np.zeros(self.num_envs, dtype=bool)
+        if active_ids.size:
+            raw, _, succeeded, raw_infos = self.env.step(
+                actions[active_ids], active_ids
+            )
+            self._elapsed_steps[active_ids] += 1
+            self._simulation_steps += int(active_ids.size)
+            successes[active_ids] = np.asarray(succeeded, dtype=bool)
+            for i, slot in enumerate(active_ids):
+                self.current_raw_obs[slot] = raw[i]
+                self._last_raw_infos[slot] = raw_infos[i]
+        horizons = (
+            np.asarray(
+                [
+                    self._suite_horizons[self._task_suite_labels[int(t)]]
+                    for t in self.task_ids
+                ]
+            )
+            if self._suite_horizons is not None
+            else self.cfg.max_episode_steps
+        )
+        self._episode_terminated |= active & successes
+        self._episode_truncated |= active & (self._elapsed_steps >= horizons)
+        step_reward = np.where(active, self._calc_step_reward(successes), 0.0)
+        infos = self._record_metrics(
+            step_reward, successes, list_of_dict_to_dict_of_list(self._last_raw_infos)
+        )
+        obs = self._wrap_obs(self.current_raw_obs)
+        terminations = self._episode_terminated.copy()
+        truncations = self._episode_truncated.copy()
+        dones = terminations | truncations
+        if auto_reset and self.auto_reset and dones.any():
             obs, infos, _ = self._handle_auto_reset(dones, obs, infos)
         return (
             obs,

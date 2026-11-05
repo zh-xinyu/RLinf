@@ -1,0 +1,125 @@
+# Independent evaluation candidate; not a frozen paper recipe yet.
+# 40 suite-labelled tasks x 50 official initial states (indices 0..49) = 2000.
+# Global task IDs: Spatial 0..9, Object 10..19, Goal 20..29, Long 30..39.
+# This is the standard shared-initial-state protocol, not a held-out-state claim.
+# Requires standard LIBERO assets with exactly 50 initial states per task.
+# Check completed task/trial logs for exactly 2000 unique pairs before accepting SR.
+#
+# Checkpoint contract:
+#   OPD_STUDENT_CHECKPOINT: original weak grouped checkpoint with config + metadata.
+#   OPD_EVAL_WEIGHTS: checkpoints/global_step_N/actor/model_state_dict/full_weights.pt
+#   OPD_RUN_DIR: independent evaluation output directory.
+# Full weights are loaded strictly after base construction. A pilot head-only
+# safetensors artifact is NOT accepted here; use toolkits.libero_gr00t.evaluate_head.
+# Base-only baseline: override runner.ckpt_path=null (still set OPD_EVAL_WEIGHTS,
+# or override that field during Hydra composition before resolving it).
+#
+# Launch from an isolated, correctly configured Ray/runtime session:
+#   bash evaluations/run_eval.sh libero libero_four_suite_gr00t_mopd_eval
+# Explicitly set MUJOCO_GL=egl and PYOPENGL_PLATFORM=egl before the shell wrapper.
+# CPU composition validated; FP32-head GPU standalone inference/reload parity
+# must pass before launching the full 2000 episodes. Native policy inference
+# currently splits each environment batch into B1 calls; batching is not enabled.
+defaults:
+  - env/libero_four_suite@env.eval
+  - model/gr00t@rollout.model
+  - _self_
+  - override hydra/job_logging: stdout
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  searchpath:
+    - file://${oc.env:EMBODIED_PATH}/config/
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    env,rollout: 0-3
+
+runner:
+  task_type: embodied_eval
+  only_eval: true
+  per_worker_log: true
+  logger:
+    log_path: ${oc.env:OPD_RUN_DIR}
+    project_name: LIBERO_MOPD_Evaluation
+    experiment_name: libero_four_suite_gr00t_50_per_task
+    logger_backends: [tensorboard]
+  max_epochs: 1
+  max_steps: -1
+  val_check_interval: -1
+  save_interval: -1
+  resume_dir: null
+  ckpt_path: ${oc.env:OPD_EVAL_WEIGHTS}
+
+env:
+  group_name: EnvGroup
+  eval:
+    task_suite_names: [libero_spatial, libero_object, libero_goal, libero_10]
+    task_sampling_strategy: ordered
+    task_suite_horizons:
+      libero_spatial: 240
+      libero_object: 320
+      libero_goal: 320
+      libero_10: 520
+    seed: 1234
+    total_num_envs: 16
+    group_size: 1
+    rollout_epoch: 1
+    # Four ranks each own 500 unique episodes, with four environments per rank.
+    # ceil(500 / 4) * 520 = 65000 is a conservative complete-coverage budget.
+    # This is a per-env scheduling budget, not a per-episode horizon. Changing
+    # placement/env counts requires recomputing it and checking completed pairs.
+    # Current workers run the entire budget even after all trials finish. Frozen
+    # terminal slots stop physics, but still incur B1 inference until loop end.
+    max_steps_per_rollout_epoch: 65000
+    max_episode_steps: 520
+    is_eval: true
+    auto_reset: true
+    ignore_terminations: false
+    freeze_finished_episodes: true
+    use_fixed_reset_state_ids: true
+    use_ordered_reset_state_ids: true
+    specific_reset_id: null
+    reset_settle_steps: 10
+    reset_gripper_open: true
+    video_cfg:
+      save_video: false
+      info_on_video: false
+      video_base_dir: ${runner.logger.log_path}/video
+    init_params:
+      camera_heights: 256
+      camera_widths: 256
+
+rollout:
+  group_name: RolloutGroup
+  generation_backend: huggingface
+  enable_offload: false
+  recompute_logprobs: false
+  pipeline_stage_num: 1
+  model:
+    model_type: gr00t
+    model_path: ${oc.env:OPD_STUDENT_CHECKPOINT}
+    precision: bf16
+    action_head_precision: fp32
+    inference_autocast_dtype: bf16
+    action_dim: 7
+    num_action_chunks: 8
+    denoising_steps: 4
+    add_value_head: false
+    obs_converter_type: libero_grouped
+    embodiment_tag: new_embodiment
+    embodiment_projector_id: 31
+    data_config_class: rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoGroupedDataConfig
+    opd_fixed_text_padding: false
+    disable_image_tiling: true
+    skip_backbone_logits: true
+    rl_head_config:
+      joint_logprob: true
+      noise_method: flow_ode
+      noise_level: 0.3
+      add_value_head: false
+      disable_dropout: true
+      padding_value: 570

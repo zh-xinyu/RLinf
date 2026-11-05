@@ -1,0 +1,18 @@
+# Candidate M3: AdaptiveSync + R1; learning acceptance is still pending.
+# 150 rounds / 150 updates; requires the same calibration artifact as M2.
+defaults:
+  - libero_mopd_candidate_common
+  - _self_
+
+runner:
+  max_steps: 150
+  save_interval: 25
+  logger:
+    experiment_name: libero_mopd_candidate_m3_adaptive_sync_r1_T32_B64
+  rollout_allocation:
+    mode: adaptive
+    teacher_reference_file: ${oc.env:OPD_LIBERO_TEACHER_REFERENCE}
+
+algorithm:
+  flow_refresh_updates: 1
+  sync_suite_loss_weights: true

@@ -1,0 +1,16 @@
+# Candidate M2: AdaptiveSync + Refresh-R2; learning acceptance is pending.
+# Requires an actual matching per-task teacher calibration artifact, not the
+# 40-episode screening summary. Same fresh student and teachers as M0/M1/M3.
+defaults:
+  - libero_mopd_candidate_common
+  - _self_
+
+runner:
+  logger:
+    experiment_name: libero_mopd_candidate_m2_adaptive_sync_refresh_r2_T32_B64
+  rollout_allocation:
+    mode: adaptive
+    teacher_reference_file: ${oc.env:OPD_LIBERO_TEACHER_REFERENCE}
+
+algorithm:
+  sync_suite_loss_weights: true

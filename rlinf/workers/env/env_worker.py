@@ -975,15 +975,13 @@ class EnvWorker(Worker):
             raise ValueError(
                 "Allocation currently requires one stage and unsplit actor batches."
             )
-        specs = get_env_attr(self.env_list[0], "task_specs")
         horizons = get_env_attr(self.env_list[0], "episode_horizon_source")
         if horizons != "task_horizon":
             raise ValueError("Allocation requires native task horizons.")
-        return {
-            "worker": self._rank,
-            "envs": self.train_num_envs_per_stage,
-            "epochs": self.rollout_epoch,
-            "tasks": [
+        tasks = get_env_attr(self.env_list[0], "rollout_task_catalog")
+        if tasks is None:
+            specs = get_env_attr(self.env_list[0], "task_specs")
+            tasks = [
                 {
                     "task_id": i,
                     "task": s["task_name"],
@@ -991,7 +989,12 @@ class EnvWorker(Worker):
                     "horizon": int(s["horizon"]),
                 }
                 for i, s in enumerate(specs)
-            ],
+            ]
+        return {
+            "worker": self._rank,
+            "envs": self.train_num_envs_per_stage,
+            "epochs": self.rollout_epoch,
+            "tasks": tasks,
         }
 
     def set_rollout_allocation(self, plan: list[dict], policy_update_step: int) -> None:

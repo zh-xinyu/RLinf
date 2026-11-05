@@ -1,0 +1,14 @@
+# Candidate M0: uniform Joint-MOPD, R1; learning acceptance is still pending.
+# 150 rounds / 150 updates; save every 25 rounds for independent evaluation.
+defaults:
+  - libero_mopd_candidate_common
+  - _self_
+
+runner:
+  max_steps: 150
+  save_interval: 25
+  logger:
+    experiment_name: libero_mopd_candidate_m0_uniform_r1_T32_B64
+
+algorithm:
+  flow_refresh_updates: 1

@@ -147,5 +147,39 @@ Opt-in `runner.log_physics_step_counts` records actual policy, settling, total
 simulator calls, and resets by summing all ranks. The metrics end in `_session`
 because they restart after process recreation. Existing mask-based
 `interaction/env_steps` remains distinct and also appears as
-`interaction/valid_policy_steps`. LIBERO still steps completed slots until the
-round ends, so actual simulator calls can exceed valid policy steps.
+`interaction/valid_policy_steps`. The four-suite recipe enables
+`freeze_finished_episodes`: each slot stops physics at its first success or
+native timeout, retaining its terminal observation and outcome through the
+remaining chunk/round. Policy physics counts then match the valid control-step
+mask. The legacy single-suite default remains unchanged.
+
+The production environment also supports `task_sampling_strategy: suite_quota`
+with `runner.rollout_allocation.enabled: true`. The existing uniform, static,
+and adaptive controllers share exact slot plans, suite/local-task identities,
+task-occurrence-based official initial states, and per-slot reset seeds. Use
+this same collector for all formal comparison arms. Allocation requires full
+native horizons and at least one slot from every suite on each worker. On four
+workers, T16 leaves no adaptive freedom; T32 with eight slots per worker permits
+nonuniform integer global quotas, including quotas not divisible by four.
+Adaptive mode still requires a matching per-task teacher calibration artifact;
+the tiny screening results are not that artifact. This integration has CPU
+coverage; a complete production GPU training run remains to be verified.
+
+Candidate matrix configs are available under
+[`examples/embodiment/config`](../../examples/embodiment/config/), sharing
+[`libero_mopd_candidate_common.yaml`](../../examples/embodiment/config/libero_mopd_candidate_common.yaml).
+They are **not frozen formal recipes**: learning acceptance is still pending.
+
+| Config suffix | Allocation / loss weighting | Refresh | Updates / save interval |
+| --- | --- | --- | --- |
+| `libero_mopd_candidate_m0` | Uniform / equal | R1 | 150 / 25 |
+| `libero_mopd_candidate_m1` | Uniform / equal | R2 | 300 / 50 |
+| `libero_mopd_candidate_m2` | Adaptive / synchronized | R2 | 300 / 50 |
+| `libero_mopd_candidate_m3` | Adaptive / synchronized | R1 | 150 / 25 |
+
+All use T32, B64, microbatch 1, LR 3e-6, four warmup updates, and 150 physical
+rounds. Evaluate the initial policy and every saved 25 rounds separately with
+[`libero_four_suite_gr00t_mopd_eval.yaml`](../../evaluations/libero/libero_four_suite_gr00t_mopd_eval.yaml).
+M2/M3 require `OPD_LIBERO_TEACHER_REFERENCE` pointing to a validated calibration
+JSON. M0/M1 do not require it. Config composition and validation are CPU-tested;
+these files do not launch experiments automatically.

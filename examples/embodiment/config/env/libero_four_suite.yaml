@@ -16,6 +16,7 @@ rollout_epoch: 1
 group_size: 1
 auto_reset: false
 ignore_terminations: false
+freeze_finished_episodes: true
 use_fixed_reset_state_ids: true
 use_ordered_reset_state_ids: false
 reset_settle_steps: 10

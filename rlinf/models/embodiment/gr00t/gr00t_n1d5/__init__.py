@@ -265,6 +265,12 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     if cfg.rl_head_config.disable_dropout:
         replace_dropout_with_identity(model)
 
+    if cfg.get("inference_autocast_dtype", None) is not None:
+        inference_dtypes = {"bf16": torch.bfloat16, "fp16": torch.float16}
+        if cfg.inference_autocast_dtype not in inference_dtypes:
+            raise ValueError("inference_autocast_dtype must be bf16 or fp16")
+        model.inference_autocast_dtype = inference_dtypes[cfg.inference_autocast_dtype]
+
     if cfg.get("disable_image_tiling", False):
         for transform in model._modality_transform.transforms:
             if hasattr(transform, "eagle_processor"):

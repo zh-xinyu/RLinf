@@ -63,6 +63,48 @@ class CombinedLiberoBenchmark:
         """Return the hard-router label for a global task ID."""
         return self._reference(task_id)[0]
 
+    def task_identity(self, task_id: int) -> str:
+        """Return an identity which cannot collide across benchmark suites."""
+        suite, local_id = self._reference(task_id)
+        return f"{suite}/{local_id}"
+
+
+def validate_rollout_plan(
+    rows: list[dict], catalog: list[dict], num_envs: int, suites: Sequence[str]
+) -> list[dict]:
+    """Validate the complete slot plan before changing any simulator state."""
+    if len(rows) != num_envs:
+        raise ValueError("Episode plan has the wrong number of env slots")
+    for row in rows:
+        for key in (
+            "slot",
+            "task_id",
+            "occurrence",
+            "reset_seed",
+            "round",
+            "epoch",
+            "worker",
+        ):
+            if type(row.get(key)) is not int or row[key] < 0:
+                raise ValueError(f"Plan field {key} must be a nonnegative integer")
+        if row["reset_seed"] >= 2**32 or row["round"] < 1:
+            raise ValueError("Invalid reset seed or round in episode plan")
+    ordered = sorted((dict(row) for row in rows), key=lambda row: row["slot"])
+    if [row["slot"] for row in ordered] != list(range(num_envs)):
+        raise ValueError("Duplicate or missing episode slots")
+    by_id = {task["task_id"]: task for task in catalog}
+    for row in ordered:
+        task = by_id.get(row["task_id"])
+        if task is None or any(
+            row.get(k) != task[k] for k in ("task", "suite", "horizon")
+        ):
+            raise ValueError("Rollout plan does not match the LIBERO task catalog")
+    if {row["suite"] for row in ordered} != set(suites):
+        raise ValueError("Every env worker must retain all routed suites")
+    if len({(row["round"], row["epoch"], row["worker"]) for row in ordered}) != 1:
+        raise ValueError("Episode plan mixes workers, epochs, or rounds")
+    return ordered
+
 
 class SuiteBalancedResetSampler:
     """Draw equal suite quotas and cycle all tasks within each suite.

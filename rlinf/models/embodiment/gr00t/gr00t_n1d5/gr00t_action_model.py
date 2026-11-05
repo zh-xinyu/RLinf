@@ -14,6 +14,7 @@
 
 import json
 import random
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
@@ -1062,12 +1063,20 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         mode: Literal["train", "eval"] = "train",
     ) -> torch.Tensor:
         # We expand get_action() and replace action head inference with RL inference.
-        backbone_inputs, action_inputs = self.prepare_input(normalized_input)
-        # Because the behavior of backbones remains the same for training and inference, we can use `forward` for backbones.
-        backbone_outputs = self.backbone(backbone_inputs)
-        action_head_outputs, rlinf_outputs = self.action_head.get_rl_action(
-            backbone_outputs, action_inputs, mode=mode
+        inference_dtype = getattr(self, "inference_autocast_dtype", None)
+        context = (
+            torch.autocast(device_type=self.device.type, dtype=inference_dtype)
+            if inference_dtype is not None
+            else nullcontext()
         )
+        # A rollout worker need not provide the actor's autocast context. Keep
+        # FP32 master head weights while explicitly matching pilot inference.
+        with context:
+            backbone_inputs, action_inputs = self.prepare_input(normalized_input)
+            backbone_outputs = self.backbone(backbone_inputs)
+            action_head_outputs, rlinf_outputs = self.action_head.get_rl_action(
+                backbone_outputs, action_inputs, mode=mode
+            )
         actions = rlinf_outputs["actions"]
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
         actions = actions.float()

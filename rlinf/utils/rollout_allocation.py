@@ -437,7 +437,7 @@ def training_signature(cfg: Any) -> dict:
         "policy_setup",
         "rl_head_config",
     )
-    return {
+    signature = {
         "env": {k: env.get(k) for k in env_keys},
         "model": {k: model.get(k) for k in model_keys},
         "teacher_action_head_precision": {
@@ -447,6 +447,36 @@ def training_signature(cfg: Any) -> dict:
             for name, expert in cfg.rollout.expert_models.items()
         },
     }
+    # Keep existing RoboCasa reference files compatible. LIBERO needs its own
+    # reset and checkpoint-input contracts to prevent silent calibration reuse.
+    if env.get("env_type") == "libero":
+        input_keys = (
+            "data_config_class",
+            "embodiment_projector_id",
+            "opd_fixed_text_padding",
+            "disable_image_tiling",
+            "inference_autocast_dtype",
+        )
+        signature["libero_protocol"] = {
+            "task_suite_names": env.get(
+                "task_suite_names", [env.get("task_suite_name")]
+            ),
+            "task_suite_horizons": env.get("task_suite_horizons"),
+            "task_id_filter": env.get("task_id_filter"),
+            "freeze_finished_episodes": env.get("freeze_finished_episodes", False),
+            "reset_settle_steps": env.get("reset_settle_steps", 15),
+            "initial_state_protocol": (
+                "task_occurrence_mod_trial_count"
+                if env.get("task_sampling_strategy") == "suite_quota"
+                else env.get("task_sampling_strategy")
+            ),
+            "student_input": {key: model.get(key) for key in input_keys},
+            "teacher_input": {
+                name: {key: expert.get(key, model.get(key)) for key in input_keys}
+                for name, expert in cfg.rollout.expert_models.items()
+            },
+        }
+    return signature
 
 
 def load_teacher_reference(path: str, cfg: Any, tasks: list[dict]) -> dict[str, float]:

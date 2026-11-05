@@ -1,0 +1,53 @@
+# Candidate matrix only: learning efficacy and full production training have not
+# passed acceptance. Do not treat these recipes as frozen formal experiments.
+# All arms use the same quota collector, native horizons, initial-state sequence,
+# checkpoint input contracts, B, LR, warmup updates, and 150 physical rounds.
+# Independent evaluation is run separately at round 0 and every saved 25 rounds;
+# runner.val_check_interval intentionally disables inline pilot evaluation.
+defaults:
+  - libero_four_suite_mopd_refresh_r2_gr00t_pilot
+  - _self_
+
+runner:
+  max_steps: 300
+  save_interval: 50
+  val_check_interval: -1
+  resume_dir: null
+  ckpt_path: null
+  overlap_env_bootstrap: false
+  use_training_pipeline: false
+  logger:
+    project_name: LIBERO_MOPD_Candidates
+    experiment_name: libero_mopd_candidate_common
+    logger_backends: [tensorboard]
+  rollout_allocation:
+    enabled: true
+    mode: uniform
+    teacher_reference_file: null
+    seed: 0
+    warmup_rounds: 20
+    window_rounds: 20
+    interval_rounds: 10
+    min_task_episodes: 5
+    rho: 0.5
+    epsilon: 0.01
+    max_quota_change: 3
+
+algorithm:
+  flow_refresh_updates: 2
+  sync_suite_loss_weights: false
+
+env:
+  train:
+    total_num_envs: 32
+    rollout_epoch: 1
+    task_sampling_strategy: suite_quota
+
+actor:
+  global_batch_size: 64
+  micro_batch_size: 1
+  optim:
+    lr: 3.0e-6
+    value_lr: 3.0e-6
+    lr_warmup_steps: 4
+    lr_scheduler: constant

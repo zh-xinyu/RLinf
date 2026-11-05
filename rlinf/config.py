@@ -829,15 +829,41 @@ def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
         if cfg.env.train.get("task_sampling_strategy") == "suite_quota":
             raise ValueError("suite_quota requires runner.rollout_allocation.enabled.")
         return
+    libero = cfg.env.train.env_type == "libero"
+    native_libero_horizons = {
+        "libero_spatial": 240,
+        "libero_object": 320,
+        "libero_goal": 320,
+        "libero_10": 520,
+    }
+    selected_suites = list(cfg.env.train.get("task_suite_names", []))
     conditions = {
-        "RoboCasa365": cfg.env.train.env_type == "robocasa365",
+        "RoboCasa365 or standard multi-suite LIBERO": cfg.env.train.env_type
+        == "robocasa365"
+        or (
+            libero
+            and bool(selected_suites)
+            and set(selected_suites).issubset(native_libero_horizons)
+        ),
         "suite_quota": cfg.env.train.task_sampling_strategy == "suite_quota",
         "group_size=1": cfg.env.train.group_size == 1,
         "optimizer_update steps": cfg.runner.get("step_unit") == "optimizer_update",
         "no bootstrap prefetch": not cfg.runner.get("overlap_env_bootstrap", False),
         "one rollout stage": cfg.rollout.get("pipeline_stage_num", 1) == 1,
         "no reward worker": not cfg.get("reward", {}).get("use_reward_model", False),
-        "native horizons": cfg.env.train.episode_horizon_source == "task_horizon",
+        "native horizons": (
+            dict(cfg.env.train.get("task_suite_horizons", {}))
+            == {
+                suite: native_libero_horizons[suite]
+                for suite in selected_suites
+                if suite in native_libero_horizons
+            }
+            and cfg.env.train.get("freeze_finished_episodes", False)
+            and not cfg.env.train.auto_reset
+            and not cfg.env.train.ignore_terminations
+            if libero
+            else cfg.env.train.episode_horizon_source == "task_horizon"
+        ),
     }
     missing = [name for name, valid in conditions.items() if not valid]
     if missing:

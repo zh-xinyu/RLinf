@@ -109,6 +109,7 @@ actor:
     model_type: gr00t
     precision: bf16
     action_head_precision: fp32
+    inference_autocast_dtype: bf16
     require_fp32_trainable_params: true
     action_dim: 7
     num_action_chunks: 8
@@ -165,6 +166,7 @@ rollout:
     model_path: ${actor.model.model_path}
     precision: bf16
     action_head_precision: fp32
+    inference_autocast_dtype: bf16
     opd_fixed_text_padding: false
     disable_image_tiling: true
   expert_models:

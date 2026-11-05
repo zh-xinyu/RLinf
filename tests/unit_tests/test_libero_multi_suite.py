@@ -201,7 +201,9 @@ def test_round_boundary_uses_prepared_ids_without_skipping_tasks(
     env_module, monkeypatch
 ):
     env = make_env(env_module, monkeypatch, make_cfg(reset_settle_steps=1))
-    env.env = SimpleNamespace(step=lambda actions, ids: ([{}] * 4, None, None, None))
+    env.env = SimpleNamespace(
+        step=lambda actions, ids: ([{}] * 4, None, None, [{}] * 4)
+    )
     monkeypatch.setattr(env, "_wrap_obs", lambda obs: {})
     consumed = []
     monkeypatch.setattr(
