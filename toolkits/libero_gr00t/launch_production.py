@@ -68,6 +68,13 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
     reuse = int(cfg.algorithm.flow_refresh_updates)
     if args.updates < reuse or args.updates % reuse:
         raise ValueError("Smoke updates must be positive multiples of reuse R")
+    save_interval = getattr(args, "save_every_updates", None)
+    if save_interval is None:
+        save_interval = args.updates
+    if save_interval < reuse or save_interval > args.updates or save_interval % reuse:
+        raise ValueError(
+            "Save interval must be a complete-round multiple within the run"
+        )
     with open_dict(cfg):
         cfg.actor.model.model_path = str(checkpoint_paths["student"])
         for suite, path in checkpoint_paths.items():
@@ -76,7 +83,7 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
         cfg.runner.logger.log_path = str(args.output)
         cfg.runner.logger.experiment_name = "libero_production_smoke"
         cfg.runner.max_steps = args.updates
-        cfg.runner.save_interval = args.updates
+        cfg.runner.save_interval = save_interval
         cfg.runner.val_check_interval = -1
         cfg.runner.overlap_env_bootstrap = False
         cfg.cluster.component_placement = {
@@ -205,6 +212,11 @@ def main() -> None:
         default=CONFIG_NAME,
     )
     parser.add_argument("--updates", type=int, default=2)
+    parser.add_argument(
+        "--save-every-updates",
+        type=int,
+        help="Optional checkpoint interval at complete rollout rounds",
+    )
     parser.add_argument("--rollout-steps", type=int, default=32)
     parser.add_argument("--cpus", type=int, default=16)
     parser.add_argument(
@@ -321,7 +333,7 @@ def main() -> None:
         "driver_command": driver_command,
         "checkpoints": {k: str(v) for k, v in checkpoint_paths.items()},
         "optimizer_updates": args.updates,
-        "save_interval": args.updates,
+        "save_interval": int(cfg.runner.save_interval),
         "rollout_rounds": args.updates // int(cfg.algorithm.flow_refresh_updates),
         "config_name": args.config_name,
         "trajectories_per_round": int(cfg.env.train.total_num_envs),

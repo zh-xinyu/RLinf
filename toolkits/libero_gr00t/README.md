@@ -288,3 +288,31 @@ LR multipliers start at `[0, .25, .5, .75, 1]`; the standalone pilot used
 Compare `velocity_mse` or `analytic_kl`: logged production `total_loss` is divided
 by the gradient-accumulation count. No change to the underlying M3 objective or
 gradient normalization is introduced here.
+
+## FSDP versus unwrapped AMP parity
+
+Before accepting the AMP-only production recipe, run the following bounded check
+on one explicitly selected GPU with at least32 GiB free:
+
+```bash
+CUDA_VISIBLE_DEVICES=6 "$PROBE_PYTHON" toolkits/libero_gr00t/fsdp_parity.py \
+  --config /path/to/amp-only-run/resolved_config.yaml \
+  --output outputs/fsdp_amp_parity
+```
+
+The tool requires all three FSDP mixed-precision dtypes to be null and BF16
+`amp_autocast`. It uses the actual `FSDPStrategy.wrap_model` factory and configured
+wrap policy/`use_orig_params`, with a private world-one NCCL file process group.
+A real Spatial task0 initial-state0 observation, fixed full action latent and
+flow index2 are reused before/after wrapping the same model. The VLM remains
+BF16, the head FP32, and all rotary `inv_freq` tensors must remain FP32.
+
+It compares every NFT output value and seven selected action-head parameter
+gradients across encoders, decoder, conditioning attention, DiT and time embedding.
+The scalar loss is velocity squared mean for numerical diagnosis, not a teacher
+performance objective. The reference gradients are moved to CPU before wrapping;
+the PyTorch memory cap defaults to28 GiB. `fixture.pt` records the exact input,
+`result.json` records per-tensor errors/dtypes/memory and acceptance, and `status`
+records completion. This verifies neither four-rank gradient scaling nor an
+optimizer step, distributed communication, or task success. CPU tests verify
+flat-gradient name/padding handling; real model parity requires the GPU run.

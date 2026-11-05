@@ -282,3 +282,28 @@ def test_hung_smoke_is_time_bounded(tmp_path):
             tmp_path / "hang.log",
             timeout_seconds=0.1,
         )
+
+
+def test_checkpoint_interval_must_preserve_round_boundaries(tmp_path):
+    python, models = fixture_paths(tmp_path)
+    args = SimpleNamespace(
+        python=python,
+        output=tmp_path / "out",
+        gpus=[0, 1, 2, 3],
+        updates=40,
+        rollout_steps=520,
+        save_every_updates=20,
+    )
+    paths = {
+        "student": models / "student",
+        "libero_spatial": models / "spatial",
+        "libero_object": models / "object",
+        "libero_goal": models / "goal",
+        "libero_10": models / "long",
+    }
+    cfg = launcher.build_config(args, paths)
+    assert cfg.runner.max_steps == 40 and cfg.runner.save_interval == 20
+    for invalid in (0, 1, 3, 42, -2):
+        args.save_every_updates = invalid
+        with pytest.raises(ValueError, match="complete-round"):
+            launcher.build_config(args, paths)
