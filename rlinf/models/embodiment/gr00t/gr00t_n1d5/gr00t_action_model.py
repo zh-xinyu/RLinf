@@ -626,6 +626,11 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         self.action_convert_fn = ACTION_CONVERSION_N1D5[obs_converter_type]
         self._opd_state_adapter_validated = False
         self._load_metadata(self.model_path / "experiment_cfg")
+        self._opd_embodiment_id = next(
+            t.get_embodiment_tag()
+            for t in self._modality_transform.transforms
+            if hasattr(t, "get_embodiment_tag")
+        )
 
         # The param loading is after construction in from_pretrained(), so it should be safe to to so.
         action_head_cfg = FlowmatchingActionHeadConfig(**config.action_head_cfg)
@@ -781,7 +786,10 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         env_obs["states"] = env_obs["states"].to(torch.bfloat16)
         env_obs["states"] = env_obs["states"].cpu().float()
         opd_raw_states = None
-        if self.obs_convert_fn is OBS_CONVERSION["robocasa365"]:
+        if self.obs_convert_fn in (
+            OBS_CONVERSION["robocasa365"],
+            OBS_CONVERSION["libero"],
+        ):
             # Keep the exact (BF16-round-tripped) raw state that the student transform
             # sees.  A frozen suite teacher has different checkpoint statistics and must
             # normalize this state itself during its later NFT pass.
@@ -803,9 +811,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         normalized_input = self.apply_transforms(obs_copy)
 
         if opd_raw_states is not None and not self._opd_state_adapter_validated:
-            adapted_state, adapted_mask = self.opd_normalize_robocasa_state(
-                opd_raw_states
-            )
+            adapted_state, adapted_mask = self.opd_normalize_state(opd_raw_states)
             torch.testing.assert_close(
                 adapted_state,
                 normalized_input["state"].float(),
@@ -935,6 +941,44 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         self, normalized_action: torch.Tensor
     ) -> dict[str, Any]:
         return self.unapply_transforms({"action": normalized_action.cpu()})
+
+    def opd_normalize_state(
+        self, raw_states: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Reproduce this checkpoint's state transform for routed supervision."""
+        if self.obs_convert_fn is OBS_CONVERSION["robocasa365"]:
+            return self.opd_normalize_robocasa_state(raw_states)
+        if self.obs_convert_fn is not OBS_CONVERSION["libero"]:
+            raise NotImplementedError("OPD state adapter supports RoboCasa/LIBERO")
+        if raw_states.shape[-1] != 8:
+            raise ValueError("LIBERO raw state must have eight dimensions")
+        states = raw_states.detach().cpu().float().unsqueeze(-2)
+        names = ["x", "y", "z", "roll", "pitch", "yaw"]
+        data = {
+            f"state.{name}": states[..., i : i + 1].clone()
+            for i, name in enumerate(names)
+        }
+        data["state.gripper"] = states[..., 6:8].clone()
+        transform = next(
+            t
+            for t in self._modality_transform.transforms
+            if isinstance(t, StateActionTransform)
+            and any(k.startswith("state.") for k in t.apply_to)
+        )
+        data = transform(data)
+        state = torch.cat(
+            [data[k] for k in self._modality_config["state"].modality_keys], dim=-1
+        )
+        size = int(self.config.action_head_cfg["max_state_dim"])
+        if state.shape[-1] > size:
+            raise ValueError("LIBERO state exceeds GR00T state capacity")
+        mask = torch.zeros(*state.shape[:-1], size, dtype=torch.bool)
+        mask[..., : state.shape[-1]] = True
+        return torch.nn.functional.pad(state, (0, size - state.shape[-1])), mask
+
+    def opd_teacher_embodiment_id(self, batch_size: int) -> torch.Tensor:
+        """Return this checkpoint's projector ID independently of student inputs."""
+        return torch.full((batch_size,), int(self._opd_embodiment_id), dtype=torch.long)
 
     def opd_normalize_robocasa_state(
         self, raw_states: torch.Tensor

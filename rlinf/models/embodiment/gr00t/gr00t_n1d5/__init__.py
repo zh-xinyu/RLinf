@@ -155,7 +155,10 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
         )
         from rlinf.models.embodiment.gr00t.utils import replace_dropout_with_identity
 
-        if (
+        if cfg.get("data_config_class", None):
+            # Benchmark schema is independent of the embodiment projector ID.
+            data_config = load_data_config(cfg.data_config_class)
+        elif (
             cfg.embodiment_tag == "libero_franka"
             or cfg.embodiment_tag == "isaaclab_franka"
         ):
@@ -182,6 +185,17 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
             raise ValueError(f"Invalid embodiment tag: {cfg.embodiment_tag}")
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
+        if cfg.get("embodiment_projector_id", None) is not None:
+            # Pydantic captures mapping defaults at import time. Keep checkpoint
+            # IDs local to this pipeline when several embodiment tags coexist.
+            for transform in modality_transform.transforms:
+                if hasattr(transform, "embodiment_tag_mapping"):
+                    transform.embodiment_tag_mapping = dict(
+                        transform.embodiment_tag_mapping
+                    )
+                    transform.embodiment_tag_mapping[str(cfg.embodiment_tag)] = int(
+                        cfg.embodiment_projector_id
+                    )
 
         # The transformer registration is done in gr00t/model/gr00t_n1.py
         model_path = Path(cfg.model_path)

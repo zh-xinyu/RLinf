@@ -39,6 +39,7 @@ from rlinf.algorithms.flow_opd import (
     select_opd_metric_rows,
     teacher_suite_presence,
     transport_source_velocity_to_target,
+    validate_cross_metadata_flow_objective,
 )
 from rlinf.algorithms.losses import flow_sde_kl_weights
 from rlinf.algorithms.registry import (
@@ -1946,15 +1947,16 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             transport = None
             if SupportedModel(self.cfg.actor.model.model_type) == SupportedModel.GR00T:
                 assert "opd_raw_states" in inputs, (
-                    "Cross-checkpoint GR00T OPD needs the raw RoboCasa state saved by "
+                    "Cross-checkpoint GR00T OPD needs the raw environment state saved by "
                     "the rollout model."
                 )
                 teacher_inputs = dict(inputs)
-                teacher_state, teacher_state_mask = model.opd_normalize_robocasa_state(
+                teacher_state, teacher_state_mask = model.opd_normalize_state(
                     inputs["opd_raw_states"]
                 )
                 teacher_inputs["state"] = teacher_state.to(dtype=inputs["state"].dtype)
                 teacher_inputs["state_mask"] = teacher_state_mask
+                teacher_inputs["embodiment_id"] = model.opd_teacher_embodiment_id(size)
 
                 endpoint_scale, endpoint_shift = model.opd_action_endpoint_affine_to(
                     self._get_opd_student_gr00t_metadata()
@@ -1963,14 +1965,14 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                     torch.equal(endpoint_scale, torch.ones_like(endpoint_scale))
                     and torch.equal(endpoint_shift, torch.zeros_like(endpoint_shift))
                 )
-                if differs and (
-                    self.cfg.algorithm.loss_type == "analytic_local_kl"
-                    or self.cfg.algorithm.adv_type == "opd"
-                ):
-                    raise NotImplementedError(
-                        "Cross-metadata GR00T M3/M4 needs the transported teacher "
-                        "covariance/Jacobian, not only a transported velocity. Use M1 "
-                        "until that KL is implemented."
+                m3_mode = self.cfg.algorithm.get(
+                    "gr00t_cross_metadata_m3_mode", "reject"
+                )
+                if differs:
+                    validate_cross_metadata_flow_objective(
+                        self.cfg.algorithm.loss_type,
+                        self.cfg.algorithm.adv_type,
+                        m3_mode=m3_mode,
                     )
                 source_x_t = map_target_flow_state_to_source(
                     inputs["_nft_x_t"],
@@ -1996,7 +1998,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                         f"{log_key}: endpoint scale "
                         f"[{float(endpoint_scale[:valid_dim].min()):.4g}, "
                         f"{float(endpoint_scale[:valid_dim].max()):.4g}], "
-                        f"max |shift| "
+                        f"M3 coordinate mode={m3_mode}; max |shift| "
                         f"{float(endpoint_shift[:valid_dim].abs().max()):.4g}."
                     )
 

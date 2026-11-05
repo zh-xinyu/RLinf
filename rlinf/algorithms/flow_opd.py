@@ -183,6 +183,39 @@ def map_target_flow_state_to_source(
     return (target_x_t.float() - t * shift) / scale_t
 
 
+def validate_cross_metadata_flow_objective(
+    loss_type: str,
+    adv_type: str,
+    *,
+    m3_mode: str = "reject",
+) -> None:
+    """Validate an objective after teacher-to-student ODE coordinate transport.
+
+    The experimental ``student_coordinate_sde`` mode defines *new* local Gaussian
+    kernels in student coordinates, using the transported teacher ODE velocity and
+    the student's shared covariance schedule. Their KL is the existing M3 weighted
+    velocity MSE. It is not the pushforward KL of the teacher's native SDE: that
+    construction must also transform the diffusion covariance and drift.
+
+    M4 uses native transition likelihoods and remains unsupported. The default
+    preserves the previous fail-closed behavior for cross-metadata M3/M4.
+    """
+    if m3_mode not in {"reject", "student_coordinate_sde"}:
+        raise ValueError(f"Unknown cross-metadata M3 coordinate mode: {m3_mode!r}.")
+    if adv_type == "opd":
+        raise NotImplementedError(
+            "Cross-metadata GR00T M4 needs transported native transition "
+            "covariances and likelihoods; student_coordinate_sde only supports M3."
+        )
+    if loss_type == "analytic_local_kl" and m3_mode == "reject":
+        raise NotImplementedError(
+            "Cross-metadata GR00T M3 is disabled by default. Set "
+            "algorithm.gr00t_cross_metadata_m3_mode=student_coordinate_sde to "
+            "explicitly define shared-covariance local kernels after ODE coordinate "
+            "transport; this is not the teacher's native SDE pushforward KL."
+        )
+
+
 def transport_source_velocity_to_target(
     source_x_t: torch.Tensor,
     source_velocity: torch.Tensor,

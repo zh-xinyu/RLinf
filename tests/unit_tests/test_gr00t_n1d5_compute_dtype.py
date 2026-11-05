@@ -81,3 +81,61 @@ def test_raw_state_uses_each_checkpoint_transform_and_preserves_input(monkeypatc
         outputs.append(state)
     assert not torch.equal(outputs[0], outputs[1])
     torch.testing.assert_close(raw, original)
+
+
+def test_libero_raw_state_uses_teacher_stats_and_preserves_two_gripper_values(
+    monkeypatch,
+):
+    from rlinf.models.embodiment.gr00t.gr00t_n1d5 import gr00t_action_model as module
+
+    class StateTransform:
+        apply_to = [
+            f"state.{k}" for k in ("x", "y", "z", "roll", "pitch", "yaw", "gripper")
+        ]
+
+        def __init__(self, scale):
+            self.scale = scale
+
+        def __call__(self, states):
+            return {key: value * self.scale for key, value in states.items()}
+
+    monkeypatch.setattr(module, "StateActionTransform", StateTransform)
+    raw = torch.arange(16, dtype=torch.float32).reshape(2, 8)
+    original = raw.clone()
+    outputs = []
+    for scale in (0.5, 2.0):
+        transform = StateTransform(scale)
+        model = SimpleNamespace(
+            obs_convert_fn=module.OBS_CONVERSION["libero"],
+            _modality_transform=SimpleNamespace(transforms=[transform]),
+            _modality_config={
+                "state": SimpleNamespace(modality_keys=transform.apply_to)
+            },
+            config=SimpleNamespace(action_head_cfg={"max_state_dim": 64}),
+        )
+        state, mask = module.GR00T_N1_5_ForRLActionPrediction.opd_normalize_state(
+            model, raw
+        )
+        torch.testing.assert_close(state[..., :8], (raw * scale).unsqueeze(1))
+        assert mask[..., :8].all() and not mask[..., 8:].any()
+        assert not state[..., 8:].any()
+        with pytest.raises(ValueError, match="eight dimensions"):
+            module.GR00T_N1_5_ForRLActionPrediction.opd_normalize_state(
+                model, raw[:, :7]
+            )
+        outputs.append(state)
+    assert not torch.equal(outputs[0], outputs[1])
+    torch.testing.assert_close(raw, original)
+
+
+def test_checkpoint_projector_id_survives_changes_to_global_mapping(monkeypatch):
+    import gr00t.data.embodiment_tags as tags
+
+    from rlinf.models.embodiment.gr00t.gr00t_n1d5.gr00t_action_model import (
+        GR00T_N1_5_ForRLActionPrediction,
+    )
+
+    checkpoint = SimpleNamespace(_opd_embodiment_id=31)
+    monkeypatch.setitem(tags.EMBODIMENT_TAG_MAPPING, "new_embodiment", 10)
+    actual = GR00T_N1_5_ForRLActionPrediction.opd_teacher_embodiment_id(checkpoint, 3)
+    torch.testing.assert_close(actual, torch.tensor([31, 31, 31]))

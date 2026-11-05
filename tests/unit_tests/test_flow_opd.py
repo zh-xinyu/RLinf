@@ -26,6 +26,12 @@ from rlinf.algorithms.flow_opd import (
     select_opd_metric_rows,
     teacher_suite_presence,
     transport_source_velocity_to_target,
+    validate_cross_metadata_flow_objective,
+)
+from rlinf.algorithms.losses import (
+    compute_analytic_local_kl_loss,
+    flow_sde_kl_weights,
+    flow_sde_transition_coeffs,
 )
 
 
@@ -160,6 +166,72 @@ def test_flow_velocity_transport_matches_finite_difference():
     torch.testing.assert_close(
         transported.double(), finite_difference, rtol=1e-4, atol=1e-4
     )
+
+
+def test_cross_metadata_m3_requires_explicit_opt_in_and_m4_stays_blocked():
+    with pytest.raises(NotImplementedError, match="disabled by default"):
+        validate_cross_metadata_flow_objective("analytic_local_kl", "nft")
+    validate_cross_metadata_flow_objective(
+        "analytic_local_kl", "nft", m3_mode="student_coordinate_sde"
+    )
+    # Existing unweighted ODE velocity matching remains available.
+    validate_cross_metadata_flow_objective("velocity_matching", "nft")
+    for mode in ("reject", "student_coordinate_sde"):
+        with pytest.raises(NotImplementedError, match="M4"):
+            validate_cross_metadata_flow_objective("actor", "opd", m3_mode=mode)
+    with pytest.raises(ValueError, match="Unknown"):
+        validate_cross_metadata_flow_objective(
+            "analytic_local_kl", "nft", m3_mode="typo"
+        )
+
+
+def test_transported_m3_matches_shared_student_coordinate_gaussian_kl():
+    """Exercise all denoise times, anisotropic metadata, and the real loss."""
+    steps = torch.arange(4)
+    source_x = torch.linspace(-0.7, 0.8, 24).reshape(4, 3, 2)
+    source_v = torch.linspace(0.9, -0.3, 24).reshape(4, 3, 2).requires_grad_()
+    scale = torch.tensor([0.6, 1.7])
+    shift = torch.tensor([0.2, -0.4])
+    t = (steps.float() / 4).reshape(-1, 1, 1)
+    target_x = (1 + t * (scale - 1)) * source_x + t * shift
+    recovered_x = map_target_flow_state_to_source(target_x, steps, 4, scale, shift)
+    teacher_v = transport_source_velocity_to_target(
+        recovered_x, source_v, steps, 4, scale, shift
+    )
+    student_v = (teacher_v.detach() + 0.17).requires_grad_()
+    loss, _ = compute_analytic_local_kl_loss(
+        student_v, teacher_v, flow_sde_kl_weights(4, 0.5)
+    )
+    w0, w1, c, sigma = (
+        value.reshape(-1, 1, 1) for value in flow_sde_transition_coeffs(4, 0.5)
+    )
+    # Both Gaussians are DEFINED in target coordinates; no native teacher SDE
+    # is pushed forward in this experimental objective.
+    common = target_x.double() * (w0 + w1)
+    student = torch.distributions.Normal(common + c * student_v.double(), sigma)
+    teacher = torch.distributions.Normal(
+        common + c * teacher_v.detach().double(), sigma
+    )
+    expected = torch.distributions.kl_divergence(student, teacher).mean()
+    torch.testing.assert_close(loss.double(), expected, rtol=1e-5, atol=1e-7)
+    loss.backward()
+    assert source_v.grad is None
+    assert torch.isfinite(student_v.grad).all()
+    assert student_v.grad.abs().sum() > 0
+
+
+def test_student_coordinate_sde_is_not_native_teacher_covariance_pushforward():
+    """The opt-in must not be described as invariant native-SDE KL."""
+    # Even equal means do not cancel Gaussian covariance terms when a native
+    # teacher transition is pushed through a nonidentity affine Jacobian.
+    student = torch.distributions.Normal(torch.zeros(2), torch.ones(2))
+    teacher_native_pushforward = torch.distributions.Normal(
+        torch.zeros(2), torch.tensor([0.7, 1.6])
+    )
+    native_kl = torch.distributions.kl_divergence(student, teacher_native_pushforward)
+    assert (native_kl > 0).all()
+    canonical_kl = torch.distributions.kl_divergence(student, student)
+    torch.testing.assert_close(canonical_kl, torch.zeros(2))
 
 
 def test_select_opd_metric_rows_matches_sampled_training_distribution():
