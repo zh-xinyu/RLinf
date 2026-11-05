@@ -12,7 +12,7 @@ defaults:
   - env/libero_four_suite@env.eval
   - model/gr00t@actor.model
   - hybrid_engines/fsdp@actor.fsdp_config
-  - weight_syncer/patch_syncer@weight_syncer
+  - weight_syncer/bucket_syncer@weight_syncer
   - override hydra/job_logging: stdout
   - _self_
 
@@ -45,6 +45,15 @@ runner:
     project_name: LIBERO_MOPD_Pilots
     experiment_name: libero_four_suite_refresh_r2_T16_B64_pilot
     logger_backends: [tensorboard]
+
+# Dense FP32 action-head updates make one COO patch larger than its weight values.
+# Stream exact original-dtype parameters/buffers instead. Actor and rollout must
+# initialize their frozen VLM from the same checkpoint (enforced by model_path).
+weight_syncer:
+  bucket:
+    bucket_size: 33554432  # 32 MiB target; one tensor is never split.
+    bucket_dtype: null
+    load_instant: true
 
 algorithm:
   normalize_advantages: false

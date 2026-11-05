@@ -89,9 +89,14 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
     )
     ray_dir = tmp_path / "private-ray"
     ray_dir.mkdir()
+
     def short_ray_directory(**kwargs):
         # Ray appends session and socket names; Linux AF_UNIX permits 107 bytes.
-        example = "/tmp/" + kwargs["prefix"] + "abcdefgh/ray/session_2026-11-04_23-35-31_073485_2878406/sockets/plasma_store"
+        example = (
+            "/tmp/"
+            + kwargs["prefix"]
+            + "abcdefgh/ray/session_2026-11-04_23-35-31_073485_2878406/sockets/plasma_store"
+        )
         assert len(example.encode()) <= 107
         return str(ray_dir)
 
@@ -105,7 +110,7 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
         checks.append((count, env["GPU_FREE_MB"]))
         return "GPU preflight fixture\n"
 
-    def run_logged(command, env, log):
+    def run_logged(command, env, log, **kwargs):
         calls.append((command, env.copy()))
         log.write_text("fixture command\n")
         if "--head" in command:
@@ -224,12 +229,20 @@ def test_reused_cleanup_selector_excludes_peer_processes(monkeypatch):
 def test_candidate_launcher_preserves_quota_native_horizons(tmp_path, arm, reuse):
     python, models = fixture_paths(tmp_path)
     args = SimpleNamespace(
-        python=python, output=tmp_path / "out", gpus=[0, 1, 2, 3],
-        updates=2, rollout_steps=520, config_name=f"libero_mopd_candidate_{arm}",
+        python=python,
+        output=tmp_path / "out",
+        gpus=[0, 1, 2, 3],
+        updates=2,
+        rollout_steps=520,
+        config_name=f"libero_mopd_candidate_{arm}",
     )
-    paths = {"student": models / "student", "libero_spatial": models / "spatial",
-             "libero_object": models / "object", "libero_goal": models / "goal",
-             "libero_10": models / "long"}
+    paths = {
+        "student": models / "student",
+        "libero_spatial": models / "spatial",
+        "libero_object": models / "object",
+        "libero_goal": models / "goal",
+        "libero_10": models / "long",
+    }
     cfg = launcher.build_config(args, paths)
     assert cfg.algorithm.flow_refresh_updates == reuse
     assert cfg.env.train.total_num_envs == 32
@@ -237,3 +250,35 @@ def test_candidate_launcher_preserves_quota_native_horizons(tmp_path, arm, reuse
     args.rollout_steps = 32
     with pytest.raises(ValueError, match="native horizons"):
         launcher.build_config(args, paths)
+
+
+def test_background_cuda_oom_aborts_live_child(tmp_path):
+    import os
+    import time
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="CUDA OOM"):
+        launcher.run_logged(
+            [
+                sys.executable,
+                "-u",
+                "-c",
+                "import time; print('torch.OutOfMemoryError: CUDA out of memory', flush=True); time.sleep(30)",
+            ],
+            dict(os.environ),
+            tmp_path / "oom.log",
+            timeout_seconds=10,
+        )
+    assert time.monotonic() - started < 10
+
+
+def test_hung_smoke_is_time_bounded(tmp_path):
+    import os
+
+    with pytest.raises(TimeoutError, match="exceeded"):
+        launcher.run_logged(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            dict(os.environ),
+            tmp_path / "hang.log",
+            timeout_seconds=0.1,
+        )

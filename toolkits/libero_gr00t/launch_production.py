@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -135,9 +136,18 @@ def read_runtime_environment(python: Path) -> dict[str, str]:
     return values
 
 
-def run_logged(command: list[str], env: dict[str, str], log: Path) -> None:
-    """Terminate only this subprocess group on interruption."""
-    with log.open("a") as stream:
+def run_logged(
+    command: list[str], env: dict[str, str], log: Path, *, timeout_seconds: float = 3600
+) -> None:
+    """Bound the child lifetime and abort on an unrecoverable background CUDA OOM.
+
+    Ray can keep its driver alive after a collective thread exits. Watching the
+    child's new log bytes prevents that failure from holding smoke-test GPUs.
+    """
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    with log.open("a") as stream, log.open("r") as reader:
+        reader.seek(0, os.SEEK_END)
         child = subprocess.Popen(
             command,
             cwd=REPO,
@@ -146,10 +156,31 @@ def run_logged(command: list[str], env: dict[str, str], log: Path) -> None:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
+        deadline, tail = time.monotonic() + timeout_seconds, ""
         try:
-            code = child.wait()
-            if code:
-                raise subprocess.CalledProcessError(code, command)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Smoke subprocess exceeded {timeout_seconds}s; see {log}"
+                    )
+                try:
+                    code = child.wait(timeout=min(1.0, remaining))
+                except subprocess.TimeoutExpired:
+                    code = None
+                tail = tail + reader.read()
+                if (
+                    "torch.OutOfMemoryError:" in tail
+                    or "torch.cuda.OutOfMemoryError:" in tail
+                ):
+                    raise RuntimeError(
+                        f"CUDA OOM in smoke subprocess or worker thread; see {log}"
+                    )
+                tail = tail[-512:]
+                if code is not None:
+                    if code:
+                        raise subprocess.CalledProcessError(code, command)
+                    return
         finally:
             if child.poll() is None:
                 os.killpg(child.pid, signal.SIGTERM)
@@ -176,6 +207,12 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=2)
     parser.add_argument("--rollout-steps", type=int, default=32)
     parser.add_argument("--cpus", type=int, default=16)
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=3600,
+        help="Maximum driver runtime for this bounded smoke",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--run", action="store_true")
     mode.add_argument("--dry-run", action="store_true", help="Default; write plan only")
@@ -184,8 +221,8 @@ def main() -> None:
     args.output = args.output.resolve()
     if args.output.exists():
         raise FileExistsError("Use a new output directory for each dry-run or run")
-    if args.cpus < 1:
-        raise ValueError("cpus must be positive")
+    if args.cpus < 1 or args.timeout_seconds <= 0:
+        raise ValueError("cpus and timeout-seconds must be positive")
     runtime_env_file = args.python.parent.parent / "env.sh"
     if not runtime_env_file.is_file():
         raise FileNotFoundError(
@@ -205,14 +242,25 @@ def main() -> None:
     runtime_vars = read_runtime_environment(args.python)
     cfg = build_config(args, checkpoint_paths)
     args.output.mkdir(parents=True)
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
+    ).strip()
     diff = subprocess.check_output(["git", "diff", "HEAD"], cwd=REPO)
-    tree_status = subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO, text=True)
-    (args.output / "code_provenance.json").write_text(json.dumps({
-        "git_commit": revision, "working_tree_status": tree_status,
-        "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
-        "clean_worktree": not bool(tree_status.strip()),
-    }, indent=2) + "\n")
+    tree_status = subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=REPO, text=True
+    )
+    (args.output / "code_provenance.json").write_text(
+        json.dumps(
+            {
+                "git_commit": revision,
+                "working_tree_status": tree_status,
+                "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
+                "clean_worktree": not bool(tree_status.strip()),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     OmegaConf.save(cfg, args.output / "resolved_config.yaml")
     owner = "opd-libero-" + uuid.uuid4().hex
     ray_root = Path(tempfile.mkdtemp(prefix="opdl-", dir="/tmp"))
@@ -280,6 +328,7 @@ def main() -> None:
         "rollout_steps": args.rollout_steps,
         "incomplete_episodes": args.rollout_steps < 520,
         "performance_evidence": False,
+        "timeout_seconds": args.timeout_seconds,
         "differences_from_standalone": [
             "Production Ray/FSDP, all suites on each actor rank; see trajectories_per_round",
             "All official training initial states; no held-out evaluation in this smoke",
@@ -320,7 +369,12 @@ def main() -> None:
         env["RAY_ADDRESS"] = private_address
         manifest["ray_address"] = private_address
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-        run_logged(driver_command, env, args.output / "driver.log")
+        run_logged(
+            driver_command,
+            env,
+            args.output / "driver.log",
+            timeout_seconds=args.timeout_seconds,
+        )
         status.write_text("OK\n")
     except BaseException:
         status.write_text("FAILED\n")

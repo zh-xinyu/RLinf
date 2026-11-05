@@ -50,6 +50,12 @@ def test_all_candidates_validate_and_preserve_round_budget(monkeypatch, tmp_path
     assert cfg.actor.global_batch_size == 64 and cfg.actor.micro_batch_size == 1
     assert cfg.actor.optim.lr == cfg.actor.optim.value_lr == 3e-6
     assert cfg.actor.optim.lr_warmup_steps == 4
+    assert cfg.rollout.model.model_path == cfg.actor.model.model_path
+    assert cfg.rollout.model.action_head_precision == cfg.actor.model.action_head_precision == "fp32"
+    assert cfg.weight_syncer.type == "bucket"
+    assert cfg.weight_syncer.bucket.bucket_size == 32 * 1024**2
+    assert cfg.weight_syncer.bucket.bucket_dtype is None
+    assert cfg.weight_syncer.bucket.load_instant
     assert cfg.runner.resume_dir is None and cfg.runner.ckpt_path is None
     assert cfg.runner.logger.project_name == "LIBERO_MOPD_Candidates"
     assert list(cfg.runner.logger.logger_backends) == ["tensorboard"]
