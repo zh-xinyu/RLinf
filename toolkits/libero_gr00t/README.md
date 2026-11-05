@@ -316,3 +316,18 @@ the PyTorch memory cap defaults to28 GiB. `fixture.pt` records the exact input,
 records completion. This verifies neither four-rank gradient scaling nor an
 optimizer step, distributed communication, or task success. CPU tests verify
 flat-gradient name/padding handling; real model parity requires the GPU run.
+
+The parity tool also repeats the unwrapped and wrapped forward/backward passes,
+clearing gradients and restoring the same RNG seed before every pass. It reports
+within-method errors separately from cross-method errors and records attention
+backend/checkpointing settings. Tolerances remain unchanged; observed backward
+variability does not automatically turn a failed comparison into a pass. A
+separate `--deterministic` run requests deterministic CUDA algorithms (and may
+fail if an operation does not provide them), to help localize numerical effects.
+
+For a bounded learning pilot after the acceptance checks, the production launcher
+accepts `--updates 40 --save-every-updates 20 --timeout-seconds 21600` with
+`--config-name libero_mopd_candidate_m1 --rollout-steps 520`. This runs20 physical
+rounds and saves at updates20/40; it does not modify the150-round candidate YAML.
+The optional save interval must be a positive complete-round multiple within the
+run. Use a new output directory, then independently evaluate both checkpoints.
