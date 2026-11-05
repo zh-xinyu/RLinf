@@ -103,7 +103,9 @@ Outputs include `recipe.yaml`, `launch.json`, per-suite logs/JSONL, separate
 training/evaluation interaction counts, and action-head checkpoints at updates
 20 and 40. Saved heads reference the unchanged base checkpoint and are reloaded
 for a consistency check. They contain no optimizer state; resume is unsupported.
-This README does not claim that the current full pilot has completed or improved SR.
+The T4 pilot completed: initial9/40, update20=2/40, update40=4/40.
+The matched LR3e-6 control completed9→7→6/40. Both failed the learning gate;
+falling velocity MSE alone is insufficient to freeze this setting.
 
 The local `outputs/runtime/bin/python` wrapper reuses a read-only base environment
 and a LIBERO overlay. Inspect `outputs/runtime/env.sh` and `provenance.json` for
@@ -142,6 +144,10 @@ without joining or stopping existing clusters. Defaults are two updates,
 checkpoint at update two, and **32-step incomplete episodes** with capped suite
 horizons; this measures integration, not success rate. `--rollout-steps 520`
 retains full native suite horizons. No production smoke completion is claimed.
+To test the T32 quota path, add `--config-name libero_mopd_candidate_m1
+--rollout-steps 520 --updates 2` (on one command line) and use a new output
+directory. The smoke launcher always overrides the long-run budget and final
+save interval with `--updates`; it does not silently launch150 rounds.
 
 Opt-in `runner.log_physics_step_counts` records actual policy, settling, total
 simulator calls, and resets by summing all ranks. The metrics end in `_session`

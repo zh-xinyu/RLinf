@@ -57,14 +57,15 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
     gpus = sorted(args.gpus)
     if len(gpus) != 4 or len(set(gpus)) != 4 or min(gpus) < 0:
         raise ValueError("Specify four distinct nonnegative physical GPU IDs")
-    if args.updates < 2 or args.updates % 2:
-        raise ValueError("Refresh-R2 smoke updates must be positive multiples of two")
     if args.rollout_steps < 8 or args.rollout_steps > 520 or args.rollout_steps % 8:
         raise ValueError("rollout-steps must be a multiple of eight in [8, 520]")
     with initialize_config_dir(
         version_base=None, config_dir=str(REPO / "examples/embodiment/config")
     ):
-        cfg = compose(config_name=CONFIG_NAME)
+        cfg = compose(config_name=getattr(args, "config_name", CONFIG_NAME))
+    reuse = int(cfg.algorithm.flow_refresh_updates)
+    if args.updates < reuse or args.updates % reuse:
+        raise ValueError("Smoke updates must be positive multiples of reuse R")
     with open_dict(cfg):
         cfg.actor.model.model_path = str(checkpoint_paths["student"])
         for suite, path in checkpoint_paths.items():
@@ -166,6 +167,11 @@ def main() -> None:
     parser.add_argument("--spatial-teacher", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpus", nargs=4, type=int, required=True)
+    parser.add_argument(
+        "--config-name",
+        choices=[CONFIG_NAME] + [f"libero_mopd_candidate_m{i}" for i in range(4)],
+        default=CONFIG_NAME,
+    )
     parser.add_argument("--updates", type=int, default=2)
     parser.add_argument("--rollout-steps", type=int, default=32)
     parser.add_argument("--cpus", type=int, default=16)
@@ -259,12 +265,14 @@ def main() -> None:
         "checkpoints": {k: str(v) for k, v in checkpoint_paths.items()},
         "optimizer_updates": args.updates,
         "save_interval": args.updates,
-        "rollout_rounds": args.updates // 2,
+        "rollout_rounds": args.updates // int(cfg.algorithm.flow_refresh_updates),
+        "config_name": args.config_name,
+        "trajectories_per_round": int(cfg.env.train.total_num_envs),
         "rollout_steps": args.rollout_steps,
         "incomplete_episodes": args.rollout_steps < 520,
         "performance_evidence": False,
         "differences_from_standalone": [
-            "Production Ray/FSDP, T16 rather than T4, all suites on each actor rank",
+            "Production Ray/FSDP, all suites on each actor rank; see trajectories_per_round",
             "All official training initial states; no held-out evaluation in this smoke",
             "First update uses rollout flow; subsequent update refreshes flow",
             "Four CPU-cached teachers per actor, streamed to GPU one at a time",

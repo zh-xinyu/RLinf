@@ -218,3 +218,22 @@ def test_reused_cleanup_selector_excludes_peer_processes(monkeypatch):
     ]
     monkeypatch.setattr(owned_ray.psutil, "process_iter", lambda: [mine, *peers])
     assert owned_ray.owned_processes("this-launch") == [mine]
+
+
+@pytest.mark.parametrize("arm,reuse", [("m0", 1), ("m1", 2)])
+def test_candidate_launcher_preserves_quota_native_horizons(tmp_path, arm, reuse):
+    python, models = fixture_paths(tmp_path)
+    args = SimpleNamespace(
+        python=python, output=tmp_path / "out", gpus=[0, 1, 2, 3],
+        updates=2, rollout_steps=520, config_name=f"libero_mopd_candidate_{arm}",
+    )
+    paths = {"student": models / "student", "libero_spatial": models / "spatial",
+             "libero_object": models / "object", "libero_goal": models / "goal",
+             "libero_10": models / "long"}
+    cfg = launcher.build_config(args, paths)
+    assert cfg.algorithm.flow_refresh_updates == reuse
+    assert cfg.env.train.total_num_envs == 32
+    assert cfg.env.train.task_sampling_strategy == "suite_quota"
+    args.rollout_steps = 32
+    with pytest.raises(ValueError, match="native horizons"):
+        launcher.build_config(args, paths)
