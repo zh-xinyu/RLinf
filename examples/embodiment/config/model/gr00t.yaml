@@ -6,6 +6,9 @@ model_path: "/path/to/model"
 # Model precision and loading settings
 precision: "bf16"
 trust_remote_code: True
+# Opt-in fixed batches only; requires opd_fixed_text_padding: true.
+# This defines a fixed-padding policy, not native-prompt equivalence.
+opd_canonical_fixed_padding: false
 is_lora: false
 
 # Action and policy settings

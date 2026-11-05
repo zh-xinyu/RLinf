@@ -868,9 +868,13 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         velocity is sliced to the executed action chunk, matching how log-probs are
         sliced elsewhere in this class.
         """
-        # Only explicit native mode opts into repairing collection padding.
-        # Historical fixed-padding and RoboCasa defaults remain unchanged.
-        if getattr(self, "opd_fixed_text_padding", None) is False:
+        # Explicit native/canonical modes repair collection padding according to
+        # their own contract. Historical fixed-padding defaults are unchanged.
+        if getattr(self, "opd_canonical_fixed_padding", False):
+            forward_inputs = restore_opd_text_padding(
+                forward_inputs, fixed_length=self.padding_value
+            )
+        elif getattr(self, "opd_fixed_text_padding", None) is False:
             forward_inputs = restore_opd_text_padding(forward_inputs)
         normalized_input = {
             "state": forward_inputs["state"],
@@ -990,7 +994,14 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         # padding alone moves the first action dimension from -0.0070 to -0.0746 and takes
         # success_once from 0.88 to 0.00. The processor already pads to the longest prompt
         # in the batch, which is what the reference implementation relies on.
-        if getattr(
+        if getattr(self, "opd_canonical_fixed_padding", False):
+            # Explicit new fixed-padding contract: processor left padding must
+            # not make a row depend on the longest prompt in its rollout batch.
+            # Native/default inference retains its existing behavior.
+            normalized_input = restore_opd_text_padding(
+                normalized_input, fixed_length=self.padding_value
+            )
+        elif getattr(
             self,
             "opd_fixed_text_padding",
             self.obs_convert_fn is not OBS_CONVERSION["robocasa365"],

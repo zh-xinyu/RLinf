@@ -115,7 +115,18 @@ def _restore_action_head_fp32(model: torch.nn.Module, model_path: Path) -> int:
     return restored
 
 
+def validate_opd_padding_config(cfg: DictConfig) -> bool:
+    """Require an explicit fixed-padding policy for canonical fixed batches."""
+    canonical = cfg.get("opd_canonical_fixed_padding", False)
+    if not isinstance(canonical, bool):
+        raise ValueError("opd_canonical_fixed_padding must be a boolean")
+    if canonical and cfg.get("opd_fixed_text_padding", None) is not True:
+        raise ValueError("Canonical fixed padding requires opd_fixed_text_padding=True")
+    return canonical
+
+
 def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
+    canonical_fixed_padding = validate_opd_padding_config(cfg)
     from rlinf.utils.patcher import Patcher
 
     Patcher.clear()
@@ -284,6 +295,7 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
         if not isinstance(fixed_padding, bool):
             raise ValueError("opd_fixed_text_padding must be a boolean")
         model.opd_fixed_text_padding = fixed_padding
+    model.opd_canonical_fixed_padding = canonical_fixed_padding
 
     if cfg.get("skip_backbone_logits", False):
         from .memory_utils import enable_feature_only_backbone
