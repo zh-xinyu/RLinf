@@ -1,5 +1,7 @@
 # RoboTwin 2.0 四任务 MOPD
 
+- [action30 Blackwell 环境与 OIDN 兼容性验收（2026-11-06）](ACTION30_ENVIRONMENT_20261106.md)
+
 更新：2026-11-02，action00。**本轮自动调试已完成：联合SFT500→MOPD80在独立20场景/task上由35.0%提高到85.0%，三组实际场景与teacher参考匹配。** 完整训练、冻结pilot和独立确认均已核验，所有自有作业退出。详见[最终结果](JOINT_SFT_MOPD_RESULTS_20261102.md)、[计划与完成记录](AUTONOMOUS_DEBUG_PLAN_20261101.md)和[状态历史](LIVE_STATUS.md)。当前仍是单训练seed、seen/unstable-only reset的可行性结果，不是论文正式benchmark成绩。
 
 前几轮负面结果完整保留：[初期 pilot](PILOT_RESULTS_20261101.md)、[specialist 初始化结果](SPECIALIST_INIT_RESULTS_20261101.md)。训练 loss 下降不等于任务能力融合成功。

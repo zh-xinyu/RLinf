@@ -11,7 +11,7 @@
 - 每个保存点按原冻结 formal100 场景/指令池独立测评，每任务 100 episodes；固定执行 H25，10 ODE steps。Teacher 与初始 student 各测一次，共 42 行、168 个 task-checkpoint jobs、16,800 episodes。
 - 四组：M0 Uniform-R1；M1 Uniform-Refresh-R2；M2 Adaptive-Sync-Refresh-R2；M3 Adaptive-Sync-R1。
 - W&B project：`FORMAL_robotwin_pi05`；group：`robotwin_formal_sft500_100ep`。
-- 执行顺序：完成 GPU smoke 后，先训练 M0，再评测 teacher、初始 student 和 M0 的所有保存点；然后依次训练并评测 M1、M2、M3。首轮不自动增加 seeds，不按结果改变训练预算。
+- 当前执行顺序（2026-11-06 用户调整）：M0 已完成；暂停独立测评，优先依次训练 M1 → M2 → M3。测评后续单独安排，仍使用 formal100 协议。首轮不自动增加 seeds，不按结果改变训练预算。
 - 共享输出入口：`outputs/robotwin4/formal_sft500_action10_20261105/`，机器配置 `machine.action10.json`，队列状态 `queue_status.json`，汇总 `deliverables/checkpoint_results.csv`。
 - 存储：M0/M1 完整训练目录在共享输出下；M2/M3 在 action10 `/localscratch/liyifa11/XyFile/opd-robotwin4-action10-20261105/formal_sft500_20261105/train/`。所有测评、汇总和队列状态在共享输出入口。需到 action10 访问 M2/M3 权重，不误认为其已共享归档。
 - 初始化比较：保留已有 SFT2000 成绩为历史参考；只有相同正式协议下的测评才合并到正式表格。SFT500→MOPD 提升不等价于优于充分 Joint-SFT。
@@ -41,3 +41,10 @@
 - 队列于2026-11-06 17:10 UTC在teacher评测启动前因GPU busy检查退出；未产生独立评测结果，M1–M3未启动。当时的占用者未记录，不能据此认定具体进程；当前GPU0–3空闲。
 - 修复阶段切换：保持原显存空闲阈值，最多等待300秒，每5秒检查，仍繁忙则停止；不停止其他用户进程。应用到训练启动、评测启动和评测checkpoint之间，27项针对性测试通过。
 - 续接入口：`outputs/robotwin4/formal_sft500_action10_20261105/continuation_20261106_after_m0/continue_queue.py`。跳过已完成M0训练，继续teacher→student→M0 checkpoints测评，再依次M1/M2/M3训练与测评。
+
+## 优先后续训练（2026-11-06）
+
+- 按用户要求停止 teacher 独立测评，保留已完成 episode 的 JSON 与日志；未完成的测评不作为正式完整结果。
+- GPU0–3 启动 M1（Uniform-Refresh-R2），仍从 SFT500 初始化，100 rollout rounds / 200 student updates，T32/B256/micro16/LR1e-5，每10轮保存。
+- 后续仅训练 M2 → M3，所有独立测评暂缓；M0 不重跑。W&B project/group 不变。
+- 队列入口：`outputs/robotwin4/formal_sft500_action10_20261105/training_only_20261106/train_queue.py`；实时进度仍见 `queue_status.json`。

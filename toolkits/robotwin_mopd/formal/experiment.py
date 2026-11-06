@@ -46,6 +46,30 @@ def read_machine(path: Path) -> dict:
     return cfg
 
 
+def evaluation_pool_path(machine: dict, *, development: bool = False) -> Path:
+    """Allow an explicit runtime binding while preserving every scene/protocol field."""
+    name = "dev20.json" if development else "formal100.json"
+    original = HERE / name
+    if "runtime_pool_dir" not in machine:
+        return original
+    from toolkits.robotwin_mopd.author_pool import load_pool
+
+    directory = Path(machine["runtime_pool_dir"])
+    if not directory.is_absolute():
+        raise ValueError("runtime_pool_dir must be absolute")
+    path = directory / name
+    baseline = load_pool(original)
+    candidate = load_pool(path)
+    # Only the installed simulator payload identity may differ. Do not permit
+    # rescreening, scene replacement, instruction changes, or horizon changes.
+    for pool in (baseline, candidate):
+        pool.pop("pool_content_sha256")
+        pool["protocol"].pop("runtime_profile")
+    if baseline != candidate:
+        raise ValueError("Runtime-bound pool changed frozen scenes or protocol")
+    return path
+
+
 def environment(machine: dict) -> dict:
     """Activate runtime without inheriting its recorded repository location."""
     runtime = Path(machine["runtime_root"])
@@ -142,6 +166,11 @@ def freeze_training_settings(machine: dict) -> None:
         "runtime_root": machine["runtime_root"],
         "training_output_roots": machine.get("training_output_roots", {}),
     }
+    if "runtime_pool_dir" in machine:
+        settings["runtime_pools_sha256"] = {
+            "formal100": digest(evaluation_pool_path(machine)),
+            "dev20": digest(evaluation_pool_path(machine, development=True)),
+        }
     if path.exists():
         if json.loads(path.read_text()) != settings:
             raise ValueError(
@@ -252,7 +281,7 @@ def eval_jobs(machine: dict, target: str, seed: int) -> list[dict]:
                 "--episodes",
                 "100",
                 "--evaluation-pool",
-                str(HERE / "formal100.json"),
+                str(evaluation_pool_path(machine)),
                 "--output",
                 str(destination),
             ]
@@ -336,7 +365,9 @@ def execute_evaluations(
         for job in jobs:
             command = job["command"]
             command[command.index("--episodes") + 1] = "2"
-            command[command.index("--evaluation-pool") + 1] = str(HERE / "dev20.json")
+            command[command.index("--evaluation-pool") + 1] = str(
+                evaluation_pool_path(machine, development=True)
+            )
             job["output"] = str(
                 Path(machine["output_root"]) / "smoke/teachers" / f"{job['task']}.json"
             )
@@ -382,7 +413,7 @@ def execute_evaluations(
 
 def summarize(machine: dict) -> None:
     """Validate episode identity and emit a table with missing values left blank."""
-    pool = json.loads((HERE / "formal100.json").read_text())
+    pool = json.loads(evaluation_pool_path(machine).read_text())
     rows = []
     for target in EVAL_TARGETS:
         jobs = eval_jobs(machine, target, 0)

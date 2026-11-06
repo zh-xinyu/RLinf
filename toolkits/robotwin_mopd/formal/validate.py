@@ -14,10 +14,10 @@ from omegaconf import OmegaConf
 from rlinf.utils.rollout_allocation import load_teacher_reference
 from toolkits.robotwin_mopd import author_pool
 from toolkits.robotwin_mopd.formal.experiment import (
-    HERE,
     RECIPE,
     REPO,
     TASKS,
+    evaluation_pool_path,
     read_machine,
     train_command,
 )
@@ -43,7 +43,7 @@ def main() -> None:
     ):
         cfg = compose(config_name="robotwin4_mopd_pi05", overrides=overrides)
     OmegaConf.resolve(cfg)
-    pool = author_pool.load_pool(HERE / "formal100.json")
+    pool = author_pool.load_pool(evaluation_pool_path(machine))
     if pool["protocol"]["episodes_per_task"] != 100:
         raise ValueError("Formal pool must contain 100 episodes per task")
     author_pool.validate_pool_protocol(

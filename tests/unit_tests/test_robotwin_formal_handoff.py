@@ -266,3 +266,44 @@ def test_checkpoint_paths_match_runner_and_optional_storage(machine, tmp_path):
     assert not formal.checkpoint_path(machine, "m0", 0, 10).is_relative_to(
         tmp_path / "local_disk"
     )
+
+
+def test_runtime_pool_binding_preserves_scenes_and_protocol(machine, tmp_path):
+    from toolkits.robotwin_mopd.feasible_pool import pool_content_sha256
+
+    directory = tmp_path / "runtime_pools"
+    directory.mkdir()
+    machine["runtime_pool_dir"] = str(directory)
+    for name in ("formal100.json", "dev20.json"):
+        pool = json.loads((formal.HERE / name).read_text())
+        pool["protocol"]["runtime_profile"]["sapien_content_fingerprint"]["sha256"] = (
+            "a" * 64
+        )
+        pool["pool_content_sha256"] = pool_content_sha256(pool)
+        (directory / name).write_text(json.dumps(pool))
+    assert formal.evaluation_pool_path(machine) == directory / "formal100.json"
+    assert (
+        formal.evaluation_pool_path(machine, development=True)
+        == directory / "dev20.json"
+    )
+    formal.freeze_training_settings(machine)
+    for name in ("formal100.json", "dev20.json"):
+        pool = json.loads((directory / name).read_text())
+        pool["protocol"]["runtime_profile"]["sapien_content_fingerprint"]["sha256"] = (
+            "b" * 64
+        )
+        pool["pool_content_sha256"] = pool_content_sha256(pool)
+        (directory / name).write_text(json.dumps(pool))
+    with pytest.raises(ValueError, match="Formal settings changed"):
+        formal.freeze_training_settings(machine)
+    pool["tasks"][formal.TASKS[0]][0]["instruction"] = "changed instruction"
+    pool["pool_content_sha256"] = pool_content_sha256(pool)
+    (directory / "dev20.json").write_text(json.dumps(pool))
+    with pytest.raises(ValueError, match="changed frozen scenes or protocol"):
+        formal.evaluation_pool_path(machine, development=True)
+
+
+def test_runtime_pool_binding_rejects_relative_directory(machine):
+    machine["runtime_pool_dir"] = "relative"
+    with pytest.raises(ValueError, match="must be absolute"):
+        formal.evaluation_pool_path(machine)
