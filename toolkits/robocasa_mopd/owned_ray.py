@@ -22,6 +22,7 @@ import os
 import re
 import socket
 import subprocess
+import time
 
 import psutil
 
@@ -65,6 +66,30 @@ def check_gpus(count: int, env: dict[str, str]) -> str:
     ):
         raise RuntimeError("Selected GPUs are busy; refusing to start")
     return output
+
+
+def wait_for_gpus(
+    count: int,
+    env: dict[str, str],
+    timeout_seconds: float = 300,
+    poll_seconds: float = 5,
+) -> str:
+    """Wait for asynchronous GPU cleanup without relaxing the availability check."""
+    if timeout_seconds < 0 or poll_seconds <= 0:
+        raise ValueError("Invalid GPU wait timeout/poll interval")
+    deadline = time.monotonic() + timeout_seconds
+    announced = False
+    while True:
+        try:
+            return check_gpus(count, env)
+        except RuntimeError as error:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("Selected GPUs remain busy after waiting") from error
+            if not announced:
+                print("Waiting for selected GPUs to become available...", flush=True)
+                announced = True
+            time.sleep(min(poll_seconds, remaining))
 
 
 def owned_processes(owner: str) -> list[psutil.Process]:

@@ -325,9 +325,9 @@ def execute_evaluations(
     machine: dict, target: str, seed: int, env: dict, *, smoke: bool = False
 ) -> None:
     """Run one checkpoint at a time, four tasks in parallel on allocated GPUs."""
-    from toolkits.robocasa_mopd.owned_ray import check_gpus
+    from toolkits.robocasa_mopd.owned_ray import wait_for_gpus
 
-    check_gpus(4, env)
+    wait_for_gpus(4, env)
     devices = env.get("CUDA_VISIBLE_DEVICES", "").split(",")
     if len(devices) != 4:
         raise ValueError("Exactly four explicitly allocated GPUs are required")
@@ -348,6 +348,8 @@ def execute_evaluations(
         if job["checkpoint"] != "teacher" and not Path(job["checkpoint"]).is_dir():
             raise FileNotFoundError(job["checkpoint"])
     for offset in range(0, len(jobs), 4):
+        if offset:
+            wait_for_gpus(4, env)
         children = []
         try:
             for device, job in zip(devices, jobs[offset : offset + 4], strict=True):

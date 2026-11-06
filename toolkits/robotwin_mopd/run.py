@@ -20,9 +20,9 @@ from omegaconf import OmegaConf
 
 from toolkits.robocasa_mopd.owned_ray import (
     OWNER_KEY,
-    check_gpus,
     require_free_ray,
     stop_owned,
+    wait_for_gpus,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -155,7 +155,7 @@ def main():
     with open(f"/tmp/opd-single-job-{os.getuid()}.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         require_free_ray()
-        check_gpus(args.num_gpus, env)
+        wait_for_gpus(args.num_gpus, env)
         output.mkdir(parents=True)
         (output / "runtime_profile.json").write_text(
             json.dumps(runtime_profile, indent=2) + "\n"
