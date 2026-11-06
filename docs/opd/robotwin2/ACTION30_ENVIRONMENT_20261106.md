@@ -68,3 +68,13 @@ python toolkits/robotwin_mopd/formal/experiment.py --machine "$OPD_ROBOTWIN_MACH
 - PyTorch reserved峰值约7.24GiB，仅代表单卡推理smoke，不包含Vulkan/context，不代表训练峰值。
 - 总状态：**部署/推理验收通过，四卡完整模型训练与checkpoint保存验收待做。** 无正式训练/正式独立测评在本轮启动。机器可用显存变化时再次检查，不自动排队。
 - 汇总：`outputs/robotwin4/action30_environment_20261106/validation_summary.json`。
+
+## NCCL checkpoint 修复（2026-11-06）
+
+完整模型 smoke 的两次更新成功，但原 NCCL 2.26.2+cuda12.2 在 DCP 保存的 object collective 中发生 illegal memory access；未进入正式训练。这不是 OOM。小规模四卡复现也失败。
+
+仅在 action30 独立 runtime 的 `vendor/nccl-2.31.2/` 安装 `nvidia-nccl-cu12==2.31.2`，通过 `env.sh` 的 `LD_PRELOAD` 加载。原 Torch2.7.1/cu128 和原 NCCL wheel 保留，旧 env 备份为 `env.before_nccl2312.sh`。上游参考：[NVIDIA NCCL issue2418](https://github.com/NVIDIA/nccl/issues/2418)。本机库路径/hash与对照结果见正式输出 `setup/nccl_probe/runtime_overlay.json`。
+
+- 同一探针：原库 FAIL；新库的四卡 all-reduce/scatter（至4MiB）及2000 tensors的DCP save/load PASS。
+- 增强 `formal/collective_smoke.py`：实际 FSDPStrategy 的 DCP/full-weight 保存、修改模型与Adam状态后恢复、逐值核对模型/Adam/scheduler全部 PASS。四卡实际 `ncclGetVersion=23102`。Torch的 `torch.cuda.nccl.version()` 仍报告编译时2.26.2，不能据此判断实际运行库。
+- 正式超参数不变：T32/B256/micro16/LR1e-5/R2；完整模型 smoke 仍须成功后才能启动M1。
