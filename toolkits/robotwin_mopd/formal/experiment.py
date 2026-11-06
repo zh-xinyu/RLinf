@@ -87,7 +87,7 @@ def environment(machine: dict) -> dict:
 
 def run_id(method: str, seed: int) -> str:
     return (
-        f"robotwin_formal_sft2000_{method}_rounds{RECIPE['rounds']}"
+        f"robotwin_formal_{RECIPE['initialization_id']}_{method}_rounds{RECIPE['rounds']}"
         f"_b{RECIPE['global_batch_size']}_seed{seed}"
     )
 
@@ -107,14 +107,40 @@ def smoke_run_id(machine: dict, method: str = "m1") -> str:
     return f"{run_id(method, 0)}_micro{micro_batch_size(machine)}_smoke"
 
 
+def training_root(machine: dict, method: str) -> Path:
+    """Allow complete runs on separate disks without changing their recipes."""
+    path = Path(
+        machine.get("training_output_roots", {}).get(
+            method, str(Path(machine["output_root"]) / "train")
+        )
+    )
+    if not path.is_absolute():
+        raise ValueError("training_output_roots entries must be absolute")
+    return path
+
+
+def checkpoint_path(machine: dict, method: str, seed: int, step: int) -> Path:
+    """Match EmbodiedRunner's log_path / experiment_name checkpoint layout."""
+    name = run_id(method, seed)
+    return (
+        training_root(machine, method)
+        / name
+        / name
+        / "checkpoints"
+        / f"global_step_{step}"
+    )
+
+
 def freeze_training_settings(machine: dict) -> None:
     """Reject changes to the common recipe after the first formal arm starts."""
     path = Path(machine["output_root"]) / "prepared/formal_training_settings.json"
     settings = {
         "recipe_sha256": digest(HERE / "recipe.json"),
+        "resources_sha256": digest(HERE / "resources.json"),
         "micro_batch_size": micro_batch_size(machine),
         "resource_root": machine["resource_root"],
         "runtime_root": machine["runtime_root"],
+        "training_output_roots": machine.get("training_output_roots", {}),
     }
     if path.exists():
         if json.loads(path.read_text()) != settings:
@@ -169,7 +195,7 @@ def train_command(
         "env.train.seed=42",
         "runner.rollout_allocation.seed=42",
         "+rollout.seed=1000000000",
-        "runner.logger.wandb_group=robotwin_formal_sft2000_100ep",
+        f"runner.logger.wandb_group=robotwin_formal_{RECIPE['initialization_id']}_100ep",
     ]
     return [
         str(Path(machine["runtime_root"]) / "venv/bin/python"),
@@ -178,7 +204,7 @@ def train_command(
         "--run-id",
         name,
         "--output-root",
-        str(output / ("smoke" if smoke else "train")),
+        str(output / "smoke" if smoke else training_root(machine, method)),
         "--num-gpus",
         "4",
         *(["--dry-run"] if dry_run else []),
@@ -206,9 +232,7 @@ def eval_jobs(machine: dict, target: str, seed: int) -> list[dict]:
         checkpoints = [
             (
                 r,
-                str(
-                    output / "train" / name / "checkpoints" / f"global_step_{r * reuse}"
-                ),
+                str(checkpoint_path(machine, target, seed, r * reuse)),
             )
             for r in RECIPE["save_rounds"]
         ]

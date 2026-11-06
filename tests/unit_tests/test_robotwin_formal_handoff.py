@@ -48,7 +48,7 @@ def test_matched_budget_and_refresh_contract(machine, method, reuse, adaptive):
     assert int(values["runner.max_steps"]) == 100 * reuse
     assert values["runner.save_interval"] == "-1"
     assert json.loads(values["+runner.save_steps"]) == [
-        r * reuse for r in (10, 20, 40, 60, 80, 100)
+        r * reuse for r in range(10, 101, 10)
     ]
     assert values["algorithm.sync_suite_loss_weights"] == str(adaptive).lower()
     assert values["runner.rollout_allocation.mode"] == (
@@ -62,17 +62,21 @@ def test_every_checkpoint_gets_100_episodes(machine):
         for target in ("student", "teachers", "m0", "m1", "m2", "m3")
         for job in formal.eval_jobs(machine, target, 0)
     ]
-    assert len(jobs) == 104
-    assert len({job["output"] for job in jobs}) == 104
+    assert len(jobs) == 168
+    assert len({job["output"] for job in jobs}) == 168
     for job in jobs:
         command = job["command"]
         assert command[command.index("--episodes") + 1] == "100"
     assert {j["round"] for j in formal.eval_jobs(machine, "m1", 0)} == {
         10,
         20,
+        30,
         40,
+        50,
         60,
+        70,
         80,
+        90,
         100,
     }
     with pytest.raises(ValueError):
@@ -173,27 +177,35 @@ def test_cli_plan_and_summary_include_complete_factorial_matrix(machine, tmp_pat
     ]
     plan = json.loads(subprocess.check_output([*command, "plan"], text=True))
     assert set(plan["training"]) == {"m0", "m1", "m2", "m3"}
-    assert len(plan["evaluation"]) == 104
+    assert len(plan["evaluation"]) == 168
     m3_jobs = formal.eval_jobs(machine, "m3", 0)
     assert {Path(job["checkpoint"]).name for job in m3_jobs} == {
         "global_step_10",
         "global_step_20",
+        "global_step_30",
         "global_step_40",
+        "global_step_50",
         "global_step_60",
+        "global_step_70",
         "global_step_80",
+        "global_step_90",
         "global_step_100",
     }
     subprocess.run([*command, "summarize"], check=True)
     table = Path(machine["output_root"]) / "deliverables/checkpoint_results.csv"
     with table.open() as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == 26
+    assert len(rows) == 42
     assert {int(row["rollout_round"]) for row in rows if row["experiment"] == "m3"} == {
         10,
         20,
+        30,
         40,
+        50,
         60,
+        70,
         80,
+        90,
         100,
     }
     assert all(row["status"] == "PENDING" and not row["task_macro_sr"] for row in rows)
@@ -223,3 +235,34 @@ def test_formal_arms_cannot_silently_change_common_microbatch(machine):
     formal.freeze_training_settings(machine)
     with pytest.raises(ValueError, match="Formal settings changed"):
         formal.freeze_training_settings({**machine, "actor_micro_batch_size": 8})
+
+
+def test_sft500_identity_is_explicit(machine):
+    assert formal.RECIPE["initialization"] == "Joint-SFT500"
+    for method in formal.METHODS:
+        command = formal.train_command(machine, method, 0)
+        assert "sft500" in formal.run_id(method, 0)
+        assert "runner.logger.wandb_group=robotwin_formal_sft500_100ep" in command
+
+
+def test_checkpoint_paths_match_runner_and_optional_storage(machine, tmp_path):
+    for method in formal.METHODS:
+        command = formal.train_command(machine, method, 0)
+        output = Path(command[command.index("--output-root") + 1])
+        name = formal.run_id(method, 0)
+        for job in formal.eval_jobs(machine, method, 0):
+            step = job["round"] * formal.RECIPE["methods"][method]["reuse"]
+            assert (
+                Path(job["checkpoint"])
+                == output / name / name / "checkpoints" / f"global_step_{step}"
+            )
+        assert "runner.logger.project_name=FORMAL_robotwin_pi05" in command
+    machine["training_output_roots"] = {"m2": str(tmp_path / "local_disk")}
+    command = formal.train_command(machine, "m2", 0)
+    assert command[command.index("--output-root") + 1] == str(tmp_path / "local_disk")
+    assert formal.checkpoint_path(machine, "m2", 0, 20).is_relative_to(
+        tmp_path / "local_disk"
+    )
+    assert not formal.checkpoint_path(machine, "m0", 0, 10).is_relative_to(
+        tmp_path / "local_disk"
+    )

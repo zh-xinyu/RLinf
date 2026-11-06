@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "initialization": "Joint-SFT2000 (500 + 1500; fresh optimizer at continuation)",
+  "initialization": "Joint-SFT500 (fixed 500-update cold start; 45 training demonstrations per task)",
   "teacher_repository": "niejunnan25/pi05-robotwin",
   "teacher_revision": "17ef545270cf26ed81169893b60f845f80ce6557",
   "files": {
@@ -70,11 +70,11 @@
     },
     "student/actor/model_state_dict/full_weights.pt": {
       "bytes": 16573945133,
-      "sha256": "3ceedc83aa566bfbe967ed9f9e83aea00fef942b3d5d965e7357f90f3fe08d9b"
+      "sha256": "506da520d3d9276ed3516bc308a446ed8b194b131291fc4378b9ac913e6c5d32"
     },
     "student/metadata.json": {
-      "bytes": 3843,
-      "sha256": "c014dcfbc9c631cc2372678d32b7a83a1b7f83957cd40f8b870821cae6f42a4e"
+      "bytes": 3842,
+      "sha256": "f22f7e07f39b6278abc93aa1b8d6e42962894000c27dffa6b4fc9243a08e8a88"
     },
     "openpi-data/big_vision/paligemma_tokenizer.model": {
       "bytes": 4264023,

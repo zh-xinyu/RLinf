@@ -4,13 +4,17 @@
   "save_rounds": [
     10,
     20,
+    30,
     40,
+    50,
     60,
+    70,
     80,
+    90,
     100
   ],
   "eval_episodes_per_task": 100,
-  "initialization": "Joint-SFT2000",
+  "initialization": "Joint-SFT500",
   "tasks": [
     "adjust_bottle",
     "handover_mic",
@@ -45,7 +49,8 @@
     "runner.rollout_allocation.max_quota_change=4",
     "algorithm.suite_balanced_sampling=true",
     "runner.val_check_interval=-1",
-    "+algorithm.log_cuda_memory=true"
+    "+algorithm.log_cuda_memory=true",
+    "runner.logger.project_name=FORMAL_robotwin_pi05"
   ],
   "methods": {
     "m0": {
@@ -72,5 +77,6 @@
     "stack_bowls_two": 900
   },
   "global_batch_size": 256,
-  "default_micro_batch_size": 16
+  "default_micro_batch_size": 16,
+  "initialization_id": "sft500"
 }

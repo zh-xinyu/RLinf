@@ -37,7 +37,7 @@ output = Path(machine["output_root"])
 smoke = output / "smoke" / smoke_run_id(machine)
 if (smoke / "status").read_text().strip() != "COMPLETE":
     raise SystemExit("Complete and inspect validation before formal execution")
-weights = smoke / "checkpoints/global_step_2/actor/model_state_dict/full_weights.pt"
+weights = smoke / smoke.name / "checkpoints/global_step_2/actor/model_state_dict/full_weights.pt"
 if not weights.is_file() or not weights.stat().st_size:
     raise SystemExit("Missing full-model smoke checkpoint")
 for rank in range(4):
