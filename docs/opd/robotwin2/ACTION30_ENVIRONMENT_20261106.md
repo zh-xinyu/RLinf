@@ -78,3 +78,5 @@ python toolkits/robotwin_mopd/formal/experiment.py --machine "$OPD_ROBOTWIN_MACH
 - 同一探针：原库 FAIL；新库的四卡 all-reduce/scatter（至4MiB）及2000 tensors的DCP save/load PASS。
 - 增强 `formal/collective_smoke.py`：实际 FSDPStrategy 的 DCP/full-weight 保存、修改模型与Adam状态后恢复、逐值核对模型/Adam/scheduler全部 PASS。四卡实际 `ncclGetVersion=23102`。Torch的 `torch.cuda.nccl.version()` 仍报告编译时2.26.2，不能据此判断实际运行库。
 - 正式超参数不变：T32/B256/micro16/LR1e-5/R2；完整模型 smoke 仍须成功后才能启动M1。
+
+2026-11-06 22:19 UTC补充：上述完整π0.5训练smoke已通过，完整checkpoint约66.3GB，随后正式M1启动。证据 `outputs/robotwin4/formal_sft500_action30_20261106/prepared/full_model_smoke.json`；运行中四actor库路径核对见该目录 `setup/nccl_probe/smoke_actor_loaded_libraries.json`。

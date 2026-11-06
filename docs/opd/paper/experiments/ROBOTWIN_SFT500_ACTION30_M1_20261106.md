@@ -25,3 +25,9 @@
 action30独立runtime固定加载NCCL2.31.2+cuda12.9（LD_PRELOAD overlay），Torch/模型/算法/正式参数不变。小规模旧/新通信库对照及实际FSDP模型、Adam、scheduler精确保存恢复已通过，证据 `setup/nccl_probe/`；实际运行库版本以ncclGetVersion为准。
 
 2026-11-06 22:09 UTC：新队列PID1483642开始prepare→preflight→完整smoke→M1；独立测评仍暂缓。用户再次确认T32。全模型smoke和正式启动结果待追加。
+
+## 完整smoke通过，正式M1已启动
+
+2026-11-06 22:19:52 UTC，完整smoke COMPLETE并通过队列检查：32 trajectories（每task8）、10,448 simulation steps、两次更新loss/gradient有限；DCP optimizer、full weights和runner状态合计66,315,442,526 bytes。smoke的success为22/32，仅用于部署检查，不计入正式成绩。实际四个actor的`/proc/maps`均确认加载NCCL2.31.2。
+
+正式M1从SFT500重新开始，W&B [4oge6bkt](https://wandb.ai/zhouxinyu2022-michigan-state-university/FORMAL_robotwin_pi05/runs/4oge6bkt)，队列PID1483642。启动commit为`af4f240a`（包含smoke改进与记录）；训练代码未因NCCL修复改变。T32/R2/B256/micro16/LR1e-5、100rounds/200updates、每10rounds保存不变。当前仅启动M1，未排队M2/M3或独立评测。
