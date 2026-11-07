@@ -1,0 +1,21 @@
+{
+  "bundle": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle",
+  "strict_checkpoint_loading": true,
+  "parameter_count": 3616757520,
+  "parameter_dtypes": {
+    "torch.float32": 122,
+    "torch.bfloat16": 690
+  },
+  "task_norms": {
+    "open_laptop": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle/assets/open_laptop/norm_stats.json",
+    "handover_mic": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle/assets/handover_mic/norm_stats.json",
+    "dump_bin_bigbin": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle/assets/dump_bin_bigbin/norm_stats.json",
+    "stack_bowls_two": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle/assets/stack_bowls_two/norm_stats.json"
+  },
+  "gpu_visible": false,
+  "portable_configuration_checks": [
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle/train_joint_sft.py",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/worktrees/robotwin_task_init_probe/docs/opd/paper/experiments/robotwin_initialization_20261107/reproduce/train_joint_sft.py"
+  ],
+  "success": true
+}

@@ -1,0 +1,137 @@
+{
+  "screening_checkpoints": [
+    100,
+    200,
+    300,
+    400,
+    500
+  ],
+  "inference": {
+    "prediction_horizon": 50,
+    "execution_horizon": 25,
+    "ode_steps": 10
+  },
+  "norms": {
+    "open_laptop": {
+      "path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/candidate/torch/open_laptop/assets/robotwin/norm_stats.json",
+      "sha256": "5577560f69fdce6bd8d55a8a29466bdfec0c3f42291e82245a423b786ee05bde"
+    },
+    "handover_mic": {
+      "path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_norms/handover_mic/norm_stats.json",
+      "sha256": "91b5137d7b0bf5dcdf4587180c169bda14147d7b34f1e2e9cc57a97c7d389be2"
+    },
+    "dump_bin_bigbin": {
+      "path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/candidate_dump_bin_bigbin/torch/dump_bin_bigbin/assets/robotwin/norm_stats.json",
+      "sha256": "19910cc2a40cbd5dce27a343fdaecf8fa75b2437da97d893c908fdd1532d8373"
+    },
+    "stack_bowls_two": {
+      "path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_norms/stack_bowls_two/norm_stats.json",
+      "sha256": "7ae95e854e317cc1542db8ba8ba15446ade99ea49c76674ee44f4e33b7384dd5"
+    }
+  },
+  "formal_scenes_used": false,
+  "complete": true,
+  "negative_guards_passed": [
+    "count",
+    "scene_identity",
+    "boolean_success"
+  ],
+  "confirmed_50_per_task": {
+    "open_laptop": {
+      "student_successes": 35,
+      "teacher_successes": 41,
+      "episodes_per_model": 50,
+      "student_sr": 0.7,
+      "teacher_sr": 0.82,
+      "teacher_minus_student_pp": 12
+    },
+    "handover_mic": {
+      "student_successes": 22,
+      "teacher_successes": 49,
+      "episodes_per_model": 50,
+      "student_sr": 0.44,
+      "teacher_sr": 0.98,
+      "teacher_minus_student_pp": 54
+    },
+    "dump_bin_bigbin": {
+      "student_successes": 22,
+      "teacher_successes": 46,
+      "episodes_per_model": 50,
+      "student_sr": 0.44,
+      "teacher_sr": 0.92,
+      "teacher_minus_student_pp": 48
+    },
+    "stack_bowls_two": {
+      "student_successes": 34,
+      "teacher_successes": 39,
+      "episodes_per_model": 50,
+      "student_sr": 0.68,
+      "teacher_sr": 0.78,
+      "teacher_minus_student_pp": 10
+    }
+  },
+  "additional_30_only": {
+    "open_laptop": {
+      "student_successes": 22,
+      "teacher_successes": 25,
+      "episodes_per_model": 30
+    },
+    "handover_mic": {
+      "student_successes": 11,
+      "teacher_successes": 30,
+      "episodes_per_model": 30
+    },
+    "dump_bin_bigbin": {
+      "student_successes": 12,
+      "teacher_successes": 29,
+      "episodes_per_model": 30
+    },
+    "stack_bowls_two": {
+      "student_successes": 22,
+      "teacher_successes": 23,
+      "episodes_per_model": 30
+    }
+  },
+  "student_macro_sr": 0.565,
+  "teacher_macro_sr": 0.875,
+  "checkpoint": {
+    "path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/new_student_sft500/checkpoints/global_step_500",
+    "weights": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/new_student_sft500/checkpoints/global_step_500/actor/model_state_dict/full_weights.pt",
+    "bytes": 16573945133,
+    "sha256": "2ba5028ae73c9d01f7882329256d7c0a3691b9b1e2db7f9602c1216aee731a4a"
+  },
+  "source_results": {
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft100_open_laptop.json": "8443c8be7136d6c0462698b8d61785b1d2bedcec57195f0e2f8cf397fad46001",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft100_handover_mic.json": "1b1a682a75fb624160976e11545fe425100791c4304d38c67fe15fb77e627d26",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft100_dump_bin_bigbin.json": "972cf78a259377c1315900e1c6ffb8464692cd3d0b999c9fe9ee8b10b6d5c4f7",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft100_stack_bowls_two.json": "0133cb5d6e7c360f5e673261302e2982f0bc3a02d3d6df417a2d39c51ab8fdc8",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft200_open_laptop.json": "1fa2cf14a55356f0482e678a4173a0fc56a8a9096694b578f090497ee809fee7",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft200_handover_mic.json": "9ce54d18732ccca654bccacc1713b4b5c053dff8dc9cf12378c6d202e6c26d82",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft200_dump_bin_bigbin.json": "8e2c0b6785fd1a17eef15fae73db849a0e207384dc29c99c2e164e32028acf0e",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft200_stack_bowls_two.json": "1493c3d7529c795189f3ab49bc25d2ffe641c85e554f56c0765c0a876bcc2e2c",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval300/open_laptop.json": "13d74bd053ae6f4760e019f68b856881e6dccc96c218ec76b7627a19bc307482",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval300/handover_mic.json": "f6f2f01d471f9c9953aea80c40b2b7089fb1c302915b052ec819558a2fe14385",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval300/dump_bin_bigbin.json": "0acd5fafd0017de89671bbe5aec56a56341246c435e0c252f04cf67bc857f34f",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval300/stack_bowls_two.json": "43965f5b6db7e072720a503af47829145915b589c0cfe53007313324490a7559",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval400/open_laptop.json": "3e8f2af2cb30aea897ece74dfd305efc8788af31ff05185d617496e496de7b52",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval400/handover_mic.json": "995bbdec9d51bb2349d439537f19744cf961126049c5c009019d3ac1eb5b89ac",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval400/dump_bin_bigbin.json": "e73fb8101a9fc7b16a9a02dbab6c8c4c23a3adb536fd604c679c1c0271304ab2",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval400/stack_bowls_two.json": "1fa19ef7dd83731a4cf1fe3691a2a7185131a71c016bcce3801766cd39963dff",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft500_open_laptop.json": "4b0073cd34c315bcd2a678654683cfe3a957d88f66163ed3ade1b75176d49e6d",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft500_handover_mic.json": "62c6d105fd98e8f5d0a8083ad34a7e20947988517795913a46b6012576f5bfec",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft500_dump_bin_bigbin.json": "a3778ac6c2006ffd8d349c0e161282e3e05ffc059a68a96deb328addc1a73f47",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_eval/sft500_stack_bowls_two.json": "99d09fee7ae400447928b01c2f0d7ad034acc0039cd63d1b5395ad5f272f40b4",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/candidate/teacher_dev20.json": "812361673f6df82e16e2b8d07bd1e47fffddab65b188b7ef01f245525094289a",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation500/student500_open_laptop.json": "23b41bcfb46174f0cda3dd097aa42f876155dfaed25ec46bca3fcd58d86c8a06",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation400/teachers_open_laptop.json": "4b1133c7976459e1f4a7662727cd774630f86b2953e76539cf476a11408fc862",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/retained_teacher_eval/handover_mic.json": "354ed7c5c2732b766ceb86c2fecce1a56f1bea891e45d6e299887f18aa38bf60",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation500/student500_handover_mic.json": "f023fdc599a0516983d8a0520c5e893e3bfb7105c0135abc213ccde6942df19b",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation400/teachers_handover_mic.json": "13991acf5791abadfdb4124b68d46be9b2917586a5ab7f2d9ac4d01d110e3e8c",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/candidate_dump_bin_bigbin/teacher_dev20.json": "50b34f0806f556b69186bcd510d685984869200ab7d48e88b0f61f04b697a541",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation500/student500_dump_bin_bigbin.json": "201868db973cd3bf0b97a5694057a6c5ff9d934f318e5172caa0bffa8de9962b",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation400/teachers_dump_bin_bigbin.json": "8fffd67e2a6c78b24c3401e85af37d0affee57bda0c47f2d86a6196115c1d08c",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/retained_teacher_eval/stack_bowls_two.json": "723ef863311aa3755e838f0094ca6f785ecb061c3ec9ba4050f65fef89d97093",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation500/student500_stack_bowls_two.json": "9601190ae67122c1fe53902b7e5d25e8a090884b4e0c78057d5deb60355c3a87",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/validation400/teachers_stack_bowls_two.json": "e41657b7669519eed2227bd1183aa5ae54374025f8a5928b46f0e50d7e9c9483"
+  }
+}

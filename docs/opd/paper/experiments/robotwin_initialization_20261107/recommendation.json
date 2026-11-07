@@ -1,0 +1,64 @@
+{
+  "recommended_step": 400,
+  "tasks": [
+    "open_laptop",
+    "handover_mic",
+    "dump_bin_bigbin",
+    "stack_bowls_two"
+  ],
+  "bundle": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/student400_bundle",
+  "weights_sha256": "d2ef819ae9a7706accaa027edf406a1c2bc1c8f007e8bccbe695e63e4f77ce5a",
+  "confirmed_development": {
+    "open_laptop": {
+      "student_successes": 28,
+      "teacher_successes": 41,
+      "episodes_per_model": 50,
+      "student_sr": 0.56,
+      "teacher_sr": 0.82,
+      "teacher_minus_student_pp": 26
+    },
+    "handover_mic": {
+      "student_successes": 22,
+      "teacher_successes": 49,
+      "episodes_per_model": 50,
+      "student_sr": 0.44,
+      "teacher_sr": 0.98,
+      "teacher_minus_student_pp": 54
+    },
+    "dump_bin_bigbin": {
+      "student_successes": 23,
+      "teacher_successes": 46,
+      "episodes_per_model": 50,
+      "student_sr": 0.46,
+      "teacher_sr": 0.92,
+      "teacher_minus_student_pp": 46
+    },
+    "stack_bowls_two": {
+      "student_successes": 39,
+      "teacher_successes": 39,
+      "episodes_per_model": 50,
+      "student_sr": 0.78,
+      "teacher_sr": 0.78,
+      "teacher_minus_student_pp": 0
+    }
+  },
+  "student_macro_sr": 0.56,
+  "teacher_macro_sr": 0.875,
+  "rationale": [
+    "Reducing original joint-SFT from 500 to 200 leaves adjust_bottle at 90% while other tasks fall to 5/20/15%.",
+    "Replacement SFT400 has all task SRs >=44% and teacher-student gaps 26/54/46/0 percentage points.",
+    "SFT500 has nearly identical mean SR (56.5% vs 56%); preference for SFT400 is based on capability profile, not a statistically established mean-performance advantage."
+  ],
+  "known_limitations": [
+    "stack_bowls_two already matches its specialist (78%); this task tests capability retention.",
+    "These are development results on action00, not formal 100-episode results on action30.",
+    "No MOPD gain on the new task set has been demonstrated in this initialization study.",
+    "Joint-SFT400 is a cold start, not a converged joint-SFT baseline."
+  ],
+  "formal_switch_performed": false,
+  "normalization_remove_old_keys": [
+    "adjust_bottle",
+    "place_container_plate"
+  ],
+  "adaptive_reference_action": "Recalibrate all four teachers on the training-rollout distribution; do not reuse the old task-set reference file."
+}

@@ -1,0 +1,5 @@
+task,teacher_successes,episodes,teacher_sr,student400_successes,student400_sr,student500_successes,student500_sr
+open_laptop,41,50,0.82,28,0.56,35,0.7
+handover_mic,49,50,0.98,22,0.44,22,0.44
+dump_bin_bigbin,46,50,0.92,23,0.46,22,0.44
+stack_bowls_two,39,50,0.78,39,0.78,34,0.68

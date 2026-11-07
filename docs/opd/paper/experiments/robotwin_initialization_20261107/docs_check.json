@@ -1,0 +1,22 @@
+{
+  "scope": "Chinese project research note, not Sphinx product documentation; no EN counterpart required",
+  "status": "PASS",
+  "findings": [],
+  "verified": [
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/screening.csv",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/reproduction.json",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/reproduce/train_joint_sft.py",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/confirmed.csv",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/audit400.json",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/audit500.json",
+    "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/docs/opd/paper/experiments/robotwin_initialization_20261107/bundle_load.json",
+    "openpi and robotwin registration verified against code",
+    "pi05_aloha_robotwin resolved on action20",
+    "task horizons 700/600/600/900 read from pinned task config",
+    "model weights and normalization hashes match actual packages and pinned source manifest",
+    "all local Markdown links exist",
+    "Python reproduction scripts compile",
+    "CPU import/configuration tests and strict model load passed",
+    "development scene/instruction/runtime identity audits and negative corruption checks passed"
+  ]
+}

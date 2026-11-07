@@ -1,0 +1,162 @@
+{
+  "source_commit": "45a8f1ff693313fc546ad427c44e4d01a0e92aa4",
+  "source_sha256": {
+    "toolkits/robotwin_mopd/joint_sft.py": "59547607d10c99bac4302c82db915937e8dab86e17eab681b929af358d7a3c6c",
+    "toolkits/robotwin_mopd/joint_sft_data.py": "078d62535c2d1cf132076df9811d9e45dfb1ab40e4005f01fd50d2bcd65c9784",
+    "rlinf/models/embodiment/openpi/openpi_action_model.py": "dec563c342be08a4e218f7eb43a7af1a4eee580924699d9074dbad2bb25d2e74",
+    "rlinf/hybrid_engines/fsdp/fsdp_model_manager.py": "1496dc9ff0cfe551a80ed76ebaceffd3332ea2858e215f1fefbd23638d7ef894"
+  },
+  "source_wrapper": {
+    "tasks": [
+      "open_laptop",
+      "handover_mic",
+      "dump_bin_bigbin",
+      "stack_bowls_two"
+    ],
+    "wrapper": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/joint_sft_candidate.py",
+    "wrapper_sha256": "c8f251c052611d14261f7cdf649daa83cb0877ad38c5258a4ff4feb6fd8cf93a",
+    "initialization": "same pi05 base; no expert weights merged; four-task demonstration SFT"
+  },
+  "training_arguments": {
+    "data": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/replacement_data",
+    "output": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/new_student_sft500",
+    "model_path": "/localscratch2/liyifa11/XyFile/opd-robotwin4/models/pi05_base_torch",
+    "steps": 500,
+    "batch_size": 128,
+    "microbatch": 4,
+    "lr": 2.5e-05,
+    "warmup": 25,
+    "seed": 42,
+    "save_interval": 100,
+    "validation_interval": 50,
+    "holdout_episodes": 5,
+    "workers": 2,
+    "wandb_project": null,
+    "wandb_group": "robotwin_joint_sft_initialization",
+    "wandb_name": null,
+    "verify_only": false,
+    "inspect_data": false
+  },
+  "selected_step": 400,
+  "weights_sha256": "d2ef819ae9a7706accaa027edf406a1c2bc1c8f007e8bccbe695e63e4f77ce5a",
+  "base": {
+    "host": "action20",
+    "actual_sha256": "bb13a5caa07b551713a5833d0ed0d7c21a4e579eb5b05c9b572b538dd5cdb646",
+    "bytes": 14467165872,
+    "conversion": {
+      "source": "/localscratch2/liyifa11/XyFile/opd-robotwin4/models/pi05_base_jax",
+      "destination": "/localscratch2/liyifa11/XyFile/opd-robotwin4/models/pi05_base_torch",
+      "openpi_revision": "c5dc4b9296a1a4739bf52828f28a579f12dce763",
+      "converter_sha256": "62980fda1a1b1a09167d413232a2a9295db8370e52b58a70cfba52ef5d88c440",
+      "precision": "float32",
+      "action_horizon": 50,
+      "weight_sha256": "bb13a5caa07b551713a5833d0ed0d7c21a4e579eb5b05c9b572b538dd5cdb646",
+      "weight_bytes": 14467165872,
+      "load_audit": [
+        {
+          "loaded_keys": 811,
+          "missing_keys": [
+            "paligemma_with_expert.paligemma.lm_head.weight",
+            "paligemma_with_expert.gemma_expert.lm_head.weight"
+          ],
+          "unexpected_keys": []
+        }
+      ],
+      "validation": "parameter_mapping_only; closed-loop and JAX/PyTorch equivalence pending"
+    }
+  },
+  "norms": {
+    "open_laptop": {
+      "path": "assets/open_laptop/norm_stats.json",
+      "sha256": "5577560f69fdce6bd8d55a8a29466bdfec0c3f42291e82245a423b786ee05bde"
+    },
+    "handover_mic": {
+      "path": "assets/handover_mic/norm_stats.json",
+      "sha256": "91b5137d7b0bf5dcdf4587180c169bda14147d7b34f1e2e9cc57a97c7d389be2"
+    },
+    "dump_bin_bigbin": {
+      "path": "assets/dump_bin_bigbin/norm_stats.json",
+      "sha256": "19910cc2a40cbd5dce27a343fdaecf8fa75b2437da97d893c908fdd1532d8373"
+    },
+    "stack_bowls_two": {
+      "path": "assets/stack_bowls_two/norm_stats.json",
+      "sha256": "7ae95e854e317cc1542db8ba8ba15446ade99ea49c76674ee44f4e33b7384dd5"
+    }
+  },
+  "protocol": {
+    "objective": "obtain a reproducible joint cold start with basic task competence and meaningful specialist-to-student capability gaps",
+    "unchanged_formal_experiments": "action30 managed by separate fork session",
+    "development_only": true,
+    "inference": {
+      "prediction_length": 50,
+      "execution_length": 25,
+      "flow_ode_steps": 10
+    },
+    "original_task_comparison": {
+      "checkpoints": [
+        200,
+        500
+      ],
+      "episodes_per_task": 20,
+      "pool": "original fixed dev20"
+    },
+    "replacement_candidates": [
+      "open_laptop",
+      "dump_bin_bigbin"
+    ],
+    "retained_tasks": [
+      "handover_mic",
+      "stack_bowls_two"
+    ],
+    "replacement_teacher_gate": {
+      "episodes": 20,
+      "minimum_successes_for_initial_trial": 15,
+      "note": "small development screening only; not a formal reliability estimate"
+    },
+    "replacement_sft": {
+      "base": "same official pi05_base_torch",
+      "training_demos_per_task": 45,
+      "holdout_demos_per_task": 5,
+      "updates": 500,
+      "global_batch": 128,
+      "microbatch_per_gpu": 4,
+      "gpus": 2,
+      "lr": 2.5e-05,
+      "warmup_updates": 25,
+      "scheduler": "constant",
+      "seed": 42,
+      "evaluation_checkpoints": [
+        100,
+        200,
+        300,
+        400,
+        500
+      ],
+      "early100_reason": "additional development-only early feedback; same training trajectory and frozen scenes",
+      "midpoint300_scheduling": "separate queue waits for complete SFT200 evaluation and a complete step300 checkpoint; training budget unchanged",
+      "midpoint400_reason": "SFT300 has task competence but handover remains weak; inspect the already scheduled intermediate checkpoint without increasing training budget"
+    },
+    "initialization_assessment": [
+      "check task-by-task SR, not only the average",
+      "prefer skill coverage over a checkpoint made uniformly undertrained",
+      "quantify specialist-student gaps on matched development scenes",
+      "expand development evaluation of a promising initialization before recommendation"
+    ],
+    "fallbacks": [
+      "smaller demonstration budget with fixed seed and explicit subsets",
+      "offline distillation",
+      "model merging only after checking compatibility"
+    ],
+    "artifact_root": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107",
+    "confirmation": {
+      "candidate_step": 400,
+      "additional_episodes_per_task": 30,
+      "cohort": 0,
+      "selection_start": 20,
+      "matched_teachers": true,
+      "initial_screening_episodes_per_task": 20,
+      "total_development_episodes_per_task": 50,
+      "formal_evaluation_used_for_selection": false
+    }
+  }
+}
