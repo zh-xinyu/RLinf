@@ -1,3 +1,5 @@
+> 历史SFT2000交接，保留作来源记录。当前seed1交接请使用 [SFT500 seed1版本](../robotwin2_formal_sft500_seed1/robotwin2_blackwell_4gpu_handoffs.md)。
+
 # RoboTwin 2.0 四任务正式实验交接
 
 交付代码：`experiment/robotwin2-mopd` 分支的100 rounds / B256版本；按第3节获取并记录 commit，全部实验保持同一版本。旧20轮版本不用于本次正式实验。本指南包含实验设计、安装、权重下载、目标机验收、运行及交回结果的完整流程。随附 `checkpoint_results.csv` 为结果模板。74.45 GB 模型/tokenizer 通过 Hugging Face 单独下载，命令见第3节。
