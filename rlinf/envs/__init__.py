@@ -70,6 +70,10 @@ def get_env_cls(env_type: str, env_cfg=None):
 
         return LiberoEnv
     elif env_type == SupportedEnvType.ROBOTWIN:
+        if env_cfg is not None and env_cfg.get("fixed_evaluation_pool"):
+            from rlinf.envs.robotwin.fixed_eval_env import FixedSceneRoboTwinEnv
+
+            return FixedSceneRoboTwinEnv
         if env_cfg is not None and env_cfg.get("task_names"):
             from rlinf.envs.robotwin.multitask_env import RoboTwinMultiTaskEnv
 

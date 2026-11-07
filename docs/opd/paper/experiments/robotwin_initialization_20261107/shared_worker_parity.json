@@ -1,0 +1,171 @@
+{
+  "episodes": 2,
+  "episode_field_matches": [
+    {
+      "actual_reset_seed": true,
+      "instruction": true,
+      "actual_scene_info": true,
+      "success_once": true,
+      "simulation_steps": true
+    },
+    {
+      "actual_reset_seed": true,
+      "instruction": true,
+      "actual_scene_info": true,
+      "success_once": true,
+      "simulation_steps": true
+    }
+  ],
+  "trace": [
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    },
+    {
+      "scene_seed_match": true,
+      "chunk_match": true,
+      "observation_match": true,
+      "action_max_abs": 0.0
+    }
+  ],
+  "all_worker_queries": 72,
+  "chunk_counts": [
+    24,
+    24
+  ],
+  "passed": true
+}

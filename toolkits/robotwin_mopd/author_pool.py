@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import random
+import re
 import subprocess
 from pathlib import Path
 
@@ -73,7 +74,22 @@ def author_cache(reference: Path) -> dict:
     return cache
 
 
-def source_hashes(root: Path) -> dict:
+def declared_tasks(task_names=None) -> tuple[str, ...]:
+    """Validate an explicit task registry without changing legacy defaults."""
+    tasks = tuple(TASKS if task_names is None else task_names)
+    if (
+        not tasks
+        or len(set(tasks)) != len(tasks)
+        or any(
+            not isinstance(task, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", task)
+            for task in tasks
+        )
+    ):
+        raise ValueError("Task names must be unique safe identifiers")
+    return tasks
+
+
+def source_hashes(root: Path, *, task_names=None) -> dict:
     """Fingerprint local task/control/camera/robot/language configuration files."""
     names = {
         "envs/_base_task.py",
@@ -83,8 +99,11 @@ def source_hashes(root: Path) -> dict:
         "task_config/_embodiment_config.yml",
         "task_config/_eval_step_limit.yml",
         "description/utils/generate_episode_instructions.py",
-        *[f"envs/{task}.py" for task in TASKS],
-        *[f"description/task_instruction/{task}.json" for task in TASKS],
+        *[f"envs/{task}.py" for task in declared_tasks(task_names)],
+        *[
+            f"description/task_instruction/{task}.json"
+            for task in declared_tasks(task_names)
+        ],
     }
     names.update(str(p.relative_to(root)) for p in (root / "envs/robot").rglob("*.py"))
     names.update(str(p.relative_to(root)) for p in (root / "envs/camera").rglob("*.py"))
@@ -109,8 +128,9 @@ def author_instruction(reference: Path, task: str, info: dict, seed: int) -> str
         random.setstate(state)
 
 
-def load_pool(path: Path) -> dict:
+def load_pool(path: Path, *, task_names=None) -> dict:
     """Reject incomplete, tampered, duplicated, or ambiguously selected pools."""
+    tasks = declared_tasks(task_names)
     pool = json.loads(Path(path).read_text())
     if pool.get("schema_version") != 2:
         raise ValueError("Unsupported author-pool schema")
@@ -131,8 +151,8 @@ def load_pool(path: Path) -> dict:
         or p["author_cache_sha256"] != CACHE_SHA256
     ):
         raise ValueError("Author provenance mismatch")
-    if p["task_names"] != list(TASKS) or set(pool["tasks"]) != set(TASKS):
-        raise ValueError("Expected the four predeclared tasks")
+    if p["task_names"] != list(tasks) or set(pool["tasks"]) != set(tasks):
+        raise ValueError("Expected the predeclared tasks")
     if p.get("screening_overrides") != {}:
         raise ValueError("Author replay overrides must be exactly empty")
     if p.get("noise_rule") != NOISE_RULE:
@@ -186,19 +206,32 @@ def runtime_identity(report: dict) -> dict:
 
 
 def validate_pool_protocol(
-    pool: dict, *, task_config: dict, task_horizons: dict, robotwin_root: Path
+    pool: dict,
+    *,
+    task_config: dict,
+    task_horizons: dict,
+    robotwin_root: Path,
+    task_names=None,
 ) -> dict:
     """Check source/config/runtime/cache provenance before a model is loaded."""
     from rlinf.envs.robotwin.runtime_profile import validate_robotwin4_runtime
 
+    tasks = declared_tasks(task_names)
     p = pool["protocol"]
+    if p["task_names"] != list(tasks):
+        raise ValueError("Protocol task registry differs")
     if canonical_sha256(task_config) != p["task_config_sha256"]:
         raise ValueError("Evaluation task_config differs from author replay pool")
-    if {task: int(task_horizons[task]) for task in TASKS} != p["task_horizons"]:
+    if {task: int(task_horizons[task]) for task in tasks} != p["task_horizons"]:
         raise ValueError("Evaluation horizons differ from author replay pool")
     if revision(robotwin_root) != p["robotwin_revision"]:
         raise ValueError("Local RoboTwin revision mismatch")
-    if source_hashes(robotwin_root) != p["source_files_sha256"]:
+    local_hashes = (
+        source_hashes(robotwin_root)
+        if task_names is None
+        else source_hashes(robotwin_root, task_names=tasks)
+    )
+    if local_hashes != p["source_files_sha256"]:
         raise ValueError("Local runtime source-file mismatch")
     runtime = validate_robotwin4_runtime()
     if runtime_identity(runtime) != runtime_identity(p["runtime_profile"]):
@@ -206,7 +239,7 @@ def validate_pool_protocol(
     reference = Path(os.environ.get("PACE_REFERENCE_ROOT", p["author_reference_root"]))
     cache = author_cache(reference)
     start, count = p["selection_start"], p["selection_count"]
-    for task in TASKS:
+    for task in tasks:
         selected = cache["tasks"][task][str(p["author_cohort"])][start : start + count]
         actual = [
             {k: row[k] for k in ("scene_seed", "episode_info")}
@@ -253,7 +286,9 @@ def main() -> None:
     )
     parser.add_argument("--config-name", default="robotwin4_mopd_pi05")
     parser.add_argument("--override", action="append", default=[])
+    parser.add_argument("--task-names", nargs="+", default=None)
     args = parser.parse_args()
+    tasks_registry = declared_tasks(args.task_names)
     if args.start < 0 or args.count < 1 or args.start + args.count > 100:
         parser.error("Selection must lie within the 100-scene author cohort")
     if args.output.exists():
@@ -278,7 +313,7 @@ def main() -> None:
     protocol = {
         "name": PROTOCOL_NAME,
         "instruction_type": "unseen",
-        "task_names": list(TASKS),
+        "task_names": list(tasks_registry),
         "episodes_per_task": args.count,
         "selection_count": args.count,
         "selection_start": args.start,
@@ -300,14 +335,14 @@ def main() -> None:
         "task_config": task_config,
         "task_config_sha256": canonical_sha256(task_config),
         "task_horizons": {
-            task: int(cfg.env.eval.task_horizons[task]) for task in TASKS
+            task: int(cfg.env.eval.task_horizons[task]) for task in tasks_registry
         },
         "robotwin_revision": revision(root),
-        "source_files_sha256": source_hashes(root),
+        "source_files_sha256": source_hashes(root, task_names=tasks_registry),
         "runtime_profile": runtime,
     }
     tasks = {}
-    for task in TASKS:
+    for task in tasks_registry:
         selected = cache["tasks"][task][str(args.cohort)][
             args.start : args.start + args.count
         ]
@@ -323,12 +358,13 @@ def main() -> None:
     pool = {"schema_version": 2, "complete": True, "protocol": protocol, "tasks": tasks}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_pool(args.output, pool)
-    pool = load_pool(args.output)
+    pool = load_pool(args.output, task_names=tasks_registry)
     validate_pool_protocol(
         pool,
         task_config=task_config,
         task_horizons=protocol["task_horizons"],
         robotwin_root=root,
+        task_names=tasks_registry,
     )
     print(f"AUTHOR_POOL_COMPLETE {args.output}", flush=True)
 

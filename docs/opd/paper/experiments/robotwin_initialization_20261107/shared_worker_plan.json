@@ -1,0 +1,41 @@
+{
+  "branch": "experiment/robotwin2-task-init-probe",
+  "host": "action20",
+  "physical_gpus": [
+    0,
+    1
+  ],
+  "tasks": [
+    "open_laptop",
+    "handover_mic",
+    "dump_bin_bigbin",
+    "stack_bowls_two"
+  ],
+  "task_horizons": {
+    "open_laptop": 700,
+    "handover_mic": 600,
+    "dump_bin_bigbin": 600,
+    "stack_bowls_two": 900
+  },
+  "episodes_per_task_per_model": 50,
+  "models": [
+    "four individual specialists",
+    "student400_bundle"
+  ],
+  "inference": {
+    "executed_chunk_length": 25,
+    "predicted_horizon": 50,
+    "flow_ode_steps": 10,
+    "noise_rule": "torch.manual_seed(actual_scene_seed) once per episode; production predict_action_batch draws subsequent noise"
+  },
+  "pool": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r3/development50.json",
+  "pool_content_sha256": "08f536767b4ce18f8e2ea2c1d06e60b59a4acd671d4e39e8317f8806d119f7dd",
+  "output": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r3",
+  "queue_pid": 652339,
+  "finalizer_pid": 715392,
+  "cpu_tests_passed": 27,
+  "paired_episode_count": 2,
+  "paired_executed_chunks": 24,
+  "paired_max_action_abs_difference": 0.0,
+  "new_training_started": false
+}

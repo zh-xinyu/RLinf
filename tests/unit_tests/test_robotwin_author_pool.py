@@ -281,3 +281,18 @@ def test_author_execution_contract_is_fixed(tmp_path):
     p["protocol"]["noise_rule"] = "different"
     with pytest.raises(ValueError, match="noise_rule"):
         save_load(tmp_path, p)
+
+
+def test_explicit_task_registry_does_not_change_defaults(tmp_path):
+    pool = pool_fixture()
+    old = module.TASKS[0]
+    tasks = ["open_laptop", *module.TASKS[1:]]
+    pool["protocol"]["task_names"] = tasks
+    pool["tasks"]["open_laptop"] = pool["tasks"].pop(old)
+    path = tmp_path / "new_tasks.json"
+    module.write_pool(path, pool)
+    assert module.load_pool(path, task_names=tasks)["protocol"]["task_names"] == tasks
+    with pytest.raises(ValueError, match="predeclared"):
+        module.load_pool(path)
+    with pytest.raises(ValueError, match="safe identifiers"):
+        module.load_pool(path, task_names=["../bad"])
