@@ -65,7 +65,7 @@ def test_seed_specific_smoke_evaluation_and_summary(tmp_path, monkeypatch):
     cfg = machine(tmp_path, 1)
     assert "seed1" in formal.smoke_run_id(cfg)
     jobs = formal.eval_jobs(cfg, "m2", 1)
-    assert len(jobs) == 48 and all("seed1" in j["checkpoint"] for j in jobs)
+    assert len(jobs) == 60 and all("seed1" in j["checkpoint"] for j in jobs)
     assert all("seed1" in j["output"] for j in jobs)
     jobs0 = formal.eval_jobs(machine(tmp_path, 0), "m2", 0)
     assert {j["output"] for j in jobs}.isdisjoint(j["output"] for j in jobs0)
@@ -80,7 +80,7 @@ def test_seed_specific_smoke_evaluation_and_summary(tmp_path, monkeypatch):
 
     with (Path(cfg["output_root"]) / "deliverables/checkpoint_results.csv").open() as f:
         rows = list(csv.DictReader(f))
-    assert len(rows) == 50
+    assert len(rows) == 62
     assert all(
         row["training_seed"] == "1"
         for row in rows
