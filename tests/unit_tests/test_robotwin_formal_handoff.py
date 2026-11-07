@@ -179,10 +179,12 @@ def test_cli_plan_and_summary_include_complete_factorial_matrix(machine, tmp_pat
     ]
     plan = json.loads(subprocess.check_output([*command, "plan"], text=True))
     assert set(plan["training"]) == {"m0", "m1", "m2", "m3"}
-    assert len(plan["evaluation"]) == 168
+    assert len(plan["evaluation"]) == 200
     m3_jobs = formal.eval_jobs(machine, "m3", 0)
     assert {Path(job["checkpoint"]).name for job in m3_jobs} == {
+        "global_step_5",
         "global_step_10",
+        "global_step_15",
         "global_step_20",
         "global_step_30",
         "global_step_40",
@@ -197,7 +199,7 @@ def test_cli_plan_and_summary_include_complete_factorial_matrix(machine, tmp_pat
     table = Path(machine["output_root"]) / "deliverables/checkpoint_results.csv"
     with table.open() as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == 42
+    assert len(rows) == 50
     assert {int(row["rollout_round"]) for row in rows if row["experiment"] == "m3"} == {
         5,
         10,
