@@ -40,6 +40,8 @@
 - 实际从base连续训练500步，每100步保存；推荐其中400步checkpoint。复现时保留这条500步训练轨迹并取400步，不把后100步算作初始化的更新。
 - Teachers来自 `niejunnan25/pi05-robotwin` revision `17ef545270cf26ed81169893b60f845f80ce6557`，每task一个30k-update/EMA0.99专家；只使用权重，不使用PACE动态执行。转换与norm校验均保留。
 
+训练软件版本见 [training_versions.json](training_versions.json)，仿真运行时内容指纹见 [evaluation_runtime.json](evaluation_runtime.json)。
+
 原始配置、模型/数据哈希与可移植训练入口见 [reproduction.json](reproduction.json)、[train_joint_sft.py](reproduce/train_joint_sft.py)。入口依赖本实验分支的现有 `joint_sft.py` 和数据读取器，需要配置运行时、tokenizer、base与官方数据路径；不是独立安装脚本。原始实际启动器和失败修复记录完整保存在研究输出中。`reproduce/assets/`提供经上游SHA256核对的四套norm；训练入口须使用新输出目录。
 
 使用Python 3.11复核已保存结果（不运行模型）：

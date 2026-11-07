@@ -1,0 +1,41 @@
+{
+  "profile": "pi05-four-task",
+  "sapien_version": "3.0.0b1",
+  "sapien_distribution_version": "3.0.0b1",
+  "sapien_module_path": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/reference/sapien300b1_cp311_utf8_vendor/sapien/__init__.py",
+  "sapien_module_sha256": "f883d253d8d29ee47cc46917c39d2ac4c3832cb8908eb02d1b836ec9cf20fcc4",
+  "robotwin_revision": "dca9ec682688821c42944eacd7f5dd9bfb15396f",
+  "robotwin_source_sha256": {
+    "envs/_base_task.py": "3ec50617672b3658122b0644bbda1afaec4a0c2d47c9a8b6b61b48e0bad303fd",
+    "envs/robot/robot.py": "1f4d0284eaf47fe5de2c0ba98a173b78beb83f2f2cc43409d37072a4774df4c8",
+    "envs/camera/camera.py": "49ff2005d14749caa5fd9698d35f6f937664bde89cfdf0ab93675204c85bbf33",
+    "task_config/demo_clean.yml": "865af205a90c3e7ffe4b4dd3db06955609f1b58c76d997e18894d8195a361566",
+    "task_config/_camera_config.yml": "dc80a40552e0fad25d58cf0141302ceba66d22409b5091bed235ad2f10cbce7f"
+  },
+  "sapien_content_fingerprint": {
+    "scheme": "sapien-installed-payload-sha256-v1",
+    "sha256": "a77d6d85380564ba32a07213fd7fbb1faa7a32fb2f5dd561a694f9e282767691",
+    "file_count": 1142,
+    "total_bytes": 109324823
+  },
+  "sapien_vendor_manifest": {
+    "distribution": "sapien",
+    "version": "3.0.0b1",
+    "python_abi": "cp311",
+    "wheel_filename": "sapien-3.0.0b1-cp311-cp311-manylinux2014_x86_64.whl",
+    "wheel_sha256": "d9497375c9dc26f07b82ba08f347f7ff5df063c057d2744aec0521568ffeb096",
+    "source": "https://pypi.org/project/sapien/3.0.0b1/",
+    "installation": "pip install --no-deps --no-index --target NEW_VENDOR_DIR WHEEL",
+    "local_patches": [
+      {
+        "name": "explicit-utf8-urdf-srdf-reading",
+        "file": "sapien/wrapper/urdf_loader.py",
+        "before_sha256": "eabba86fe7d244ce8d469010f96914010a8883ea5835c86a8bc58be310510683",
+        "after_sha256": "13aad693f05663472a4f1b59ea34fb313db6ee2f1416fce19ad4830cfa588059",
+        "matches": "toolkits/robotwin_mopd/setup/finalize_runtime.sh exact replacements"
+      }
+    ],
+    "snapshot_evidence": "outputs/robotwin4/analysis/teacher_reaudit_20261102/sapien_snapshot_ablation_20261102.json",
+    "closed_loop_evidence": "outputs/robotwin4/analysis/teacher_reaudit_20261102/cached_localenv_rlinf_sapien300b1_10/results.json"
+  }
+}
