@@ -1,5 +1,7 @@
 experiment,training_seed,rollout_round,episodes_per_task,adjust_bottle,handover_mic,place_container_plate,stack_bowls_two,task_macro_sr,status
+m0,1,5,100,,,,,,PENDING
 m0,1,10,100,,,,,,PENDING
+m0,1,15,100,,,,,,PENDING
 m0,1,20,100,,,,,,PENDING
 m0,1,30,100,,,,,,PENDING
 m0,1,40,100,,,,,,PENDING
@@ -9,7 +11,9 @@ m0,1,70,100,,,,,,PENDING
 m0,1,80,100,,,,,,PENDING
 m0,1,90,100,,,,,,PENDING
 m0,1,100,100,,,,,,PENDING
+m2,1,5,100,,,,,,PENDING
 m2,1,10,100,,,,,,PENDING
+m2,1,15,100,,,,,,PENDING
 m2,1,20,100,,,,,,PENDING
 m2,1,30,100,,,,,,PENDING
 m2,1,40,100,,,,,,PENDING
@@ -19,7 +23,9 @@ m2,1,70,100,,,,,,PENDING
 m2,1,80,100,,,,,,PENDING
 m2,1,90,100,,,,,,PENDING
 m2,1,100,100,,,,,,PENDING
+m1,1,5,100,,,,,,PENDING
 m1,1,10,100,,,,,,PENDING
+m1,1,15,100,,,,,,PENDING
 m1,1,20,100,,,,,,PENDING
 m1,1,30,100,,,,,,PENDING
 m1,1,40,100,,,,,,PENDING
@@ -29,7 +35,9 @@ m1,1,70,100,,,,,,PENDING
 m1,1,80,100,,,,,,PENDING
 m1,1,90,100,,,,,,PENDING
 m1,1,100,100,,,,,,PENDING
+m3,1,5,100,,,,,,PENDING
 m3,1,10,100,,,,,,PENDING
+m3,1,15,100,,,,,,PENDING
 m3,1,20,100,,,,,,PENDING
 m3,1,30,100,,,,,,PENDING
 m3,1,40,100,,,,,,PENDING

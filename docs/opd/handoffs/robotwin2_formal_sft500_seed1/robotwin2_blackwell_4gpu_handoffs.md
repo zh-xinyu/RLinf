@@ -3,7 +3,7 @@
 更新：2026-11-06。本次只跑 **seed1，M0 → M2 → M1 → M3**；seed0由Xinyu执行。此文替代旧SFT2000交接，代码与下载权重都必须更新。交付附件仅本文件和 `checkpoint_results.csv`；所有脚本在仓库中。
 
 - 代码分支：`experiment/robotwin2-mopd`。
-- 固定代码commit：`d7f58fd20fc4ca47c6a896c229a050c8f090489d`。
+- 固定release tag：`robotwin2-sft500-seed1-20261106`（包含代码、测试和本版交接文档；运行时记录`git rev-parse HEAD`）。
 - 初始化：**Joint-SFT500**，每task45条训练示范、固定500 updates；不是SFT2000，不是few-shot；四组共用同一权重，OPD optimizer重新初始化。
 - 已验证：54项CPU测试、seed1四组配置preflight和评测seed隔离；action30已通过四卡真实π0.5更新及完整checkpoint保存。**合作者仍须先在自己的4卡Blackwell节点完成下述validate，不能直接跳过。**
 
@@ -19,10 +19,10 @@
 - 四tasks：`adjust_bottle`、`handover_mic`、`place_container_plate`、`stack_bowls_two`；各路由对应固定PACE teacher。
 - **T32**为每round四任务合计；Uniform每task8条。每组3200条student轨迹；R2每轮复用环境观测并用当前student刷新flow。Teacher校准成本独立记录。
 - 4GPU；**global B256、microbatch16/card、LR1e-5 constant、warmup4 student updates**。不要自行改变T/B/LR/R、训练轮数或采样/weighting规则。
-- 每10 rounds保存：10/20/…/100。R1对应updates10/20/…/100；R2对应updates20/40/…/200。
+- 前20 rounds每5轮保存，之后每10轮：**5/10/15/20/30/40/50/60/70/80/90/100**。R1按相同update编号保存；R2对应updates10/20/30/40/60/80/100/120/140/160/180/200。
 - 所有保存checkpoint独立测评 **100 episodes/task**；固定formal100场景/指令，执行H25、10 ODE steps。不得减episodes、换seed或挑最佳checkpoint后只交该结果。
 - W&B project：`FORMAL_robotwin_pi05`；group：`robotwin_formal_sft500_100ep`；run名带`seed1`，自动分别创建run。四组都从SFT500出发，不从上一组终点接着训练。
-- 单份完整checkpoint约66.3GB；四组40份约2.65TB，另加约75GB输入权重、仿真资产、环境与日志。建议训练输出盘准备至少3TB可用。不要自行删除尚未评测或未交接的checkpoint。
+- 单份完整checkpoint约66.3GB；四组48份约3.18TB，另加约75GB输入权重、仿真资产、环境与日志。建议训练输出盘准备至少4TB可用。不要自行删除尚未评测或未交接的checkpoint。
 
 `training_seed=1`已实际映射为actor seed=1、环境/allocator基准seed=10000042、rollout noise seed=1001000000；不仅改变run名。四组使用相同seed映射，评测场景/noise规则保持固定。控制器继续使用冻结20-episode/task校准，不用正式100-episode成绩替换。
 
@@ -33,7 +33,7 @@
 ```bash
 git clone --branch experiment/robotwin2-mopd --single-branch https://github.com/zh-xinyu/RLinf.git
 cd RLinf
-git checkout --detach d7f58fd20fc4ca47c6a896c229a050c8f090489d
+git checkout --detach robotwin2-sft500-seed1-20261106
 
 # 全新专用目录。若已装过旧交接runtime，可直接激活它并执行下面的Blackwell修复。
 bash toolkits/robotwin_mopd/formal/install.sh /data/robotwin-runtime blackwell-cu128-candidate
@@ -109,9 +109,9 @@ unset WANDB_RUN_ID WANDB_RESUME WANDB_RESUME_FROM
 sbatch toolkits/robotwin_mopd/formal/slurm.sh /data/opd-config/robotwin-seed1.json run
 ```
 
-实际顺序为：**M0训练→M0全部10个checkpoints评测→M2训练/评测→M1训练/评测→M3训练/评测**。共40个task-macro checkpoint结果、160个task-checkpoint jobs、16,000 episodes。每个checkpoint四任务并行评测，一次只评一个checkpoint；失败即停，不跳过或覆盖已有结果。
+实际顺序为：**M0训练→M0全部12个checkpoints评测→M2训练/评测→M1训练/评测→M3训练/评测**。共48个task-macro checkpoint结果、192个task-checkpoint jobs、19,200 episodes。每个checkpoint四任务并行评测，一次只评一个checkpoint；失败即停，不跳过或覆盖已有结果。
 
-共同SFT500/teacher/SFT2000的正式baseline评测由Xinyu单独统筹，本队列不重复；teacher部署smoke仍必做。脚本最终summarize生成42行CSV，其中40行为本次主实验，额外student/teachers两行允许PENDING，之后合并共同参考成绩；附件模板已标记这两行为`SHARED_REFERENCE`。
+共同SFT500/teacher/SFT2000的正式baseline评测由Xinyu单独统筹，本队列不重复；teacher部署smoke仍必做。脚本最终summarize生成50行CSV，其中48行为本次主实验，额外student/teachers两行允许PENDING，之后合并共同参考成绩；附件模板已标记这两行为`SHARED_REFERENCE`。
 
 交回：`deliverables/checkpoint_results.csv`、完整`eval/` JSON/log、`train/`中的resolved config/launch/runtime/code快照/训练JSONL/driver与Ray日志、`prepared/`、Slurm日志、W&B链接、运行机器信息和所有异常/恢复说明。模型与optimizer checkpoint至少保留到评测及负责人确认归档。训练中断后先报告，由负责人决定续训；不要把中断run当成额外seed或静默重跑挑结果。
 
@@ -120,3 +120,5 @@ sbatch toolkits/robotwin_mopd/formal/slurm.sh /data/opd-config/robotwin-seed1.js
 推荐最终3个training seeds（seed0/1/2），比两seed更能反映训练波动，但不保证统计显著性。优先完成seed1四组；有时间再补seed2。资源紧时seed2先M0/M2，再M1/M3，报告各比较实际重复数，不混成所有方法都有三seed。
 
 seed2需要负责人确认后另建machine JSON，改`training_seed: 2`和全新output_root，重复bind/validate/run；共享同一SFT500/teachers和固定评测池，无需重新SFT。代码会使用actor seed2、环境/allocator20000042、rollout noise1002000000，并拒绝在已冻结seed1输出下换seed。本次交付的默认machine为seed1，没有自动衔接seed2或参数扫描。
+
+保存点补充：本seed1交接已增加round5/15，训练总预算不变；正在运行的seed0仍沿用原保存计划，不为增加checkpoint重启。跨seed主曲线先在共同rounds10/20/…/100汇总，seed1的5/15作为额外早期观察，缺失点不伪造。
