@@ -43,6 +43,7 @@ def read_machine(path: Path) -> dict:
     if cfg["profile"] not in ("action-cu124", "blackwell-cu128-candidate"):
         raise ValueError("Unknown runtime profile")
     micro_batch_size(cfg)
+    training_seed(cfg)
     return cfg
 
 
@@ -109,6 +110,25 @@ def environment(machine: dict) -> dict:
     return env
 
 
+def training_seed(machine: dict) -> int:
+    """Select an independent training repeat, keeping seed0 backward compatible."""
+    seed = machine.get("training_seed", 0)
+    if type(seed) is not int or seed not in (0, 1, 2):
+        raise ValueError("training_seed must be 0, 1 or 2")
+    return seed
+
+
+def seed_settings(seed: int) -> dict[str, int]:
+    """Partition training scene ranges; evaluation scenes/noise remain fixed."""
+    training_seed({"training_seed": seed})
+    return {
+        "actor.seed": seed,
+        "env.train.seed": 42 + seed * 10_000_000,
+        "runner.rollout_allocation.seed": 42 + seed * 10_000_000,
+        "+rollout.seed": 1_000_000_000 + seed * 1_000_000,
+    }
+
+
 def run_id(method: str, seed: int) -> str:
     return (
         f"robotwin_formal_{RECIPE['initialization_id']}_{method}_rounds{RECIPE['rounds']}"
@@ -128,7 +148,7 @@ def micro_batch_size(machine: dict) -> int:
 
 def smoke_run_id(machine: dict, method: str = "m1") -> str:
     """Keep hardware trials separate and prevent reuse of a different microbatch."""
-    return f"{run_id(method, 0)}_micro{micro_batch_size(machine)}_smoke"
+    return f"{run_id(method, training_seed(machine))}_micro{micro_batch_size(machine)}_smoke"
 
 
 def training_root(machine: dict, method: str) -> Path:
@@ -159,6 +179,8 @@ def freeze_training_settings(machine: dict) -> None:
     """Reject changes to the common recipe after the first formal arm starts."""
     path = Path(machine["output_root"]) / "prepared/formal_training_settings.json"
     settings = {
+        "training_seed": training_seed(machine),
+        "seed_settings": seed_settings(training_seed(machine)),
         "recipe_sha256": digest(HERE / "recipe.json"),
         "resources_sha256": digest(HERE / "resources.json"),
         "micro_batch_size": micro_batch_size(machine),
@@ -198,10 +220,7 @@ def train_command(
     machine: dict, method: str, seed: int, *, dry_run=False, smoke=False
 ) -> list[str]:
     """Use the same B/LR/T/warmup and vary only the declared method factors."""
-    if seed != 0:
-        raise ValueError(
-            "First release authorizes seed0 only; design additional seeds after first round"
-        )
+    seeds = seed_settings(seed)
     spec = RECIPE["methods"][method]
     reuse = spec["reuse"]
     output = Path(machine["output_root"])
@@ -220,10 +239,7 @@ def train_command(
         f"runner.rollout_allocation.mode={'adaptive' if spec['adaptive'] else 'uniform'}",
         f"runner.rollout_allocation.teacher_reference_file={reference if spec['adaptive'] else 'null'}",
         f"algorithm.sync_suite_loss_weights={str(spec['adaptive']).lower()}",
-        "actor.seed=0",
-        "env.train.seed=42",
-        "runner.rollout_allocation.seed=42",
-        "+rollout.seed=1000000000",
+        *[f"{key}={value}" for key, value in seeds.items()],
         f"runner.logger.wandb_group=robotwin_formal_{RECIPE['initialization_id']}_100ep",
     ]
     return [
@@ -416,12 +432,14 @@ def summarize(machine: dict) -> None:
     pool = json.loads(evaluation_pool_path(machine).read_text())
     rows = []
     for target in EVAL_TARGETS:
-        jobs = eval_jobs(machine, target, 0)
+        jobs = eval_jobs(machine, target, training_seed(machine))
         for offset in range(0, len(jobs), 4):
             group = jobs[offset : offset + 4]
             row = {
                 "experiment": target,
-                "training_seed": "" if target in ("teachers", "student") else 0,
+                "training_seed": (
+                    "" if target in ("teachers", "student") else training_seed(machine)
+                ),
                 "rollout_round": group[0]["round"],
                 "episodes_per_task": 100,
                 "status": "PENDING",
@@ -527,15 +545,16 @@ def main() -> None:
     parser.add_argument("target", nargs="?", choices=EVAL_TARGETS)
     args = parser.parse_args()
     machine = read_machine(args.machine)
+    seed = training_seed(machine)
     if args.action == "plan":
         print(
             json.dumps(
                 {
                     "training": {
-                        m: train_command(machine, m, 0) for m in RECIPE["methods"]
+                        m: train_command(machine, m, seed) for m in RECIPE["methods"]
                     },
                     "evaluation": [
-                        j for t in EVAL_TARGETS for j in eval_jobs(machine, t, 0)
+                        j for t in EVAL_TARGETS for j in eval_jobs(machine, t, seed)
                     ],
                 },
                 indent=2,
@@ -569,7 +588,7 @@ def main() -> None:
     if args.action == "preflight":
         for method in RECIPE["methods"]:
             subprocess.run(
-                train_command(machine, method, 0, dry_run=True),
+                train_command(machine, method, seed, dry_run=True),
                 env=env,
                 cwd=REPO,
                 check=True,
@@ -596,7 +615,7 @@ def main() -> None:
         if args.action == "train":
             freeze_training_settings(machine)
         subprocess.run(
-            train_command(machine, args.target, 0, smoke=args.action == "smoke"),
+            train_command(machine, args.target, seed, smoke=args.action == "smoke"),
             env=env,
             cwd=REPO,
             check=True,
@@ -624,11 +643,11 @@ def main() -> None:
             check=True,
         )
     elif args.action == "teacher-smoke":
-        execute_evaluations(machine, "teachers", 0, env, smoke=True)
+        execute_evaluations(machine, "teachers", seed, env, smoke=True)
     elif args.action == "eval":
         if args.target is None:
             parser.error("eval requires a target")
-        execute_evaluations(machine, args.target, 0, env)
+        execute_evaluations(machine, args.target, seed, env)
 
 
 if __name__ == "__main__":

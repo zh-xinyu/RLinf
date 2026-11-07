@@ -80,7 +80,7 @@ def test_every_checkpoint_gets_100_episodes(machine):
         100,
     }
     with pytest.raises(ValueError):
-        formal.train_command(machine, "m0", 1)
+        formal.train_command(machine, "m0", 3)
 
 
 def test_prepare_materializes_external_tokenizer_link(machine, tmp_path, monkeypatch):
