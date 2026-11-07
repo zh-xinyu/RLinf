@@ -48,7 +48,7 @@ def test_matched_budget_and_refresh_contract(machine, method, reuse, adaptive):
     assert int(values["runner.max_steps"]) == 100 * reuse
     assert values["runner.save_interval"] == "-1"
     assert json.loads(values["+runner.save_steps"]) == [
-        r * reuse for r in range(10, 101, 10)
+        r * reuse for r in [5, 10, 15, 20, *range(30, 101, 10)]
     ]
     assert values["algorithm.sync_suite_loss_weights"] == str(adaptive).lower()
     assert values["runner.rollout_allocation.mode"] == (
@@ -62,13 +62,15 @@ def test_every_checkpoint_gets_100_episodes(machine):
         for target in ("student", "teachers", "m0", "m1", "m2", "m3")
         for job in formal.eval_jobs(machine, target, 0)
     ]
-    assert len(jobs) == 168
-    assert len({job["output"] for job in jobs}) == 168
+    assert len(jobs) == 200
+    assert len({job["output"] for job in jobs}) == 200
     for job in jobs:
         command = job["command"]
         assert command[command.index("--episodes") + 1] == "100"
     assert {j["round"] for j in formal.eval_jobs(machine, "m1", 0)} == {
+        5,
         10,
+        15,
         20,
         30,
         40,
@@ -197,7 +199,9 @@ def test_cli_plan_and_summary_include_complete_factorial_matrix(machine, tmp_pat
         rows = list(csv.DictReader(stream))
     assert len(rows) == 42
     assert {int(row["rollout_round"]) for row in rows if row["experiment"] == "m3"} == {
+        5,
         10,
+        15,
         20,
         30,
         40,
