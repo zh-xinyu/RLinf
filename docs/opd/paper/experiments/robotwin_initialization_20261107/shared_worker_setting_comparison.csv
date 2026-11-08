@@ -1,0 +1,9 @@
+model,task,old_successes,new_successes,episodes,delta_pp,paired_outcome_changes,control_count_changes,fixed_identity_match
+teacher,open_laptop,41,43,50,4,2,32,True
+teacher,handover_mic,49,50,50,2,1,33,True
+teacher,dump_bin_bigbin,46,43,50,-6,3,37,True
+teacher,stack_bowls_two,39,44,50,10,15,47,True
+student400,open_laptop,28,25,50,-6,5,21,True
+student400,handover_mic,22,23,50,2,7,21,True
+student400,dump_bin_bigbin,23,21,50,-4,4,21,True
+student400,stack_bowls_two,39,41,50,4,16,41,True

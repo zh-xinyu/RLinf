@@ -1,6 +1,6 @@
 # Robotwin 独立评测统一到训练 worker 链路
 
-状态：27 项 CPU 检查通过；action20 同场景逐 chunk 对照通过；四任务各 50 episodes 复测进行中（实时状态以输出目录的 `status.json` 为准）。
+状态：全部完成。27 项 CPU 检查通过；两个场景逐 chunk 对照通过；四任务 teacher 与 SFT400 各 50 episodes 已完成，结果汇总与场景身份核对通过。
 
 目标是复用 MOPD 的实际执行代码：`EmbodiedEvalRunner → MultiStepRolloutWorker / EnvWorker → RoboTwinMultiTaskEnv`。不修改训练环境的采样分布，也不改变原定的 held-out 场景、unseen 指令、native horizon、H25 或 10-step flow ODE。
 
@@ -47,3 +47,19 @@
 - 当前输出：`outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r4/`。已完成两组通过链接复用；失败的部分结果保存在 r3，不拼接为完整成绩。
 - 剩余：两个 teacher 重新各测 50 episodes，随后四个 student400 任务各测 50 episodes。
 - 恢复队列：`shared_worker_continue.py`；汇总：`finalize_shared_worker_continuation.py`，均在 study 目录。精确脚本见 [shared_worker_continuation.tar.gz](reproduce/shared_worker_continuation.tar.gz)。
+
+## 完整结果（action20，标准 worker，每模型每任务 50 episodes）
+
+| Task | Teacher | SFT400 | Teacher − student |
+|---|---:|---:|---:|
+| open_laptop | 86%（43/50） | 50%（25/50） | 36 pp |
+| handover_mic | 100%（50/50） | 46%（23/50） | 54 pp |
+| dump_bin_bigbin | 86%（43/50） | 42%（21/50） | 44 pp |
+| stack_bowls_two | 88%（44/50） | 82%（41/50） | 6 pp |
+| 等权平均 | **90%** | **55%** | **35 pp** |
+
+新组合仍具备三个明确的能力提升空间，以及一个能力保持任务，可以作为后续 MOPD 验证的初始化 setting。这里是开发集上的初始化检查，尚未证明新组合上的 MOPD 增益。
+
+旧 action00 结果平均为 teacher 87.5%、student 56%。所有 400 条新记录均与旧记录的 seed、指令和场景属性一致，但跨机器执行结果并非逐轨迹相同：stack teacher 有 15/50 个成功结果改变，student 有 16/50 个改变。不能将跨机器 SR 变化归因于评测链路修复；正式横向比较需统一运行环境与评测协议。此前两个同机器场景的动作级对照验证仍成立，但范围有限。
+
+明细：[JSON](shared_worker_setting_comparison.json)、[CSV](shared_worker_setting_comparison.csv)。恢复后的六组评测全部正常退出；已完成的两组沿用原完整记录。当前队列无剩余任务，尚未启动新 setting 的 MOPD 训练。
