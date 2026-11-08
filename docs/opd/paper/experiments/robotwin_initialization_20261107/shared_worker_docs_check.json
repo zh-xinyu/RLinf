@@ -11,6 +11,6 @@
     "toolkits/robotwin_mopd/worker_evaluate.py": "e7fb5e2c8b2ff8f2fac1eb27b0dc51414cc915cc2e01a7acb7a97676d7affd91",
     "rlinf/envs/robotwin/fixed_eval_env.py": "f7002d4e4fe647b74a647e2cc6e40bac7f7623b4588d2c5d23988d38ae61ff0f",
     "rlinf/envs/robotwin/multitask_env.py": "508f0fccf2711abb2e3fbe2639feab444e41686bbb668510181ba85f153eaf17",
-    "docs/opd/paper/experiments/robotwin_initialization_20261107/shared_worker_evaluation.md": "d2783c8b6515239686c2467dac9f19aadd8422629b1c7c908bd835c3d9b60055"
+    "docs/opd/paper/experiments/robotwin_initialization_20261107/shared_worker_evaluation.md": "3868b1ffacbcaf7eeabb7f35308f85b1ddf127caaac55483bb4b8ec5475c2acf"
   }
 }

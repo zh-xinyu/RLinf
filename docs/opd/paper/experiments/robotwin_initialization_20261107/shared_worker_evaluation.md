@@ -37,3 +37,13 @@
 复测队列：`outputs/robotwin4/task_init_probe_20261107/shared_worker_queue.py`；激活脚本：同目录 `shared_worker_env.sh`。action20 已复制原 action00 的 pinned RoboTwin 源码、assets、两个本地 teacher 和 tokenizer；继续使用原场景池要求的 canonical SAPIEN payload。GPU 0/1 各运行一个评测任务；推理 allocator 上限为设备显存的 32%。不启动 actor、optimizer 或新训练任务。
 
 复测完成后，独立 finalizer 自动生成输出目录中的 `setting_comparison.csv` 和 `setting_comparison.json`，逐场景核对新旧记录的 seed、指令及场景属性，并报告成功结果与实际控制步数改变的场景。精确使用的队列、激活和分析脚本归档在 [shared_worker_scripts.tar.gz](reproduce/shared_worker_scripts.tar.gz) 中；它们保留当前服务器路径，作为本轮实验的复现记录。
+
+## 中断恢复与阶段结果
+
+首次完整队列在 `dump_bin_bigbin` 完成 6/50 时失去 Ray GCS 连接，日志为 owner/node crashed。尚不能仅凭该日志认定是物理机器故障；未见 CUDA OOM 报错。已改用独立、常驻的队列 supervisor 持有 Ray 服务，所有评测 driver 显式连接该地址，避免服务依赖某个先完成的评测 driver 的生命周期。
+
+- 已完成并保留：teacher open_laptop 43/50（旧 41/50）；teacher handover_mic 50/50（旧 49/50）。两组 50 个场景的 seed、指令和场景属性逐条对应，分别有 2、1 个成功结果改变。
+- 这是 action20 新入口与 action00 旧入口的跨机器比较，不表示 teacher 本身能力提升。
+- 当前输出：`outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r4/`。已完成两组通过链接复用；失败的部分结果保存在 r3，不拼接为完整成绩。
+- 剩余：两个 teacher 重新各测 50 episodes，随后四个 student400 任务各测 50 episodes。
+- 恢复队列：`shared_worker_continue.py`；汇总：`finalize_shared_worker_continuation.py`，均在 study 目录。精确脚本见 [shared_worker_continuation.tar.gz](reproduce/shared_worker_continuation.tar.gz)。

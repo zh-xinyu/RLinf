@@ -30,12 +30,23 @@
   },
   "pool": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r3/development50.json",
   "pool_content_sha256": "08f536767b4ce18f8e2ea2c1d06e60b59a4acd671d4e39e8317f8806d119f7dd",
-  "output": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r3",
-  "queue_pid": 652339,
-  "finalizer_pid": 715392,
+  "output": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/task_init_probe_20261107/shared_worker_eval_action20_20261107_r4",
+  "queue_pid": 871028,
+  "finalizer_pid": 871214,
   "cpu_tests_passed": 27,
   "paired_episode_count": 2,
   "paired_executed_chunks": 24,
   "paired_max_action_abs_difference": 0.0,
-  "new_training_started": false
+  "new_training_started": false,
+  "ray_lifecycle": "persistent dedicated supervisor; explicit RAY_ADDRESS",
+  "completed_teacher_results": {
+    "open_laptop": {
+      "successes": 43,
+      "episodes": 50
+    },
+    "handover_mic": {
+      "successes": 50,
+      "episodes": 50
+    }
+  }
 }
