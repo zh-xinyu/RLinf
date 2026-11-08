@@ -1,0 +1,79 @@
+{
+  "device": "NVIDIA H100 NVL",
+  "checkpoint": "/localscratch2/liyifa11/XyFile/opd-robotwin4/models/pi05_pace_torch/stack_bowls_two",
+  "note": "Repeated one real observation; model inference only, one resident simulator, not end-to-end parallel simulation. Full predict_action_batch with H25 / 10 flow ODE steps.",
+  "rows": [
+    {
+      "batch": 1,
+      "median_seconds": 0.2888857601210475,
+      "seconds_per_observation": 0.2888857601210475,
+      "peak_allocated_gib": 7.144021511077881,
+      "peak_reserved_gib": 7.26171875,
+      "times": [
+        0.2857831045985222,
+        0.29073069989681244,
+        0.2888857601210475
+      ]
+    },
+    {
+      "batch": 2,
+      "median_seconds": 0.3375157658010721,
+      "seconds_per_observation": 0.16875788290053606,
+      "peak_allocated_gib": 7.285577774047852,
+      "peak_reserved_gib": 7.498046875,
+      "times": [
+        0.3375157658010721,
+        0.33469689171761274,
+        0.3431806359440088
+      ]
+    },
+    {
+      "batch": 4,
+      "median_seconds": 0.4028629809617996,
+      "seconds_per_observation": 0.1007157452404499,
+      "peak_allocated_gib": 7.571097373962402,
+      "peak_reserved_gib": 7.99609375,
+      "times": [
+        0.4028629809617996,
+        0.39915536157786846,
+        0.4073700839653611
+      ]
+    },
+    {
+      "batch": 8,
+      "median_seconds": 0.5364076532423496,
+      "seconds_per_observation": 0.0670509566552937,
+      "peak_allocated_gib": 8.1298828125,
+      "peak_reserved_gib": 8.732421875,
+      "times": [
+        0.5343871423974633,
+        0.5364076532423496,
+        0.5441555045545101
+      ]
+    },
+    {
+      "batch": 16,
+      "median_seconds": 0.8912777900695801,
+      "seconds_per_observation": 0.055704861879348755,
+      "peak_allocated_gib": 9.260288715362549,
+      "peak_reserved_gib": 10.3984375,
+      "times": [
+        0.8726642923429608,
+        0.899357782676816,
+        0.8912777900695801
+      ]
+    },
+    {
+      "batch": 32,
+      "median_seconds": 1.7419112864881754,
+      "seconds_per_observation": 0.05443472770275548,
+      "peak_allocated_gib": 11.515283107757568,
+      "peak_reserved_gib": 13.765625,
+      "times": [
+        1.7419112864881754,
+        1.742354579269886,
+        1.7225223863497376
+      ]
+    }
+  ]
+}
