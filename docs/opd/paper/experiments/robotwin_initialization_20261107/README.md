@@ -81,3 +81,5 @@ SFT400是固定预算冷启动，不是充分联合SFT或收敛上限。它适�
 后续：独立评测开始统一到标准训练 worker 执行链路，见 [shared_worker_evaluation.md](shared_worker_evaluation.md)。原开发集结果保留；新入口复测另存，不覆盖历史记录。
 
 初始化一致性与并行评测测速：[batch_evaluation_feasibility_20261108.md](batch_evaluation_feasibility_20261108.md)。
+
+后续主实验：[新四任务 SFT400 / seed0 矩阵](../robotwin_new4_sft400_seed0/PLAN.md)（计划，尚未启动）。
