@@ -78,6 +78,7 @@ def test_preallocation_is_reusable_and_refilled_after_release(monkeypatch):
 
 
 def test_preallocation_refuses_insufficient_headroom(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "memory_reserved", lambda: 0)
     monkeypatch.setattr(
