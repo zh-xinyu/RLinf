@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "status": "COMPLETE",
+  "tasks": [
+    {
+      "task": "open_laptop",
+      "suite": "open_laptop",
+      "horizon": 700,
+      "episodes": 20,
+      "successes": 18,
+      "simulation_steps": 3813
+    },
+    {
+      "task": "handover_mic",
+      "suite": "handover_mic",
+      "horizon": 600,
+      "episodes": 20,
+      "successes": 20,
+      "simulation_steps": 4156
+    },
+    {
+      "task": "dump_bin_bigbin",
+      "suite": "dump_bin_bigbin",
+      "horizon": 600,
+      "episodes": 20,
+      "successes": 18,
+      "simulation_steps": 3944
+    },
+    {
+      "task": "stack_bowls_two",
+      "suite": "stack_bowls_two",
+      "horizon": 900,
+      "episodes": 20,
+      "successes": 18,
+      "simulation_steps": 7422
+    }
+  ],
+  "teacher_checkpoints": {
+    "open_laptop": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/teachers/open_laptop",
+    "handover_mic": "/localscratch/liyifa11/XyFile/opd-robotwin4-action30-20261106/resources/teachers/handover_mic",
+    "dump_bin_bigbin": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/teachers/dump_bin_bigbin",
+    "stack_bowls_two": "/localscratch/liyifa11/XyFile/opd-robotwin4-action30-20261106/resources/teachers/stack_bowls_two"
+  },
+  "training_signature": {
+    "env": {
+      "env_type": "robotwin",
+      "task_source": null,
+      "dataset_source": null,
+      "split": null,
+      "task_soup": null,
+      "task_filter": null,
+      "task_mode": null,
+      "episode_horizon_source": "task_horizon",
+      "auto_reset": false,
+      "ignore_terminations": false,
+      "init_params": null,
+      "observation": null,
+      "action_space": null,
+      "task_names": [
+        "open_laptop",
+        "handover_mic",
+        "dump_bin_bigbin",
+        "stack_bowls_two"
+      ],
+      "task_horizons": {
+        "open_laptop": 700,
+        "handover_mic": 600,
+        "dump_bin_bigbin": 600,
+        "stack_bowls_two": 900
+      },
+      "task_config": {
+        "planner_backend": "mplib",
+        "render_freq": 0,
+        "episode_num": 50,
+        "use_seed": false,
+        "save_freq": 15,
+        "embodiment": [
+          "aloha-agilex"
+        ],
+        "language_num": 100,
+        "domain_randomization": {
+          "random_background": false,
+          "cluttered_table": false,
+          "clean_background_rate": 1,
+          "random_head_camera_dis": 0,
+          "random_table_height": 0,
+          "random_light": false,
+          "crazy_random_light_rate": 0
+        },
+        "camera": {
+          "head_camera_type": "D435",
+          "wrist_camera_type": "D435",
+          "collect_head_camera": true,
+          "collect_wrist_camera": true
+        },
+        "data_type": {
+          "rgb": true,
+          "third_view": false,
+          "depth": false,
+          "pointcloud": false,
+          "observer": false,
+          "endpose": true,
+          "qpos": true,
+          "mesh_segmentation": false,
+          "actor_segmentation": false
+        },
+        "pcd_down_sample_num": 1024,
+        "pcd_crop": true,
+        "save_path": "./outputs/robotwin4/simulator",
+        "clear_cache_freq": 1,
+        "collect_data": true,
+        "eval_video_log": false
+      },
+      "instruction_type": "seen",
+      "center_crop": false
+    },
+    "model": {
+      "model_type": "openpi",
+      "precision": null,
+      "action_head_precision": null,
+      "num_action_chunks": 25,
+      "action_dim": 14,
+      "denoising_steps": null,
+      "obs_converter_type": null,
+      "embodiment_tag": null,
+      "policy_setup": "aloha",
+      "rl_head_config": null,
+      "num_steps": 10,
+      "openpi": {
+        "config_name": "pi05_aloha_robotwin",
+        "num_images_in_input": 3,
+        "noise_level": 0.5,
+        "action_chunk": 25,
+        "num_steps": 10,
+        "train_expert_only": false,
+        "action_env_dim": 14,
+        "noise_method": "flow_ode",
+        "add_value_head": false,
+        "value_after_vlm": false,
+        "value_vlm_mode": "mean_token",
+        "detach_critic_input": null,
+        "use_dsrl": false,
+        "dsrl_state_dim": 8,
+        "dsrl_action_noise_dim": 32,
+        "dsrl_num_q_heads": 10,
+        "dsrl_agg_q": "mean",
+        "dsrl_image_latent_dim": 64,
+        "dsrl_state_latent_dim": 64,
+        "dsrl_hidden_dims": [
+          128,
+          128,
+          128
+        ],
+        "action_horizon": 50,
+        "nft_joint_forward": true,
+        "joint_logprob": true,
+        "nft_full_horizon": true
+      },
+      "openpi_data": {
+        "adapt_to_pi": false,
+        "extra_delta_transform": true
+      },
+      "opd_task_norm_stats": {
+        "open_laptop": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/open_laptop/norm_stats.json",
+        "handover_mic": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/handover_mic/norm_stats.json",
+        "dump_bin_bigbin": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/dump_bin_bigbin/norm_stats.json",
+        "stack_bowls_two": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/stack_bowls_two/norm_stats.json"
+      }
+    },
+    "teacher_action_head_precision": {
+      "open_laptop": null,
+      "handover_mic": null,
+      "dump_bin_bigbin": null,
+      "stack_bowls_two": null
+    }
+  },
+  "wall_seconds": 630.1163005828857,
+  "purpose": "Training distribution calibration, seen language, no learned or scripted teacher success screening",
+  "simulation_step_unit": "executed_control_targets",
+  "source_eval_dir": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/allocation_new4_r2_20261109/calibration_action30"
+}

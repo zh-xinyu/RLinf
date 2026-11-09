@@ -1,0 +1,1241 @@
+{
+  "interpretation": "Only numerical stability and allocation behavior; observed data were collected under other allocations. No causal or counterfactual SR claim.",
+  "sources": {
+    "old4_gentle": {
+      "source": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/formal_sft500_action10_m2_gentle_20261108/training_records/m2/optimizer_updates.jsonl",
+      "new_rollout_rows": 50,
+      "variants": [
+        {
+          "warmup": 3,
+          "window": 3,
+          "reference": {
+            "train/new_rollout_velocity_mse/adjust_bottle": 0.04518413241312374,
+            "train/new_rollout_velocity_mse/handover_mic": 0.04600858248459796,
+            "train/new_rollout_velocity_mse/place_container_plate": 0.1260363044112455,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.18312750811669198
+          },
+          "proposals": [
+            {
+              "observed_rounds": 3,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 8,
+              "normalized_demand": [
+                0.7458696271146543,
+                0.9549978566276094,
+                0.7455820259808957,
+                0.20156845254816103
+              ],
+              "quotas": [
+                9,
+                10,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 13,
+              "normalized_demand": [
+                0.5470889227943927,
+                0.6745067015215211,
+                0.4092986183258822,
+                0.16714994167427866
+              ],
+              "quotas": [
+                9,
+                10,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 18,
+              "normalized_demand": [
+                0.2448059044084223,
+                0.8337559410534235,
+                0.2678457510186797,
+                0.08900996209186628
+              ],
+              "quotas": [
+                7,
+                13,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 23,
+              "normalized_demand": [
+                0.5028124665503292,
+                0.522357758242768,
+                0.21984486427099084,
+                0.09783426296820807
+              ],
+              "quotas": [
+                10,
+                10,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 28,
+              "normalized_demand": [
+                0.2755514607009218,
+                0.41661523067149303,
+                0.24564219960374326,
+                0.060086050840083664
+              ],
+              "quotas": [
+                8,
+                11,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 33,
+              "normalized_demand": [
+                0.2322592499218387,
+                0.6208775118274741,
+                0.16455210708783524,
+                0.07907856481803352
+              ],
+              "quotas": [
+                7,
+                13,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 38,
+              "normalized_demand": [
+                0.14525460394711498,
+                0.4546753919851202,
+                0.19822301435985856,
+                0.10792326231351237
+              ],
+              "quotas": [
+                7,
+                12,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 43,
+              "normalized_demand": [
+                0.19287898049262397,
+                0.4866154230943295,
+                0.17486213276829826,
+                0.0585646142336037
+              ],
+              "quotas": [
+                8,
+                12,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 48,
+              "normalized_demand": [
+                0.2725124810344171,
+                0.5042733861944045,
+                0.11474225176245774,
+                0.058286639426889025
+              ],
+              "quotas": [
+                9,
+                12,
+                6,
+                5
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 3,
+          "window": 5,
+          "reference": {
+            "train/new_rollout_velocity_mse/adjust_bottle": 0.04518413241312374,
+            "train/new_rollout_velocity_mse/handover_mic": 0.04600858248459796,
+            "train/new_rollout_velocity_mse/place_container_plate": 0.1260363044112455,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.18312750811669198
+          },
+          "proposals": [
+            {
+              "observed_rounds": 3,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 8,
+              "normalized_demand": [
+                0.7914605429149418,
+                1.0864107540395083,
+                1.1753288605466252,
+                0.2676665865327391
+              ],
+              "quotas": [
+                8,
+                9,
+                10,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 13,
+              "normalized_demand": [
+                0.5825043432455651,
+                0.8933759492750318,
+                0.49299318590055474,
+                0.15684996735757775
+              ],
+              "quotas": [
+                8,
+                11,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 18,
+              "normalized_demand": [
+                0.267612548202652,
+                0.7090075568238391,
+                0.2630523602850359,
+                0.11355385812471755
+              ],
+              "quotas": [
+                7,
+                12,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 23,
+              "normalized_demand": [
+                0.5495425282476541,
+                0.6167477964436642,
+                0.21049231834412574,
+                0.11073303761050447
+              ],
+              "quotas": [
+                10,
+                11,
+                6,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 28,
+              "normalized_demand": [
+                0.26877417365107337,
+                0.4035473815176223,
+                0.23679909214552428,
+                0.08772726327890248
+              ],
+              "quotas": [
+                8,
+                10,
+                8,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 33,
+              "normalized_demand": [
+                0.20983211583246827,
+                0.4871113526709272,
+                0.19515262287040203,
+                0.11308920043353714
+              ],
+              "quotas": [
+                7,
+                12,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 38,
+              "normalized_demand": [
+                0.15273052538114204,
+                0.5427895792476034,
+                0.1995163978749543,
+                0.08280168043015067
+              ],
+              "quotas": [
+                7,
+                13,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 43,
+              "normalized_demand": [
+                0.1849327750722895,
+                0.4422087934378777,
+                0.20844049902962164,
+                0.06830832572774148
+              ],
+              "quotas": [
+                7,
+                12,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 48,
+              "normalized_demand": [
+                0.26678438397466164,
+                0.46027717091902404,
+                0.13485856673306093,
+                0.05615636920068704
+              ],
+              "quotas": [
+                9,
+                12,
+                6,
+                5
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 3,
+          "window": 10,
+          "reference": {
+            "train/new_rollout_velocity_mse/adjust_bottle": 0.04518413241312374,
+            "train/new_rollout_velocity_mse/handover_mic": 0.04600858248459796,
+            "train/new_rollout_velocity_mse/place_container_plate": 0.1260363044112455,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.18312750811669198
+          },
+          "proposals": [
+            {
+              "observed_rounds": 3,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 8,
+              "normalized_demand": [
+                0.8696628393218387,
+                1.0540067212746926,
+                1.109580537841641,
+                0.542291616582962
+              ],
+              "quotas": [
+                8,
+                9,
+                9,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 13,
+              "normalized_demand": [
+                0.6869824430802535,
+                0.98989335165727,
+                0.8341610232235901,
+                0.21225827694515847
+              ],
+              "quotas": [
+                8,
+                10,
+                9,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 18,
+              "normalized_demand": [
+                0.42505844572410856,
+                0.8011917530494354,
+                0.3780227730927953,
+                0.13520191274114768
+              ],
+              "quotas": [
+                8,
+                11,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 23,
+              "normalized_demand": [
+                0.40857753822515297,
+                0.6628776766337516,
+                0.23677233931458083,
+                0.11214344786761102
+              ],
+              "quotas": [
+                9,
+                11,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 28,
+              "normalized_demand": [
+                0.40915835094936376,
+                0.5101475889806433,
+                0.223645705244825,
+                0.09923015044470349
+              ],
+              "quotas": [
+                9,
+                11,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 33,
+              "normalized_demand": [
+                0.23930314474177075,
+                0.4453293670942747,
+                0.21597585750796314,
+                0.10040823185621982
+              ],
+              "quotas": [
+                8,
+                11,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 38,
+              "normalized_demand": [
+                0.18128132060680516,
+                0.5149504659592653,
+                0.19733451037267816,
+                0.0979454404318439
+              ],
+              "quotas": [
+                7,
+                12,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 43,
+              "normalized_demand": [
+                0.16883165022671576,
+                0.49249918634274054,
+                0.20397844845228796,
+                0.07555500307894608
+              ],
+              "quotas": [
+                7,
+                12,
+                8,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 48,
+              "normalized_demand": [
+                0.22585857952347557,
+                0.4512429821784509,
+                0.1716495328813413,
+                0.06223234746421426
+              ],
+              "quotas": [
+                8,
+                12,
+                7,
+                5
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 5,
+          "window": 3,
+          "reference": {
+            "train/new_rollout_velocity_mse/adjust_bottle": 0.04265105422202032,
+            "train/new_rollout_velocity_mse/handover_mic": 0.05122650968458038,
+            "train/new_rollout_velocity_mse/place_container_plate": 0.1673736467838753,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.13674598280980715
+          },
+          "proposals": [
+            {
+              "observed_rounds": 5,
+              "normalized_demand": [
+                1.3725001352108273,
+                1.0731117108518191,
+                1.2123740029772474,
+                0.5812082384531516
+              ],
+              "quotas": [
+                9,
+                8,
+                9,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 10,
+              "normalized_demand": [
+                0.6558018619614407,
+                1.1004354867742103,
+                0.48359136188552104,
+                0.2250053918344552
+              ],
+              "quotas": [
+                8,
+                11,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 15,
+              "normalized_demand": [
+                0.4806663676201801,
+                0.5134544914826034,
+                0.1933423719852358,
+                0.20220848758813378
+              ],
+              "quotas": [
+                10,
+                10,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 20,
+              "normalized_demand": [
+                0.4985077032527392,
+                0.6454492955833638,
+                0.1779586428524787,
+                0.14545296335037788
+              ],
+              "quotas": [
+                9,
+                11,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 25,
+              "normalized_demand": [
+                0.422895067598065,
+                0.3981687828338886,
+                0.14439130157187977,
+                0.14423218113870664
+              ],
+              "quotas": [
+                10,
+                10,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 30,
+              "normalized_demand": [
+                0.22473951351589036,
+                0.2638038973439648,
+                0.19223553134090055,
+                0.17715373800252146
+              ],
+              "quotas": [
+                8,
+                9,
+                8,
+                7
+              ]
+            },
+            {
+              "observed_rounds": 35,
+              "normalized_demand": [
+                0.18573484053203906,
+                0.6186372587850248,
+                0.13896153721890875,
+                0.06527656885843323
+              ],
+              "quotas": [
+                7,
+                13,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 40,
+              "normalized_demand": [
+                0.20130988755097887,
+                0.3895447940252573,
+                0.17509972921874223,
+                0.11377404665540211
+              ],
+              "quotas": [
+                8,
+                11,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 45,
+              "normalized_demand": [
+                0.2555858649454919,
+                0.3569963618288025,
+                0.1329123641368946,
+                0.059762787758422725
+              ],
+              "quotas": [
+                9,
+                11,
+                7,
+                5
+              ]
+            },
+            {
+              "observed_rounds": 50,
+              "normalized_demand": [
+                0.22217838379042887,
+                0.24798125070512056,
+                0.12283387543890636,
+                0.0644260280678494
+              ],
+              "quotas": [
+                9,
+                10,
+                7,
+                6
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 5,
+          "window": 5,
+          "reference": {
+            "train/new_rollout_velocity_mse/adjust_bottle": 0.04265105422202032,
+            "train/new_rollout_velocity_mse/handover_mic": 0.05122650968458038,
+            "train/new_rollout_velocity_mse/place_container_plate": 0.1673736467838753,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.13674598280980715
+          },
+          "proposals": [
+            {
+              "observed_rounds": 5,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 10,
+              "normalized_demand": [
+                0.743451578253479,
+                0.9535289759204213,
+                0.5231731021867357,
+                0.23770591779094868
+              ],
+              "quotas": [
+                9,
+                10,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 15,
+              "normalized_demand": [
+                0.4756477592603658,
+                0.5509712406828458,
+                0.2619950403534521,
+                0.21485518125537661
+              ],
+              "quotas": [
+                9,
+                10,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 20,
+              "normalized_demand": [
+                0.4181824127904305,
+                0.7217334438781797,
+                0.18019316131934485,
+                0.14120109058300603
+              ],
+              "quotas": [
+                8,
+                12,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 25,
+              "normalized_demand": [
+                0.42919179874364416,
+                0.41942504774242206,
+                0.166659701288462,
+                0.14781360531815924
+              ],
+              "quotas": [
+                10,
+                10,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 30,
+              "normalized_demand": [
+                0.24981222366547254,
+                0.32742055129629266,
+                0.18359218027595714,
+                0.13618617551356066
+              ],
+              "quotas": [
+                8,
+                10,
+                7,
+                7
+              ]
+            },
+            {
+              "observed_rounds": 35,
+              "normalized_demand": [
+                0.21710445656778374,
+                0.5770647595266651,
+                0.13502756174956246,
+                0.08770942015089217
+              ],
+              "quotas": [
+                7,
+                13,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 40,
+              "normalized_demand": [
+                0.1656443772306657,
+                0.379953475937297,
+                0.16751538988504502,
+                0.13113722861764382
+              ],
+              "quotas": [
+                7,
+                11,
+                7,
+                7
+              ]
+            },
+            {
+              "observed_rounds": 45,
+              "normalized_demand": [
+                0.23201111278405945,
+                0.403877789065006,
+                0.12871469527829993,
+                0.07542685090173466
+              ],
+              "quotas": [
+                8,
+                12,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 50,
+              "normalized_demand": [
+                0.2617205550189945,
+                0.3823141262066022,
+                0.11229187542542503,
+                0.07254809546418202
+              ],
+              "quotas": [
+                9,
+                11,
+                6,
+                6
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 5,
+          "window": 10,
+          "reference": {
+            "train/new_rollout_velocity_mse/adjust_bottle": 0.04265105422202032,
+            "train/new_rollout_velocity_mse/handover_mic": 0.05122650968458038,
+            "train/new_rollout_velocity_mse/place_container_plate": 0.1673736467838753,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.13674598280980715
+          },
+          "proposals": [
+            {
+              "observed_rounds": 5,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 10,
+              "normalized_demand": [
+                0.8717257891267395,
+                0.9767644879602106,
+                0.7615865510933678,
+                0.6188529588954744
+              ],
+              "quotas": [
+                8,
+                9,
+                8,
+                7
+              ]
+            },
+            {
+              "observed_rounds": 15,
+              "normalized_demand": [
+                0.6095496687569225,
+                0.7522501083016336,
+                0.3925840712700939,
+                0.22628054952316265
+              ],
+              "quotas": [
+                9,
+                10,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 20,
+              "normalized_demand": [
+                0.44691508602539814,
+                0.6363523422805129,
+                0.22109410083639847,
+                0.17802813591919134
+              ],
+              "quotas": [
+                9,
+                11,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 25,
+              "normalized_demand": [
+                0.4236871057670372,
+                0.570579245810301,
+                0.17342643130390345,
+                0.14450734795058262
+              ],
+              "quotas": [
+                9,
+                11,
+                6,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 30,
+              "normalized_demand": [
+                0.33950201120455836,
+                0.3734227995193574,
+                0.17512594078220953,
+                0.14199989041585992
+              ],
+              "quotas": [
+                9,
+                10,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 35,
+              "normalized_demand": [
+                0.23345834011662814,
+                0.4522426554114789,
+                0.15930987101275976,
+                0.11194779783222641
+              ],
+              "quotas": [
+                8,
+                11,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 40,
+              "normalized_demand": [
+                0.19137441689922474,
+                0.47850911773198107,
+                0.15127147581730377,
+                0.109423324384268
+              ],
+              "quotas": [
+                7,
+                12,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 45,
+              "normalized_demand": [
+                0.1988277450073626,
+                0.39191563250115147,
+                0.1481150425816725,
+                0.10328203975968925
+              ],
+              "quotas": [
+                8,
+                11,
+                7,
+                6
+              ]
+            },
+            {
+              "observed_rounds": 50,
+              "normalized_demand": [
+                0.24686583390152697,
+                0.393095957635804,
+                0.12050328535186249,
+                0.07398747318295833
+              ],
+              "quotas": [
+                9,
+                11,
+                6,
+                6
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "new4_uniform": {
+      "source": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/allocation_new4_r2_20261109/training_records/action30/uniform/optimizer_updates.jsonl",
+      "new_rollout_rows": 10,
+      "variants": [
+        {
+          "warmup": 3,
+          "window": 3,
+          "reference": {
+            "train/new_rollout_velocity_mse/open_laptop": 0.16797158255804487,
+            "train/new_rollout_velocity_mse/handover_mic": 0.046739466900180555,
+            "train/new_rollout_velocity_mse/dump_bin_bigbin": 0.055826942419080296,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.03961472514667549
+          },
+          "proposals": [
+            {
+              "observed_rounds": 3,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 8,
+              "normalized_demand": [
+                0.32957402023481647,
+                1.1143164752664818,
+                0.9474803667536168,
+                0.8804379593016897
+              ],
+              "quotas": [
+                6,
+                9,
+                9,
+                8
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 3,
+          "window": 5,
+          "reference": {
+            "train/new_rollout_velocity_mse/open_laptop": 0.16797158255804487,
+            "train/new_rollout_velocity_mse/handover_mic": 0.046739466900180555,
+            "train/new_rollout_velocity_mse/dump_bin_bigbin": 0.055826942419080296,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.03961472514667549
+          },
+          "proposals": [
+            {
+              "observed_rounds": 3,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 8,
+              "normalized_demand": [
+                0.3396966068425662,
+                1.1321476862066833,
+                1.0437984708554577,
+                0.9454974271227379
+              ],
+              "quotas": [
+                6,
+                9,
+                9,
+                8
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 3,
+          "window": 10,
+          "reference": {
+            "train/new_rollout_velocity_mse/open_laptop": 0.16797158255804487,
+            "train/new_rollout_velocity_mse/handover_mic": 0.046739466900180555,
+            "train/new_rollout_velocity_mse/dump_bin_bigbin": 0.055826942419080296,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.03961472514667549
+          },
+          "proposals": [
+            {
+              "observed_rounds": 3,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 8,
+              "normalized_demand": [
+                0.5873103792766039,
+                1.0825923038791772,
+                1.027374044284661,
+                0.9659358919517111
+              ],
+              "quotas": [
+                7,
+                9,
+                8,
+                8
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 5,
+          "window": 3,
+          "reference": {
+            "train/new_rollout_velocity_mse/open_laptop": 0.12462688432645519,
+            "train/new_rollout_velocity_mse/handover_mic": 0.04971012463845546,
+            "train/new_rollout_velocity_mse/dump_bin_bigbin": 0.060031283454241934,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.04029747113049962
+          },
+          "proposals": [
+            {
+              "observed_rounds": 5,
+              "normalized_demand": [
+                0.6776108108324942,
+                0.9955576584024238,
+                0.8254689483841026,
+                0.8460757964249792
+              ],
+              "quotas": [
+                7,
+                9,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 10,
+              "normalized_demand": [
+                0.4201053227645148,
+                1.0151953969290097,
+                0.7689060431446219,
+                1.079371419348573
+              ],
+              "quotas": [
+                6,
+                9,
+                8,
+                9
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 5,
+          "window": 5,
+          "reference": {
+            "train/new_rollout_velocity_mse/open_laptop": 0.12462688432645519,
+            "train/new_rollout_velocity_mse/handover_mic": 0.04971012463845546,
+            "train/new_rollout_velocity_mse/dump_bin_bigbin": 0.060031283454241934,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.04029747113049962
+          },
+          "proposals": [
+            {
+              "observed_rounds": 5,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 10,
+              "normalized_demand": [
+                0.45305638121221214,
+                1.1137239194232524,
+                0.782174957237556,
+                0.9637976231198865
+              ],
+              "quotas": [
+                6,
+                9,
+                8,
+                9
+              ]
+            }
+          ]
+        },
+        {
+          "warmup": 5,
+          "window": 10,
+          "reference": {
+            "train/new_rollout_velocity_mse/open_laptop": 0.12462688432645519,
+            "train/new_rollout_velocity_mse/handover_mic": 0.04971012463845546,
+            "train/new_rollout_velocity_mse/dump_bin_bigbin": 0.060031283454241934,
+            "train/new_rollout_velocity_mse/stack_bowls_two": 0.04029747113049962
+          },
+          "proposals": [
+            {
+              "observed_rounds": 5,
+              "normalized_demand": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "quotas": [
+                8,
+                8,
+                8,
+                8
+              ]
+            },
+            {
+              "observed_rounds": 10,
+              "normalized_demand": [
+                0.7265281906061062,
+                1.0568619597116264,
+                0.8910874786187781,
+                0.9818988115599432
+              ],
+              "quotas": [
+                7,
+                9,
+                8,
+                8
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

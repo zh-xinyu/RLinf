@@ -46,3 +46,16 @@ MSE候选在独立worktree `outputs/worktrees/robotwin_allocation_residual/`、�
 候选启用已有的actor缓存预分配22GiB、清理阈值22.5GiB，保留8GiB设备空闲检查。预留的是可复用缓存，不保持无用live ballast；这不是进程间独占锁，也不将模型/teacher/仿真的峰值简单相加作为可行性保证。当前候选单测52项通过，GPU首轮峰值仍需实际日志确认。基线未重启去更改缓存设置，跨硬件wall time仅作描述。
 
 W&B实证：action30 Uniform run `5fzkk7q3`，project `FORMAL_robotwin_pi05`，group `allocation_new4_sft400_r2_probe`。候选run ID待实际logger创建后记录。旧重复Uniform的消耗不合并为候选训练进度，不冒充新的seed。
+
+## 已验证进展与运行修复
+
+- Teacher训练分布校准完成，每task20条，SR90%/100%/90%/90%，80条轨迹、19335个实际control targets、630.12秒。已通过训练signature/checkpoint/task集合校验。参考见teacher_reference_action30.json。
+- 独立开发评测reference（当前action30 OIDN233、cohort0前20条）teacher为80%/100%/90%/95%；SFT400为50%/45%/55%/70%，宏55%，max teacher gap55pp。开发参考与训练校准不是同一分布，分开使用。
+- 候选首次缓存预留失败发生于初始化，零更新。重试完成3轮/6updates后，第4轮的可选缓存补回因headroom差约0.277GiB触发保护退出；已归档128条实际轨迹、54962 control targets。这不是模型CUDA OOM，也不能混成连续训练。
+- 已修复运行中可选缓存补回：启动仍严格检查余量，运行中余量不足或可选补回OOM时跳过补回，不为无用cache中止训练。相关单测53项通过。
+- 候选从相同SFT400重新开始，硬件microbatch改8/card，global B256/T32/R2/LR和controller配置不变。当前W&B fnq9kq7u（旧h52t2oq3为失败部分）。不能把两条run接成同一训练曲线。需继续验证新峰值。
+- Uniform仍使用micro16/Blackwell；仅作跨硬件探索对照。主图效应与wall time的因果结论需后续匹配对照，不将不同micro与硬件下的噪声当controller收益。
+- 开发评测队列修正了checkpoint查找路径：run_dir/run_dir.name/checkpoints/global_step_N。已完成的teacher/initial400结果保留，恢复队列等待/评测三组round10/30，不因某候选在已知重启期间暂停其他已就绪评测。
+- W&B allocation/gap/* 对MSE候选表示归一化loss需求，不能当SR的G；真正SR最大gap保存在开发summary的max_teacher_gap。
+
+当前状态与完整原始数据以共享OUT目录的status JSON/episodes/update记录为准。本文进展是阶段记录，不宣称候选已有效。
