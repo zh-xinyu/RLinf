@@ -48,7 +48,10 @@ def retain_cuda_cache(
         if free < missing + headroom:
             raise RuntimeError(
                 "Insufficient free GPU memory for actor cache preallocation "
-                "and colocated-worker headroom; refusing to reserve memory."
+                "and colocated-worker headroom; refusing to reserve memory. "
+                f"device={torch.cuda.current_device()}, free_gib={free / 1024**3:.3f}, "
+                f"reserved_gib={torch.cuda.memory_reserved() / 1024**3:.3f}, "
+                f"missing_gib={missing / 1024**3:.3f}, headroom_gib={headroom_gib}"
             )
         blocks = []
         try:

@@ -1172,6 +1172,13 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             from rlinf.utils.cuda_cache import retain_cuda_cache
 
             preallocate = float(self.cfg.actor.get("cuda_cache_preallocate_gib", 0))
+            free, total = torch.cuda.mem_get_info()
+            self.log_info(
+                f"Actor cache preallocation check: device={torch.cuda.current_device()}, "
+                f"free_gib={free / 1024**3:.3f}, total_gib={total / 1024**3:.3f}, "
+                f"reserved_gib={torch.cuda.memory_reserved() / 1024**3:.3f}, "
+                f"allocated_gib={torch.cuda.memory_allocated() / 1024**3:.3f}."
+            )
             retain_cuda_cache(retention, preallocate_gib=preallocate)
             self.log_info(f"Retain actor CUDA cache up to {retention} GiB.")
 
