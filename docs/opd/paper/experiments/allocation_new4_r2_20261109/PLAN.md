@@ -9,11 +9,11 @@
 | 节点 | 第一条 | 后续候选 | 目的 |
 |---|---|---|---|
 | action30 GPU0–3 | Uniform-sync-R2 | SR-gap-sync-R2 | 同Blackwell硬件的SR基准 |
-| action10 GPU0/2/3/5 | Uniform-sync-R2 | normalized-MSE-sync-R2 | 同Ada硬件的残差候选基准 |
+| action10 GPU0/3/4/5 | normalized-MSE-sync-R2 | 仅在必要时补同机对照 | 优先验证残差候选 |
 
-两个Uniform副本不是两个training seeds，不将跨硬件差异归因于controller。候选取得正向信号后在共同硬件补直接比较。候选尚未实现/启动，不能将上述表视为已经运行三种方法。
+用户随后明确优先候选，取消action10重复Uniform（已发送owned launcher清理并保留日志）。现在并行action30 Uniform与action10 MSE候选；跨硬件仅作探索描述，不宣称严格controller因果比较。真有必要时再补同机对照。SR组尚待新teacher校准，未启动。
 
-- Uniform两条已排队，资源/实际训练状态以共享输出的各host状态JSON为准。
+- Uniform与MSE候选已排队，实际训练状态以共享输出各host状态JSON为准。
 - action30新资源/ckpts在本地scratch2；action10本地仅余123GB，不删除既有实验，使用共享目录并引用不可变资源。
 - 独立Ray6393/8273、owner-scoped清理；不停止其他作业。
 - W&B project FORMAL_robotwin_pi05；group allocation_new4_sft400_r2_probe。
@@ -38,3 +38,11 @@
 同时记录真实rollout trajectories、executed control targets、原始query数、quota/alpha与加权曝光proxy；R2本阶段固定，不把加权曝光算作真实交互。seed0仅用于筛查，不作多seed稳定性证据。
 
 输出：`outputs/robotwin4/allocation_new4_r2_20261109/`。训练由程序每60秒归档小型日志，模型约20–30分钟集中分析一次；故障立即检查。探索代码分支 `experiment/robotwin2-allocation-new4-r2`，worktree `outputs/worktrees/robotwin_allocation_new4/`。
+
+## 实现与显存设置
+
+MSE候选在独立worktree `outputs/worktrees/robotwin_allocation_residual/`、分支 `experiment/robotwin2-allocation-residual-r2` 开发，action30基线继续使用原冻结worktree。controller消费每轮首次update的原始suite velocity MSE，最初5轮均值作为冻结reference，最近5轮均值为平滑值，比例不截断；仍采用rho0.5/epsilon0.01的uniform mixture及原配额约束。controller历史/reference纳入checkpoint并验证恢复。该候选本身不需teacher SR作为调度输入；SR比较组及效果解释仍需训练分布校准。
+
+候选启用已有的actor缓存预分配22GiB、清理阈值22.5GiB，保留8GiB设备空闲检查。预留的是可复用缓存，不保持无用live ballast；这不是进程间独占锁，也不将模型/teacher/仿真的峰值简单相加作为可行性保证。当前候选单测52项通过，GPU首轮峰值仍需实际日志确认。基线未重启去更改缓存设置，跨硬件wall time仅作描述。
+
+W&B实证：action30 Uniform run `5fzkk7q3`，project `FORMAL_robotwin_pi05`，group `allocation_new4_sft400_r2_probe`。候选run ID待实际logger创建后记录。旧重复Uniform的消耗不合并为候选训练进度，不冒充新的seed。

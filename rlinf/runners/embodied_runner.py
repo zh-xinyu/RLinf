@@ -197,7 +197,9 @@ class EmbodiedRunner:
                     "Rollout allocation needs homogeneous workers/task catalogs."
                 )
             reference = None
-            if allocation.get("mode", "adaptive") == "adaptive":
+            if allocation.get("mode", "adaptive") == "adaptive" and allocation.get(
+                "teacher_reference_file"
+            ):
                 reference = load_teacher_reference(
                     allocation.teacher_reference_file, self.cfg, first["tasks"]
                 )
@@ -761,6 +763,15 @@ class EmbodiedRunner:
                 if inner == repeats:
                     row.update(self._last_allocation_metrics)
             if inner == 1:
+                if getattr(self, "rollout_allocator", None) is not None:
+                    allocator = self.rollout_allocator
+                    if allocator.demand_signal == "normalized_mse":
+                        allocator.observe_losses(
+                            {
+                                s: row[f"train/actor/velocity_mse/{s}"]
+                                for s in allocator.suites
+                            }
+                        )
                 row["train/new_rollout_velocity_mse"] = row["train/actor/velocity_mse"]
                 for key, value in list(row.items()):
                     if key.startswith("train/actor/velocity_mse/"):
@@ -853,7 +864,14 @@ class EmbodiedRunner:
         metrics["allocation/success_once_suite_macro"] = sum(
             metrics[f"allocation/success_once/{suite}"] for suite in state["quotas"]
         ) / len(state["quotas"])
-        for name in ("gap", "success", "probabilities", "signed_progress"):
+        for name in (
+            "gap",
+            "success",
+            "probabilities",
+            "signed_progress",
+            "residual_reference",
+            "residual_smoothed",
+        ):
             for suite, value in state["diagnostics"].get(name, {}).items():
                 metrics[f"allocation/{name}/{suite}"] = value
         # Emit only after the inner updates, keeping W&B steps monotonic.

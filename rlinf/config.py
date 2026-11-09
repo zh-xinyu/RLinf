@@ -846,7 +846,11 @@ def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
     mode = allocation.get("mode", "adaptive")
     if mode not in {"uniform", "static", "adaptive"}:
         raise ValueError("Unknown rollout allocation mode.")
-    if mode == "adaptive" and not allocation.get("teacher_reference_file"):
+    if (
+        mode == "adaptive"
+        and allocation.get("demand_signal", "sr_gap") == "sr_gap"
+        and not allocation.get("teacher_reference_file")
+    ):
         raise ValueError(
             "Adaptive allocation requires a calibrated teacher_reference_file."
         )

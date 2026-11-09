@@ -504,3 +504,45 @@ def test_allocation_probe_rejects_uncontrolled_changes(fault):
     target = allocator("static", **overrides)
     with pytest.raises(ValueError):
         target.load_state_dict(state, allocation_probe=fault != "implicit")
+
+
+def test_normalized_mse_freezes_reference_and_ignores_absolute_task_scale():
+    a = allocator(demand_signal="normalized_mse")
+    for _ in range(2):
+        a.observe(outcomes(a.plan()))
+        a.observe_losses({"a": 100.0, "b": 10.0, "c": 1.0})
+    a.observe(outcomes(a.plan()))
+    assert a.quotas == [32, 32, 32]
+    a.observe_losses({"a": 50.0, "b": 20.0, "c": 1.0})
+    a.plan()
+    assert a.quotas[1] > a.quotas[0]
+    assert a.loss_reference == {"a": 100.0, "b": 10.0, "c": 1.0}
+    assert a.last_diagnostics["gap"]["b"] == 1.5
+    assert a.last_diagnostics["reason"] == "normalized_mse"
+
+
+def test_normalized_mse_requires_one_complete_feedback_per_round():
+    a = allocator(demand_signal="normalized_mse")
+    a.observe(outcomes(a.plan()))
+    with pytest.raises(ValueError, match="finite nonnegative"):
+        a.observe_losses({"a": float("nan"), "b": 1.0, "c": 1.0})
+    a.observe_losses({"a": 1.0, "b": 2.0, "c": 3.0})
+    with pytest.raises(ValueError, match="once per"):
+        a.observe_losses({"a": 1.0, "b": 2.0, "c": 3.0})
+
+
+def test_normalized_mse_checkpoint_restores_proposals():
+    import copy
+
+    a = allocator(demand_signal="normalized_mse")
+    for i in range(4):
+        a.observe(outcomes(a.plan()))
+        a.observe_losses({"a": 1.0 / (i + 1), "b": 2.0, "c": 0.1})
+    state = copy.deepcopy(a.state_dict())
+    b = allocator(demand_signal="normalized_mse")
+    b.load_state_dict(state)
+    assert a.plan() == b.plan()
+    bad = copy.deepcopy(state)
+    bad["loss_reference"]["a"] += 1
+    with pytest.raises(ValueError, match="reference changed"):
+        allocator(demand_signal="normalized_mse").load_state_dict(bad)

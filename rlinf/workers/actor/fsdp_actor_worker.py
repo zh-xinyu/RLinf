@@ -1171,7 +1171,8 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         if retention:
             from rlinf.utils.cuda_cache import retain_cuda_cache
 
-            retain_cuda_cache(retention)
+            preallocate = float(self.cfg.actor.get("cuda_cache_preallocate_gib", 0))
+            retain_cuda_cache(retention, preallocate_gib=preallocate)
             self.log_info(f"Retain actor CUDA cache up to {retention} GiB.")
 
     def model_provider_func(self) -> nn.Module:

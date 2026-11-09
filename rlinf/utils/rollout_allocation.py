@@ -77,6 +77,11 @@ class RolloutAllocator:
         self.simulation_steps = 0
         self.reference = reference
         self.last_diagnostics = {}
+        self.demand_signal = self.config.get("demand_signal", "sr_gap")
+        if self.demand_signal not in {"sr_gap", "normalized_mse"}:
+            raise ValueError("Unknown allocation demand signal")
+        self.loss_history = []
+        self.loss_reference = None
         if self.mode not in {"uniform", "static", "adaptive"}:
             raise ValueError("Unknown rollout allocation mode.")
         if not tasks or envs_per_worker < len(self.suites):
@@ -101,7 +106,7 @@ class RolloutAllocator:
         epsilon = float(self.config.get("epsilon", 0.01))
         if not 0 <= rho <= 1 or not math.isfinite(epsilon) or epsilon <= 0:
             raise ValueError("Invalid allocation rho/epsilon.")
-        if self.mode == "adaptive":
+        if self.mode == "adaptive" and self.demand_signal == "sr_gap":
             if reference is None or set(reference) != set(self.suites):
                 raise ValueError(
                     "Adaptive allocation needs calibrated teacher references."
@@ -171,7 +176,23 @@ class RolloutAllocator:
                     / len(self.pools[s])
                     for s in self.suites
                 }
-        gap = {s: max(0.0, self.reference[s] - estimates[s]) for s in self.suites}
+        if self.demand_signal == "normalized_mse":
+            if self.loss_reference is None or len(self.loss_history) < self.rounds:
+                self.last_diagnostics.update(reason="missing_residual_history")
+                return
+            recent = self.loss_history[-self.window_rounds :]
+            smoothed = {
+                s: sum(row[s] for row in recent) / len(recent) for s in self.suites
+            }
+            gap = {
+                s: smoothed[s] / max(self.loss_reference[s], 1e-8) for s in self.suites
+            }
+            self.last_diagnostics.update(
+                residual_reference=self.loss_reference.copy(),
+                residual_smoothed=smoothed,
+            )
+        else:
+            gap = {s: max(0.0, self.reference[s] - estimates[s]) for s in self.suites}
         rho, eps = (
             float(self.config.get("rho", 0.5)),
             float(self.config.get("epsilon", 0.01)),
@@ -191,7 +212,9 @@ class RolloutAllocator:
         )
         self.last_diagnostics.update(
             decision=True,
-            reason="gap",
+            reason="normalized_mse"
+            if self.demand_signal == "normalized_mse"
+            else "gap",
             success=estimates,
             gap=gap,
             probabilities=dict(zip(self.suites, probabilities)),
@@ -291,6 +314,26 @@ class RolloutAllocator:
         self.simulation_steps += sum(row["simulation_steps"] for row in records)
         self.pending = None
 
+    def observe_losses(self, losses: dict[str, float]) -> None:
+        """Consume exactly the first unweighted velocity MSE of one new rollout."""
+        if self.demand_signal != "normalized_mse":
+            return
+        if len(self.loss_history) + 1 != self.rounds:
+            raise ValueError("Residual feedback must occur once per completed rollout")
+        if set(losses) != set(self.suites) or any(
+            not math.isfinite(v) or v < 0 for v in losses.values()
+        ):
+            raise ValueError(
+                "Residual feedback needs finite nonnegative loss for every suite"
+            )
+        self.loss_history.append(dict(losses))
+        warmup = int(self.config.get("warmup_rounds", 20))
+        if len(self.loss_history) == warmup:
+            self.loss_reference = {
+                s: sum(row[s] for row in self.loss_history) / warmup
+                for s in self.suites
+            }
+
     def load_state_dict(self, state: dict, *, allocation_probe: bool = False) -> None:
         """Restore a completed physical round, retaining task-local reset sequences.
 
@@ -383,6 +426,27 @@ class RolloutAllocator:
         self.cursors = dict(state["cursors"])
         self.occurrences = Counter(state["occurrences"])
         self.history.extend(history)
+        if self.demand_signal == "normalized_mse":
+            losses = state.get("loss_history", [])
+            if len(losses) != rounds or any(
+                set(row) != set(self.suites)
+                or any(not math.isfinite(v) or v < 0 for v in row.values())
+                for row in losses
+            ):
+                raise ValueError("Incomplete residual checkpoint history")
+            warmup = int(self.config.get("warmup_rounds", 20))
+            expected = (
+                {
+                    s: sum(row[s] for row in losses[:warmup]) / warmup
+                    for s in self.suites
+                }
+                if rounds >= warmup
+                else None
+            )
+            if state.get("loss_reference") != expected:
+                raise ValueError("Residual checkpoint reference changed")
+            self.loss_history = list(losses)
+            self.loss_reference = expected
         self.last_diagnostics = dict(state["diagnostics"])
         self.pending = None
 
@@ -399,6 +463,8 @@ class RolloutAllocator:
             "diagnostics": self.last_diagnostics,
             "config": self.config,
             "reference": self.reference,
+            "loss_history": self.loss_history,
+            "loss_reference": self.loss_reference,
         }
 
 
