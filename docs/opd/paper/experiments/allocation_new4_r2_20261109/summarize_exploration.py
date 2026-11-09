@@ -1,17 +1,21 @@
 """Recompute development metrics from complete, matched raw episode records."""
 
+import argparse
 import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-OUT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--output-root", type=Path, default=Path(__file__).resolve().parents[1])
+OUT = parser.parse_args().output_root.resolve()
 TASKS = ("open_laptop", "handover_mic", "dump_bin_bigbin", "stack_bowls_two")
 RUNS = {
     "uniform": ("action30_uniform_status.json", "5fzkk7q3", "Blackwell", 16),
     "sr": ("action30_sr_status.json", "d01hcdxd", "Blackwell", 16),
     "residual": ("action10_residual_status.json", "fnq9kq7u", "Ada", 8),
+    "residual_matched": ("action30_residual_matched_status.json", "9mfsxt3k", "Blackwell", 16),
 }
 
 
@@ -27,8 +31,13 @@ def read_jsonl(path):
     return [json.loads(line) for line in data.split(b"\n")[:-1] if line.strip()]
 
 
+def evaluation_directory(label):
+    cohort = "development_action30_matched" if label.startswith("residual_matched_") else "development_action30"
+    return OUT / cohort / label
+
+
 def evaluate_label(label, reference_scenes=None):
-    directory = OUT / "development_action30" / label
+    directory = evaluation_directory(label)
     if not (directory / "summary.json").exists():
         return None, None
     summary = read_json(directory / "summary.json")
@@ -105,7 +114,7 @@ def main():
             assert (cp / "runner_state.json").exists()
             assert (cp / "actor/dcp_checkpoint/.metadata").exists()
             for task in TASKS:
-                raw = read_json(OUT / "development_action30" / label / task / "summary.json")
+                raw = read_json(evaluation_directory(label) / task / "summary.json")
                 assert Path(raw["checkpoint"]).resolve() == cp.resolve()
             checkpoint_points[round_number] = {
                 "training_trajectories": 32 * round_number,
@@ -157,7 +166,7 @@ def main():
 
     result = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
-        "phase": "COMPLETE" if all(m["complete_curve"] for m in methods.values()) else "INTERIM",
+        "phase": "COMPLETE" if all(m["complete_curve"] and m["status"] == "COMPLETE" for m in methods.values()) else "INTERIM",
         "matched_development_scene_prompt_audit": "PASS",
         "development_episodes_per_task": 20, "training_seed_count": 1,
         "tasks": TASKS, "evaluation": labels, "methods": methods,
@@ -165,7 +174,7 @@ def main():
         "training_calibration_reference": calibration,
         "limitations": [
             "Development selection data; the formal 100-scene pool is not used.",
-            "SR and Uniform use Blackwell/micro16; MSE uses Ada/micro8. Cross-hardware differences are not causal allocation evidence.",
+            "The main matched comparison is Uniform / SR-gap / matched-MSE on Blackwell/micro16. The additional Ada/micro8 MSE run is a cross-hardware exploratory result.",
             "The MSE controller is uniform through round10. Its round10 differences cannot be attributed to allocation.",
             "Identical seeds do not ensure identical numerical prefixes, even on the same hardware.",
             "SR consumes an additional teacher calibration: 80 trajectories / 19335 control targets.",

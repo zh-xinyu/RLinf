@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "rollout_rounds": 30,
+  "optimizer_updates": 60,
+  "trajectories": 960,
+  "control_steps": 375766,
+  "calibration_trajectories": 80,
+  "calibration_control_steps": 19335,
+  "total_trajectories_with_calibration": 1040,
+  "total_control_steps_with_calibration": 395101,
+  "final_velocity_mse": 0.018497303128242493,
+  "checkpoint_updates": [
+    20,
+    60
+  ],
+  "full_weights_and_optimizer_checkpoint_verified": true
+}

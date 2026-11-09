@@ -1,0 +1,45 @@
+{
+  "uniform_run": "5fzkk7q3",
+  "differences": [
+    {
+      "path": "env.eval.video_cfg.video_base_dir",
+      "uniform": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30/video/train",
+      "matched_mse": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_normalized_mse_sync_r2_t32_b256_rounds30_seed0_action30_micro16_matched/video/train"
+    },
+    {
+      "path": "env.train.video_cfg.video_base_dir",
+      "uniform": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30/video/train",
+      "matched_mse": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_normalized_mse_sync_r2_t32_b256_rounds30_seed0_action30_micro16_matched/video/train"
+    },
+    {
+      "path": "runner.logger.experiment_name",
+      "uniform": "new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30",
+      "matched_mse": "new4_sft400_normalized_mse_sync_r2_t32_b256_rounds30_seed0_action30_micro16_matched"
+    },
+    {
+      "path": "runner.logger.log_path",
+      "uniform": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30",
+      "matched_mse": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_normalized_mse_sync_r2_t32_b256_rounds30_seed0_action30_micro16_matched"
+    },
+    {
+      "path": "runner.rollout_allocation.demand_signal",
+      "uniform": null,
+      "matched_mse": "normalized_mse"
+    },
+    {
+      "path": "runner.rollout_allocation.mode",
+      "uniform": "uniform",
+      "matched_mse": "adaptive"
+    }
+  ],
+  "status": "PASS",
+  "matched_controls": [
+    "5fzkk7q3",
+    "d01hcdxd"
+  ],
+  "matched_mse_run": "9mfsxt3k",
+  "science_config_differences": [
+    "runner.rollout_allocation.mode",
+    "runner.rollout_allocation.demand_signal"
+  ]
+}

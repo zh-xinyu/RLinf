@@ -59,3 +59,13 @@ W&B实证：action30 Uniform run `5fzkk7q3`，project `FORMAL_robotwin_pi05`，g
 - W&B allocation/gap/* 对MSE候选表示归一化loss需求，不能当SR的G；真正SR最大gap保存在开发summary的max_teacher_gap。
 
 当前状态与完整原始数据以共享OUT目录的status JSON/episodes/update记录为准。本文进展是阶段记录，不宣称候选已有效。
+
+## 追加同硬件 MSE 对照（11/09 18:25）
+
+用户要求充分利用action30已释放的训练资源，新增normalized-MSE-sync-R2 / Blackwell / micro16，对比该机已完成的Uniform与SR-gap。三者同SFT400、T32/B256/LR1e-5/R2/seed0/30rounds，保存round10、30；启动配置完整diff仅有allocation mode、demand_signal与输出/日志名称差异，见action30_matched_config_audit.json。MSE不需要SR校准作为控制输入，不启用action10的显存cache改动。
+
+- 训练状态：OUT/action30_residual_matched_status.json；W&B run9mfsxt3k，同project/group。
+- action10原MSE（Ada/micro8、fnq9kq7u）继续完成，作为补充探索，不再承担主要跨controller比较。
+- 新测评状态：OUT/development_action30_matched/status.json；复用同一开发20场景/task、teacher/initializer参考，等待旧测评owner完全退出后再启动新服务，自动测round10/30。不使用formal100池选择方法。
+- 本阶段最少完成主比较为action30 Uniform / SR-gap / MSE；同seed并不保证数值轨迹完全相同，仍需独立training seed确认稳健性。
+- setup/summarize_exploration.py与plot_exploration.py已纳入第四条run。归档脚本可用--output-root指定OUT，在action30重新计算记录；主目录paper正文不变。

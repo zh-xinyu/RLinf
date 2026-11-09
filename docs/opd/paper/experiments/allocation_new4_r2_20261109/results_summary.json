@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-11-09T20:13:56.255492+00:00",
+  "generated_utc": "2026-11-09T23:51:02.648521+00:00",
   "phase": "INTERIM",
   "matched_development_scene_prompt_audit": "PASS",
   "development_episodes_per_task": 20,
@@ -109,6 +109,26 @@
         "stack_bowls_two": 0.25
       },
       "max_teacher_gap": 0.55,
+      "all_within_delta_010": false
+    },
+    "sr_round30": {
+      "label": "sr_round30",
+      "task_sr": {
+        "open_laptop": 0.75,
+        "handover_mic": 1.0,
+        "dump_bin_bigbin": 0.45,
+        "stack_bowls_two": 0.85
+      },
+      "macro_sr": 0.7625000000000001,
+      "episodes_per_task": 20,
+      "control_steps": 24946,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.050000000000000044,
+        "handover_mic": 0.0,
+        "dump_bin_bigbin": 0.45,
+        "stack_bowls_two": 0.09999999999999998
+      },
+      "max_teacher_gap": 0.45,
       "all_within_delta_010": false
     },
     "residual_round10": {
@@ -457,15 +477,15 @@
       "macro_endpoint_drop_over_5pp_vs_uniform": false
     },
     "sr": {
-      "status": "RUNNING",
+      "status": "COMPLETE",
       "run_id": "d01hcdxd",
       "hardware": "Blackwell",
       "microbatch_per_card": 16,
-      "optimizer_updates": 44,
-      "collected_rollout_rounds": 22,
-      "completed_training_rounds": 22,
-      "training_trajectories": 704,
-      "training_control_steps": 285863,
+      "optimizer_updates": 60,
+      "collected_rollout_rounds": 30,
+      "completed_training_rounds": 30,
+      "training_trajectories": 960,
+      "training_control_steps": 375766,
       "quota_history": [
         {
           "round": 1,
@@ -664,24 +684,100 @@
             "dump_bin_bigbin": 9,
             "stack_bowls_two": 8
           }
+        },
+        {
+          "round": 23,
+          "quotas": {
+            "open_laptop": 5,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 24,
+          "quotas": {
+            "open_laptop": 5,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 25,
+          "quotas": {
+            "open_laptop": 5,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 26,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 12,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 27,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 12,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 28,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 12,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 29,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 12,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 30,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 12,
+            "stack_bowls_two": 5
+          }
         }
       ],
       "raw_selected_query_count_per_task": {
-        "open_laptop": 2816,
-        "handover_mic": 2816,
-        "dump_bin_bigbin": 2816,
-        "stack_bowls_two": 2816
+        "open_laptop": 3840,
+        "handover_mic": 3840,
+        "dump_bin_bigbin": 3840,
+        "stack_bowls_two": 3840
       },
       "weighted_query_exposure_proxy_per_task": {
-        "open_laptop": 2400.0,
-        "handover_mic": 3520.0,
-        "dump_bin_bigbin": 3168.0,
-        "stack_bowls_two": 2176.0
+        "open_laptop": 3200.0,
+        "handover_mic": 4640.0,
+        "dump_bin_bigbin": 4560.0,
+        "stack_bowls_two": 2960.0
       },
       "development_checkpoints": {
         "10": {
           "training_trajectories": 320,
           "training_control_steps": 151353
+        },
+        "30": {
+          "training_trajectories": 960,
+          "training_control_steps": 375766
         }
       },
       "gap_curve": [
@@ -692,23 +788,27 @@
         [
           10,
           0.55
+        ],
+        [
+          30,
+          0.45
         ]
       ],
-      "complete_curve": false,
-      "normalized_gap_auc_0_30": null,
+      "complete_curve": true,
+      "normalized_gap_auc_0_30": 0.5166666666666667,
       "sustained_joint_attainment": false,
-      "macro_endpoint_drop_over_5pp_vs_uniform": null
+      "macro_endpoint_drop_over_5pp_vs_uniform": false
     },
     "residual": {
       "status": "RUNNING",
       "run_id": "fnq9kq7u",
       "hardware": "Ada",
       "microbatch_per_card": 8,
-      "optimizer_updates": 24,
-      "collected_rollout_rounds": 13,
-      "completed_training_rounds": 12,
-      "training_trajectories": 416,
-      "training_control_steps": 186525,
+      "optimizer_updates": 48,
+      "collected_rollout_rounds": 24,
+      "completed_training_rounds": 24,
+      "training_trajectories": 768,
+      "training_control_steps": 321286,
       "quota_history": [
         {
           "round": 1,
@@ -826,19 +926,118 @@
             "dump_bin_bigbin": 8,
             "stack_bowls_two": 8
           }
+        },
+        {
+          "round": 14,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 15,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 16,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 6,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 17,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 6,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 18,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 6,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 19,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 6,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 20,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 6,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 21,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 7,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 22,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 7,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 23,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 7,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 24,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 7,
+            "stack_bowls_two": 8
+          }
         }
       ],
       "raw_selected_query_count_per_task": {
-        "open_laptop": 1536,
-        "handover_mic": 1536,
-        "dump_bin_bigbin": 1536,
-        "stack_bowls_two": 1536
+        "open_laptop": 3072,
+        "handover_mic": 3072,
+        "dump_bin_bigbin": 3072,
+        "stack_bowls_two": 3072
       },
       "weighted_query_exposure_proxy_per_task": {
-        "open_laptop": 1472.0,
-        "handover_mic": 1600.0,
-        "dump_bin_bigbin": 1536.0,
-        "stack_bowls_two": 1536.0
+        "open_laptop": 2768.0,
+        "handover_mic": 3600.0,
+        "dump_bin_bigbin": 2848.0,
+        "stack_bowls_two": 3072.0
       },
       "development_checkpoints": {
         "10": {
@@ -854,6 +1053,69 @@
         [
           10,
           0.5
+        ]
+      ],
+      "complete_curve": false,
+      "normalized_gap_auc_0_30": null,
+      "sustained_joint_attainment": false,
+      "macro_endpoint_drop_over_5pp_vs_uniform": null
+    },
+    "residual_matched": {
+      "status": "RUNNING",
+      "run_id": "9mfsxt3k",
+      "hardware": "Blackwell",
+      "microbatch_per_card": 16,
+      "optimizer_updates": 4,
+      "collected_rollout_rounds": 3,
+      "completed_training_rounds": 2,
+      "training_trajectories": 96,
+      "training_control_steps": 36948,
+      "quota_history": [
+        {
+          "round": 1,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 2,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 3,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        }
+      ],
+      "raw_selected_query_count_per_task": {
+        "open_laptop": 256,
+        "handover_mic": 256,
+        "dump_bin_bigbin": 256,
+        "stack_bowls_two": 256
+      },
+      "weighted_query_exposure_proxy_per_task": {
+        "open_laptop": 256.0,
+        "handover_mic": 256.0,
+        "dump_bin_bigbin": 256.0,
+        "stack_bowls_two": 256.0
+      },
+      "development_checkpoints": {},
+      "gap_curve": [
+        [
+          0,
+          0.55
         ]
       ],
       "complete_curve": false,
@@ -1079,7 +1341,7 @@
   },
   "limitations": [
     "Development selection data; the formal 100-scene pool is not used.",
-    "SR and Uniform use Blackwell/micro16; MSE uses Ada/micro8. Cross-hardware differences are not causal allocation evidence.",
+    "The main matched comparison is Uniform / SR-gap / matched-MSE on Blackwell/micro16. The additional Ada/micro8 MSE run is a cross-hardware exploratory result.",
     "The MSE controller is uniform through round10. Its round10 differences cannot be attributed to allocation.",
     "Identical seeds do not ensure identical numerical prefixes, even on the same hardware.",
     "SR consumes an additional teacher calibration: 80 trajectories / 19335 control targets.",
