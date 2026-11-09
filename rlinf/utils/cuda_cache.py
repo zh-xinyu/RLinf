@@ -17,8 +17,9 @@ def retain_cuda_cache(
 
     Optional preallocation warms this process's reusable allocator cache, then
     drops all temporary tensors. It does not consume RNG or hold a live ballast.
-    Above the bound, explicit empty_cache calls release cache before refilling
-    the requested floor. Live tensors and allocator OOM reclamation are unchanged.
+    Above the bound, explicit empty_cache calls release cache before attempting
+    to refill the requested floor. Startup is strict; later refills are best
+    effort and must not abort training just to retain unused cache. Live tensors and allocator OOM reclamation are unchanged.
     This is not a GPU lock: other processes, CUDA contexts and fragmentation can
     still cause OOM. Enable only with headroom for colocated rollout/env workers.
     """
@@ -40,12 +41,14 @@ def retain_cuda_cache(
     floor = int(preallocate_gib * 1024**3)
     headroom = int(headroom_gib * 1024**3)
 
-    def warm_cache() -> None:
+    def warm_cache(*, strict: bool = True) -> None:
         missing = floor - torch.cuda.memory_reserved()
         if missing <= 0:
             return
         free, _ = torch.cuda.mem_get_info()
         if free < missing + headroom:
+            if not strict:
+                return
             raise RuntimeError(
                 "Insufficient free GPU memory for actor cache preallocation "
                 "and colocated-worker headroom; refusing to reserve memory. "
@@ -62,13 +65,16 @@ def retain_cuda_cache(
                     torch.empty(256 * 1024**2, dtype=torch.uint8, device="cuda")
                 )
             torch.cuda.synchronize()
+        except torch.cuda.OutOfMemoryError:
+            if strict:
+                raise
         finally:
             blocks.clear()
 
     def bounded_empty_cache() -> None:
         if torch.cuda.memory_reserved() > limit:
             original()
-        warm_cache()
+        warm_cache(strict=False)
 
     warm_cache()
     bounded_empty_cache._rlinf_cache_retention = True

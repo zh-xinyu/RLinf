@@ -88,3 +88,25 @@ def test_preallocation_refuses_insufficient_headroom(monkeypatch):
     with pytest.raises(RuntimeError, match="headroom"):
         retain_cuda_cache(28, preallocate_gib=26)
     assert not getattr(torch.cuda.empty_cache, "_rlinf_cache_retention", False)
+
+
+def test_runtime_refill_skips_when_headroom_is_unavailable(monkeypatch):
+    gib = 1024**3
+    reserved = [gib]
+    free = [48 * gib]
+    released = []
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "memory_reserved", lambda: reserved[0])
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda: (free[0], 48 * gib))
+
+    def release():
+        released.append(True)
+        reserved[0] = 0
+
+    monkeypatch.setattr(torch.cuda, "empty_cache", release)
+    retain_cuda_cache(2, preallocate_gib=1)
+    reserved[0] = 3 * gib
+    free[0] = 8 * gib
+    torch.cuda.empty_cache()
+    assert released == [True]
+    assert reserved[0] == 0
