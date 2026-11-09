@@ -1,0 +1,1090 @@
+{
+  "generated_utc": "2026-11-09T20:13:56.255492+00:00",
+  "phase": "INTERIM",
+  "matched_development_scene_prompt_audit": "PASS",
+  "development_episodes_per_task": 20,
+  "training_seed_count": 1,
+  "tasks": [
+    "open_laptop",
+    "handover_mic",
+    "dump_bin_bigbin",
+    "stack_bowls_two"
+  ],
+  "evaluation": {
+    "teachers": {
+      "label": "teachers",
+      "task_sr": {
+        "open_laptop": 0.8,
+        "handover_mic": 1.0,
+        "dump_bin_bigbin": 0.9,
+        "stack_bowls_two": 0.95
+      },
+      "macro_sr": 0.9125000000000001,
+      "episodes_per_task": 20,
+      "control_steps": 20062,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.0,
+        "handover_mic": 0.0,
+        "dump_bin_bigbin": 0.0,
+        "stack_bowls_two": 0.0
+      },
+      "max_teacher_gap": 0.0,
+      "all_within_delta_010": true
+    },
+    "initial400": {
+      "label": "initial400",
+      "task_sr": {
+        "open_laptop": 0.5,
+        "handover_mic": 0.45,
+        "dump_bin_bigbin": 0.55,
+        "stack_bowls_two": 0.7
+      },
+      "macro_sr": 0.55,
+      "episodes_per_task": 20,
+      "control_steps": 33168,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.30000000000000004,
+        "handover_mic": 0.55,
+        "dump_bin_bigbin": 0.35,
+        "stack_bowls_two": 0.25
+      },
+      "max_teacher_gap": 0.55,
+      "all_within_delta_010": false
+    },
+    "uniform_round10": {
+      "label": "uniform_round10",
+      "task_sr": {
+        "open_laptop": 0.85,
+        "handover_mic": 0.3,
+        "dump_bin_bigbin": 0.35,
+        "stack_bowls_two": 0.5
+      },
+      "macro_sr": 0.5,
+      "episodes_per_task": 20,
+      "control_steps": 34552,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.0,
+        "handover_mic": 0.7,
+        "dump_bin_bigbin": 0.55,
+        "stack_bowls_two": 0.44999999999999996
+      },
+      "max_teacher_gap": 0.7,
+      "all_within_delta_010": false
+    },
+    "uniform_round30": {
+      "label": "uniform_round30",
+      "task_sr": {
+        "open_laptop": 0.75,
+        "handover_mic": 0.85,
+        "dump_bin_bigbin": 0.55,
+        "stack_bowls_two": 0.7
+      },
+      "macro_sr": 0.7125000000000001,
+      "episodes_per_task": 20,
+      "control_steps": 28576,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.050000000000000044,
+        "handover_mic": 0.15000000000000002,
+        "dump_bin_bigbin": 0.35,
+        "stack_bowls_two": 0.25
+      },
+      "max_teacher_gap": 0.35,
+      "all_within_delta_010": false
+    },
+    "sr_round10": {
+      "label": "sr_round10",
+      "task_sr": {
+        "open_laptop": 0.85,
+        "handover_mic": 0.45,
+        "dump_bin_bigbin": 0.6,
+        "stack_bowls_two": 0.7
+      },
+      "macro_sr": 0.6499999999999999,
+      "episodes_per_task": 20,
+      "control_steps": 29737,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.0,
+        "handover_mic": 0.55,
+        "dump_bin_bigbin": 0.30000000000000004,
+        "stack_bowls_two": 0.25
+      },
+      "max_teacher_gap": 0.55,
+      "all_within_delta_010": false
+    },
+    "residual_round10": {
+      "label": "residual_round10",
+      "task_sr": {
+        "open_laptop": 0.75,
+        "handover_mic": 0.5,
+        "dump_bin_bigbin": 0.45,
+        "stack_bowls_two": 0.55
+      },
+      "macro_sr": 0.5625,
+      "episodes_per_task": 20,
+      "control_steps": 33846,
+      "positive_teacher_gaps": {
+        "open_laptop": 0.050000000000000044,
+        "handover_mic": 0.5,
+        "dump_bin_bigbin": 0.45,
+        "stack_bowls_two": 0.3999999999999999
+      },
+      "max_teacher_gap": 0.5,
+      "all_within_delta_010": false
+    }
+  },
+  "methods": {
+    "uniform": {
+      "status": "COMPLETE",
+      "run_id": "5fzkk7q3",
+      "hardware": "Blackwell",
+      "microbatch_per_card": 16,
+      "optimizer_updates": 60,
+      "collected_rollout_rounds": 30,
+      "completed_training_rounds": 30,
+      "training_trajectories": 960,
+      "training_control_steps": 383720,
+      "quota_history": [
+        {
+          "round": 1,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 2,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 3,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 4,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 5,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 6,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 7,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 8,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 9,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 10,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 11,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 12,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 13,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 14,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 15,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 16,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 17,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 18,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 19,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 20,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 21,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 22,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 23,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 24,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 25,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 26,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 27,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 28,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 29,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 30,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        }
+      ],
+      "raw_selected_query_count_per_task": {
+        "open_laptop": 3840,
+        "handover_mic": 3840,
+        "dump_bin_bigbin": 3840,
+        "stack_bowls_two": 3840
+      },
+      "weighted_query_exposure_proxy_per_task": {
+        "open_laptop": 3840.0,
+        "handover_mic": 3840.0,
+        "dump_bin_bigbin": 3840.0,
+        "stack_bowls_two": 3840.0
+      },
+      "development_checkpoints": {
+        "10": {
+          "training_trajectories": 320,
+          "training_control_steps": 153134
+        },
+        "30": {
+          "training_trajectories": 960,
+          "training_control_steps": 383720
+        }
+      },
+      "gap_curve": [
+        [
+          0,
+          0.55
+        ],
+        [
+          10,
+          0.7
+        ],
+        [
+          30,
+          0.35
+        ]
+      ],
+      "complete_curve": true,
+      "normalized_gap_auc_0_30": 0.5583333333333333,
+      "sustained_joint_attainment": false,
+      "macro_endpoint_drop_over_5pp_vs_uniform": false
+    },
+    "sr": {
+      "status": "RUNNING",
+      "run_id": "d01hcdxd",
+      "hardware": "Blackwell",
+      "microbatch_per_card": 16,
+      "optimizer_updates": 44,
+      "collected_rollout_rounds": 22,
+      "completed_training_rounds": 22,
+      "training_trajectories": 704,
+      "training_control_steps": 285863,
+      "quota_history": [
+        {
+          "round": 1,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 2,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 3,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 4,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 5,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 6,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 7,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 8,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 9,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 10,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 11,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 6
+          }
+        },
+        {
+          "round": 12,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 6
+          }
+        },
+        {
+          "round": 13,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 6
+          }
+        },
+        {
+          "round": 14,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 6
+          }
+        },
+        {
+          "round": 15,
+          "quotas": {
+            "open_laptop": 7,
+            "handover_mic": 11,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 6
+          }
+        },
+        {
+          "round": 16,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 11,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 17,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 11,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 18,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 11,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 19,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 11,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 20,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 11,
+            "stack_bowls_two": 5
+          }
+        },
+        {
+          "round": 21,
+          "quotas": {
+            "open_laptop": 5,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 22,
+          "quotas": {
+            "open_laptop": 5,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 9,
+            "stack_bowls_two": 8
+          }
+        }
+      ],
+      "raw_selected_query_count_per_task": {
+        "open_laptop": 2816,
+        "handover_mic": 2816,
+        "dump_bin_bigbin": 2816,
+        "stack_bowls_two": 2816
+      },
+      "weighted_query_exposure_proxy_per_task": {
+        "open_laptop": 2400.0,
+        "handover_mic": 3520.0,
+        "dump_bin_bigbin": 3168.0,
+        "stack_bowls_two": 2176.0
+      },
+      "development_checkpoints": {
+        "10": {
+          "training_trajectories": 320,
+          "training_control_steps": 151353
+        }
+      },
+      "gap_curve": [
+        [
+          0,
+          0.55
+        ],
+        [
+          10,
+          0.55
+        ]
+      ],
+      "complete_curve": false,
+      "normalized_gap_auc_0_30": null,
+      "sustained_joint_attainment": false,
+      "macro_endpoint_drop_over_5pp_vs_uniform": null
+    },
+    "residual": {
+      "status": "RUNNING",
+      "run_id": "fnq9kq7u",
+      "hardware": "Ada",
+      "microbatch_per_card": 8,
+      "optimizer_updates": 24,
+      "collected_rollout_rounds": 13,
+      "completed_training_rounds": 12,
+      "training_trajectories": 416,
+      "training_control_steps": 186525,
+      "quota_history": [
+        {
+          "round": 1,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 2,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 3,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 4,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 5,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 6,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 7,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 8,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 9,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 10,
+          "quotas": {
+            "open_laptop": 8,
+            "handover_mic": 8,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 11,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 12,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        },
+        {
+          "round": 13,
+          "quotas": {
+            "open_laptop": 6,
+            "handover_mic": 10,
+            "dump_bin_bigbin": 8,
+            "stack_bowls_two": 8
+          }
+        }
+      ],
+      "raw_selected_query_count_per_task": {
+        "open_laptop": 1536,
+        "handover_mic": 1536,
+        "dump_bin_bigbin": 1536,
+        "stack_bowls_two": 1536
+      },
+      "weighted_query_exposure_proxy_per_task": {
+        "open_laptop": 1472.0,
+        "handover_mic": 1600.0,
+        "dump_bin_bigbin": 1536.0,
+        "stack_bowls_two": 1536.0
+      },
+      "development_checkpoints": {
+        "10": {
+          "training_trajectories": 320,
+          "training_control_steps": 152123
+        }
+      },
+      "gap_curve": [
+        [
+          0,
+          0.55
+        ],
+        [
+          10,
+          0.5
+        ]
+      ],
+      "complete_curve": false,
+      "normalized_gap_auc_0_30": null,
+      "sustained_joint_attainment": false,
+      "macro_endpoint_drop_over_5pp_vs_uniform": null
+    }
+  },
+  "training_calibration_status": {
+    "status": "COMPLETE",
+    "pid": 3113534,
+    "completed": [
+      {
+        "task": "handover_mic",
+        "successes": 20,
+        "episodes": 20
+      },
+      {
+        "task": "open_laptop",
+        "successes": 18,
+        "episodes": 20
+      },
+      {
+        "task": "dump_bin_bigbin",
+        "successes": 18,
+        "episodes": 20
+      },
+      {
+        "task": "stack_bowls_two",
+        "successes": 18,
+        "episodes": 20
+      }
+    ],
+    "updated": 1794237906.6465914,
+    "ray_address": "35.9.28.127:40319",
+    "reference": {
+      "open_laptop": 0.9,
+      "handover_mic": 1.0,
+      "dump_bin_bigbin": 0.9,
+      "stack_bowls_two": 0.9
+    }
+  },
+  "training_calibration_reference": {
+    "schema_version": 1,
+    "status": "COMPLETE",
+    "tasks": [
+      {
+        "task": "open_laptop",
+        "suite": "open_laptop",
+        "horizon": 700,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 3813
+      },
+      {
+        "task": "handover_mic",
+        "suite": "handover_mic",
+        "horizon": 600,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 4156
+      },
+      {
+        "task": "dump_bin_bigbin",
+        "suite": "dump_bin_bigbin",
+        "horizon": 600,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 3944
+      },
+      {
+        "task": "stack_bowls_two",
+        "suite": "stack_bowls_two",
+        "horizon": 900,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 7422
+      }
+    ],
+    "teacher_checkpoints": {
+      "open_laptop": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/teachers/open_laptop",
+      "handover_mic": "/localscratch/liyifa11/XyFile/opd-robotwin4-action30-20261106/resources/teachers/handover_mic",
+      "dump_bin_bigbin": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/teachers/dump_bin_bigbin",
+      "stack_bowls_two": "/localscratch/liyifa11/XyFile/opd-robotwin4-action30-20261106/resources/teachers/stack_bowls_two"
+    },
+    "training_signature": {
+      "env": {
+        "env_type": "robotwin",
+        "task_source": null,
+        "dataset_source": null,
+        "split": null,
+        "task_soup": null,
+        "task_filter": null,
+        "task_mode": null,
+        "episode_horizon_source": "task_horizon",
+        "auto_reset": false,
+        "ignore_terminations": false,
+        "init_params": null,
+        "observation": null,
+        "action_space": null,
+        "task_names": [
+          "open_laptop",
+          "handover_mic",
+          "dump_bin_bigbin",
+          "stack_bowls_two"
+        ],
+        "task_horizons": {
+          "open_laptop": 700,
+          "handover_mic": 600,
+          "dump_bin_bigbin": 600,
+          "stack_bowls_two": 900
+        },
+        "task_config": {
+          "planner_backend": "mplib",
+          "render_freq": 0,
+          "episode_num": 50,
+          "use_seed": false,
+          "save_freq": 15,
+          "embodiment": [
+            "aloha-agilex"
+          ],
+          "language_num": 100,
+          "domain_randomization": {
+            "random_background": false,
+            "cluttered_table": false,
+            "clean_background_rate": 1,
+            "random_head_camera_dis": 0,
+            "random_table_height": 0,
+            "random_light": false,
+            "crazy_random_light_rate": 0
+          },
+          "camera": {
+            "head_camera_type": "D435",
+            "wrist_camera_type": "D435",
+            "collect_head_camera": true,
+            "collect_wrist_camera": true
+          },
+          "data_type": {
+            "rgb": true,
+            "third_view": false,
+            "depth": false,
+            "pointcloud": false,
+            "observer": false,
+            "endpose": true,
+            "qpos": true,
+            "mesh_segmentation": false,
+            "actor_segmentation": false
+          },
+          "pcd_down_sample_num": 1024,
+          "pcd_crop": true,
+          "save_path": "./outputs/robotwin4/simulator",
+          "clear_cache_freq": 1,
+          "collect_data": true,
+          "eval_video_log": false
+        },
+        "instruction_type": "seen",
+        "center_crop": false
+      },
+      "model": {
+        "model_type": "openpi",
+        "precision": null,
+        "action_head_precision": null,
+        "num_action_chunks": 25,
+        "action_dim": 14,
+        "denoising_steps": null,
+        "obs_converter_type": null,
+        "embodiment_tag": null,
+        "policy_setup": "aloha",
+        "rl_head_config": null,
+        "num_steps": 10,
+        "openpi": {
+          "config_name": "pi05_aloha_robotwin",
+          "num_images_in_input": 3,
+          "noise_level": 0.5,
+          "action_chunk": 25,
+          "num_steps": 10,
+          "train_expert_only": false,
+          "action_env_dim": 14,
+          "noise_method": "flow_ode",
+          "add_value_head": false,
+          "value_after_vlm": false,
+          "value_vlm_mode": "mean_token",
+          "detach_critic_input": null,
+          "use_dsrl": false,
+          "dsrl_state_dim": 8,
+          "dsrl_action_noise_dim": 32,
+          "dsrl_num_q_heads": 10,
+          "dsrl_agg_q": "mean",
+          "dsrl_image_latent_dim": 64,
+          "dsrl_state_latent_dim": 64,
+          "dsrl_hidden_dims": [
+            128,
+            128,
+            128
+          ],
+          "action_horizon": 50,
+          "nft_joint_forward": true,
+          "joint_logprob": true,
+          "nft_full_horizon": true
+        },
+        "openpi_data": {
+          "adapt_to_pi": false,
+          "extra_delta_transform": true
+        },
+        "opd_task_norm_stats": {
+          "open_laptop": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/open_laptop/norm_stats.json",
+          "handover_mic": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/handover_mic/norm_stats.json",
+          "dump_bin_bigbin": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/dump_bin_bigbin/norm_stats.json",
+          "stack_bowls_two": "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/resources/student/assets/stack_bowls_two/norm_stats.json"
+        }
+      },
+      "teacher_action_head_precision": {
+        "open_laptop": null,
+        "handover_mic": null,
+        "dump_bin_bigbin": null,
+        "stack_bowls_two": null
+      }
+    },
+    "wall_seconds": 630.1163005828857,
+    "purpose": "Training distribution calibration, seen language, no learned or scripted teacher success screening",
+    "simulation_step_unit": "executed_control_targets",
+    "source_eval_dir": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/allocation_new4_r2_20261109/calibration_action30"
+  },
+  "limitations": [
+    "Development selection data; the formal 100-scene pool is not used.",
+    "SR and Uniform use Blackwell/micro16; MSE uses Ada/micro8. Cross-hardware differences are not causal allocation evidence.",
+    "The MSE controller is uniform through round10. Its round10 differences cannot be attributed to allocation.",
+    "Identical seeds do not ensure identical numerical prefixes, even on the same hardware.",
+    "SR consumes an additional teacher calibration: 80 trajectories / 19335 control targets.",
+    "Raw selected query counts are configured per optimizer update, not unique observations; weighted exposure is only a proxy.",
+    "Failed/restarted attempt costs remain separately archived and are not merged into successful-run progress.",
+    "A single seed and 20 episodes/task do not establish a robust ranking."
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "checkpoint": "/egr/research-actionlab/liyifa11/XyCode/Intern/Intern_experiments/Pi_OPD_try/outputs/robotwin4/allocation_new4_r2_20261109/action10_shared/train/new4_sft400_normalized_mse_sync_r2_t32_b256_rounds30_seed0_action10_micro8_retry2/new4_sft400_normalized_mse_sync_r2_t32_b256_rounds30_seed0_action10_micro8_retry2/checkpoints/global_step_20",
+  "history_rounds": 10,
+  "warmup_rounds": 5,
+  "reference": {
+    "open_laptop": 0.13554496004804967,
+    "handover_mic": 0.04403011137439171,
+    "dump_bin_bigbin": 0.06235706170042976,
+    "stack_bowls_two": 0.05017444577731657
+  },
+  "first_update_only_verified": true,
+  "uniform_prefix_verified": true
+}

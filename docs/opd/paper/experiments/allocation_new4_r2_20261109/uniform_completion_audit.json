@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "method": "uniform_sync_r2",
+  "rounds": 30,
+  "updates": 60,
+  "trajectories": 960,
+  "simulation_steps": 383720,
+  "first_new_rollout_mse": 0.08472505956888199,
+  "last_new_rollout_mse": 0.02315027080476284,
+  "checkpoints": [
+    "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30/checkpoints/global_step_20",
+    "/localscratch2/liyifa11/XyFile/allocation_new4_20261109/train/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30/new4_sft400_uniform_sync_r2_t32_b256_rounds30_seed0_action30/checkpoints/global_step_60"
+  ]
+}
