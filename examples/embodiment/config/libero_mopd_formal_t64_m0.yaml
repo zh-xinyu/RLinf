@@ -1,0 +1,11 @@
+defaults:
+  - libero_mopd_formal_t64_common
+  - _self_
+runner:
+  max_steps: 100
+  save_interval: 25
+  rollout_allocation:
+    mode: uniform
+algorithm:
+  flow_refresh_updates: 1
+  sync_suite_loss_weights: false

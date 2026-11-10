@@ -41,6 +41,7 @@ class MetricLogger:
         self.log_path = logger_cfg.get("log_path", "logs")
         self.project_name = logger_cfg.get("project_name", "rlinf")
         self.experiment_name = logger_cfg.get("experiment_name", "default")
+        self.wandb_run_name = logger_cfg.get("wandb_run_name") or self.experiment_name
         self.per_worker_log = bool(cfg.runner.get("per_worker_log", False))
         self.per_worker_log_root = cfg.runner.get(
             "per_worker_log_path", os.path.join(self.log_path, "worker_logs")
@@ -68,11 +69,16 @@ class MetricLogger:
         self.logger = self._create_logger_bundle(
             log_path=self.log_path,
             experiment_name=self.experiment_name,
+            wandb_run_name=self.wandb_run_name,
             log_path_suffix="all" if self.per_worker_log else "",
         )
 
     def _create_logger_bundle(
-        self, log_path: str, experiment_name: str, log_path_suffix: str = ""
+        self,
+        log_path: str,
+        experiment_name: str,
+        log_path_suffix: str = "",
+        wandb_run_name: str | None = None,
     ) -> dict:
         logger = {}
         if "wandb" in self.logger_backends:
@@ -90,7 +96,7 @@ class MetricLogger:
             wandb.init(
                 entity=self.wandb_entity,
                 project=self.project_name,
-                name=experiment_name,
+                name=wandb_run_name if wandb_run_name is not None else experiment_name,
                 config=self.config,
                 settings=settings,
                 dir=wandb_log_path,
@@ -150,6 +156,9 @@ class MetricLogger:
         scoped_logger = self._create_logger_bundle(
             log_path=scoped_log_path,
             experiment_name=scoped_experiment_name,
+            wandb_run_name=(
+                f"{self.wandb_run_name}-{worker_group_name}-rank_{int(rank)}"
+            ),
         )
         self._worker_loggers[key] = scoped_logger
         return scoped_logger

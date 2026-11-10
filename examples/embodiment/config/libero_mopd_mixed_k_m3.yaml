@@ -1,0 +1,10 @@
+defaults:
+  - libero_mopd_mixed_k_common
+  - _self_
+runner:
+  rollout_allocation:
+    mode: adaptive
+    teacher_reference_file: ${oc.env:OPD_LIBERO_TEACHER_REFERENCE}
+algorithm:
+  flow_refresh_updates: 1
+  sync_suite_loss_weights: true

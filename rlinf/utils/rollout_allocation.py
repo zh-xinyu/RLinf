@@ -329,7 +329,12 @@ class RolloutAllocator:
         ):
             raise ValueError("Resume allocation settings or teacher reference changed.")
         rounds, trajectories = state["rounds"], state["trajectories"]
-        if rounds < 1 or trajectories != rounds * self.total:
+        if (
+            type(rounds) is not int
+            or type(trajectories) is not int
+            or rounds < 1
+            or trajectories != rounds * self.total
+        ):
             raise ValueError("Resume rollout layout or trajectory counters differ.")
         quotas = state["quotas"]
         if (
@@ -339,11 +344,19 @@ class RolloutAllocator:
         ):
             raise ValueError("Invalid checkpoint quotas for this worker layout.")
         tasks = {t["task"]: t for t in self.tasks}
+        occurrences = state["occurrences"]
         if (
-            set(state["occurrences"]) != set(tasks)
-            or sum(state["occurrences"].values()) != trajectories
+            not isinstance(occurrences, dict)
+            or not set(occurrences).issubset(tasks)
+            or any(type(n) is not int or n < 0 for n in occurrences.values())
+            or sum(occurrences.values()) != trajectories
         ):
             raise ValueError("Resume task catalog or occurrence counts differ.")
+        if "task_catalog" in state and state["task_catalog"] != self.tasks:
+            raise ValueError("Resume full task catalog differs.")
+        sparse_legacy = set(occurrences) != set(tasks)
+        if sparse_legacy and "task_catalog" in state:
+            raise ValueError("Resume occurrence counts omit catalog tasks.")
         history = state["history"]
         if len(history) != min(rounds, 2 * self.window_rounds):
             raise ValueError("Incomplete resume success window.")
@@ -370,18 +383,55 @@ class RolloutAllocator:
                     raise ValueError("Resume history task catalog or rounds differ.")
         if (
             set(state["cursors"]) != set(self.suites)
+            or any(type(n) is not int or n < 0 for n in state["cursors"].values())
             or sum(state["cursors"].values()) != trajectories
         ):
             raise ValueError("Invalid resume task cursors.")
+        expected_occurrences = {}
+        for suite, pool in self.pools.items():
+            cycles, remainder = divmod(state["cursors"][suite], len(pool))
+            expected_occurrences.update(
+                {
+                    task["task"]: cycles + int(i < remainder)
+                    for i, task in enumerate(pool)
+                }
+            )
+        if Counter(occurrences) != Counter(expected_occurrences):
+            raise ValueError("Resume occurrence counts differ from task cursors.")
         if state["simulation_steps"] < sum(
             r["simulation_steps"] for rows in history for r in rows
         ):
             raise ValueError("Invalid cumulative simulation steps.")
+        # Older checkpoints serialized Counter entries only after visiting a
+        # task. Fill missing zeros only when ALL rounds can be replayed and
+        # prove the saved counters/cursors; a sliding suffix is insufficient.
+        if sparse_legacy and len(history) != rounds:
+            raise ValueError("Sparse legacy counts require complete history.")
+        if len(history) == rounds:
+            replay = RolloutAllocator(
+                self.tasks,
+                self.workers,
+                self.envs_per_worker,
+                self.epochs,
+                state["config"],
+                state["reference"],
+            )
+            for records in history:
+                replay.plan()
+                replay.observe(records)
+            if (
+                replay.occurrences != Counter(occurrences)
+                or replay.cursors != state["cursors"]
+                or dict(zip(replay.suites, replay.quotas)) != quotas
+                or replay.simulation_steps != state["simulation_steps"]
+            ):
+                raise ValueError("Resume counters differ from replayed history.")
+            occurrences = {name: occurrences.get(name, 0) for name in tasks}
         self.rounds, self.trajectories = rounds, trajectories
         self.simulation_steps = state["simulation_steps"]
         self.quotas = [quotas[s] for s in self.suites]
         self.cursors = dict(state["cursors"])
-        self.occurrences = Counter(state["occurrences"])
+        self.occurrences = Counter(occurrences)
         self.history.extend(history)
         self.last_diagnostics = dict(state["diagnostics"])
         self.pending = None
@@ -394,7 +444,10 @@ class RolloutAllocator:
             "simulation_steps": self.simulation_steps,
             "quotas": dict(zip(self.suites, self.quotas)),
             "cursors": self.cursors,
-            "occurrences": dict(self.occurrences),
+            "task_catalog": [dict(task) for task in self.tasks],
+            "occurrences": {
+                task["task"]: self.occurrences[task["task"]] for task in self.tasks
+            },
             "history": list(self.history),
             "diagnostics": self.last_diagnostics,
             "config": self.config,
@@ -476,6 +529,23 @@ def training_signature(cfg: Any) -> dict:
                 for name, expert in cfg.rollout.expert_models.items()
             },
         }
+        if env.get("task_suite_execution_lengths") is not None:
+            signature["libero_protocol"]["task_suite_execution_lengths"] = env[
+                "task_suite_execution_lengths"
+            ]
+            signature["libero_protocol"]["teacher_rotary_precision"] = {
+                name: expert.get("opd_rotary_precision", None)
+                for name, expert in cfg.rollout.expert_models.items()
+            }
+        if model.get("opd_native_rollout_batch_size", 1) > 1:
+            signature["libero_protocol"]["native_rollout_batch_size"] = model[
+                "opd_native_rollout_batch_size"
+            ]
+            signature["libero_protocol"]["native_rollout_batch_head"] = model.get(
+                "opd_native_rollout_batch_head", False
+            )
+        if model.get("opd_skip_finished_rollout", False):
+            signature["libero_protocol"]["skip_finished_rollout"] = True
     return signature
 
 

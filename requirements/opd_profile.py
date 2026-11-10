@@ -13,6 +13,8 @@
 # limitations under the License.
 """Restore and verify the versioned OPD environment without private node files."""
 
+from __future__ import annotations
+
 import argparse
 import importlib
 import importlib.metadata
@@ -23,6 +25,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -35,16 +38,30 @@ def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run([str(x) for x in command], check=True, **kwargs)
 
 
-def load_profile() -> dict:
-    """Read the fixed profile distributed with this checkout."""
-    return json.loads((PROFILE / "profile.json").read_text())
+def resolve_profile(name: str | None = None) -> Path:
+    """Resolve a bundled profile name, rejecting external paths and traversal."""
+    if name is None:
+        return PROFILE
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("--profile must be a bundled profile name, not a path")
+    directory = PROFILE.parent / name
+    if directory.is_symlink() or not (directory / "profile.json").is_file():
+        raise ValueError(f"Unknown bundled profile: {name}")
+    return directory
 
 
-def package_pins() -> dict[str, str]:
+def load_profile(directory: Path | None = None) -> dict:
+    """Read the selected profile, defaulting to the existing RoboCasa snapshot."""
+    return json.loads(((directory or PROFILE) / "profile.json").read_text())
+
+
+def package_pins(directory: Path | None = None) -> dict[str, str]:
     """Read exact PyPI versions, excluding comments and empty lines."""
     return dict(
         line.split("==", 1)
-        for line in (PROFILE / "requirements.txt").read_text().splitlines()
+        for line in ((directory or PROFILE) / "requirements.txt")
+        .read_text()
+        .splitlines()
         if line and not line.startswith("#")
     )
 
@@ -58,15 +75,68 @@ def check_platform(profile: dict) -> None:
         raise ValueError("This profile requires Linux x86_64 with NVIDIA CUDA.")
 
 
-def install(runtime: Path, dry_run: bool) -> None:
+def libero_config(runtime: Path) -> dict[str, str]:
+    """Return LIBERO paths owned by this runtime, never the user's global config."""
+    benchmark = runtime / "repos/libero/libero/libero"
+    return {
+        "benchmark_root": str(benchmark),
+        "bddl_files": str(benchmark / "bddl_files"),
+        "init_states": str(benchmark / "init_files"),
+        "datasets": str(runtime / "datasets"),
+        "assets": str(benchmark / "assets"),
+    }
+
+
+def profile_environment(runtime: Path, profile: dict) -> dict[str, str]:
+    """Build process-local overrides for a profile without reading node config."""
+    if profile.get("environment") != "libero":
+        return {"PYTHONPATH": str(REPO)}
+    return {
+        "PYTHONPATH": os.pathsep.join((str(REPO), str(runtime / "repos/libero"))),
+        "LIBERO_CONFIG_PATH": str(runtime / "libero-config"),
+        "LIBERO_TYPE": "standard",
+        "MUJOCO_GL": "egl",
+        "PYOPENGL_PLATFORM": "egl",
+        "PYTHONNOUSERSITE": "1",
+        "HF_HOME": str(runtime / "cache/huggingface"),
+        "HF_MODULES_CACHE": str(runtime / "cache/huggingface/modules"),
+        "HF_HUB_CACHE": str(runtime / "cache/huggingface/hub"),
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "NUMBA_CACHE_DIR": str(runtime / "cache/numba"),
+        "XDG_CACHE_HOME": str(runtime / "cache/xdg"),
+        "TORCH_HOME": str(runtime / "cache/torch"),
+        "TRITON_CACHE_DIR": str(runtime / "cache/triton"),
+        "USE_TF": "0",
+        "NO_ALBUMENTATIONS_UPDATE": "1",
+    }
+
+
+def prepare_profile_config(runtime: Path, profile: dict) -> None:
+    """Create private config only during installation into a new runtime."""
+    if profile.get("environment") == "libero":
+        directory = runtime / "libero-config"
+        directory.mkdir()
+        # JSON is valid YAML; no bootstrap dependency on PyYAML is needed.
+        (directory / "config.yaml").write_text(
+            json.dumps(libero_config(runtime), indent=2) + "\n"
+        )
+        (runtime / "datasets").mkdir()
+
+
+def install(runtime: Path, dry_run: bool, profile_name: str | None = None) -> None:
     """Install into a new directory, refusing to modify an existing runtime."""
-    profile = load_profile()
+    directory = resolve_profile(profile_name)
+    profile = load_profile(directory)
     check_platform(profile)
     if runtime.exists():
         raise ValueError(f"Runtime already exists; choose a NEW directory: {runtime}")
     uv = shutil.which("uv")
     if not uv:
-        raise ValueError(f"Install uv=={profile['uv']} first (see OPD_ENVIRONMENT.md).")
+        raise ValueError(
+            f"Install uv=={profile['uv']} first "
+            f"(see {profile.get('setup_doc', 'OPD_ENVIRONMENT.md')})."
+        )
     version = subprocess.check_output([uv, "--version"], text=True).split()[1]
     if version != profile["uv"]:
         raise ValueError(f"Expected uv=={profile['uv']}, got {version}")
@@ -76,7 +146,7 @@ def install(runtime: Path, dry_run: bool) -> None:
                 {
                     "runtime": str(runtime),
                     "profile": profile,
-                    "pypi_packages": len(package_pins()),
+                    "pypi_packages": len(package_pins(directory)),
                 },
                 indent=2,
             )
@@ -94,6 +164,9 @@ def install(runtime: Path, dry_run: bool) -> None:
             "VIRTUAL_ENV",
             "CONDA_PREFIX",
             "RLINF_PYTHON_EXECUTABLE",
+            "BASH_ENV",
+            "ENV",
+            "GIT_LFS_SKIP_SMUDGE",
         }
     }
     runtime.mkdir(parents=True, exist_ok=False)
@@ -107,11 +180,15 @@ def install(runtime: Path, dry_run: bool) -> None:
         MUJOCO_GL="egl",
         PYTHONNOUSERSITE="1",
     )
+    if profile.get("environment") == "libero":
+        env["UV_LINK_MODE"] = "copy"
     # Reuse the common venv helper with its explicit snapshot mode. This avoids
     # resolving the broad RLinf extras again and changing the captured versions.
     run(
         [
             "bash",
+            "--noprofile",
+            "--norc",
             "-c",
             'source "$1"; VENV_DIR="$2"; PYTHON_VERSION="$3"; '
             'create_and_sync_venv "$4"',
@@ -133,16 +210,25 @@ def install(runtime: Path, dry_run: bool) -> None:
         str(python),
         "--no-deps",
         "--build-constraint",
-        str(PROFILE / "build-constraints.txt"),
+        str(directory / "build-constraints.txt"),
     ]
     run(pip + profile["bootstrap"], cwd=runtime, env=env)
-    run(pip + ["-r", PROFILE / "requirements.txt"], cwd=runtime, env=env)
+    if profile.get("package_wheels"):
+        run(pip + profile["package_wheels"], cwd=runtime, env=env)
+    run(pip + ["-r", directory / "requirements.txt"], cwd=runtime, env=env)
     for source in profile["sources"]:
         checkout = runtime / "repos" / source["name"]
+        # Skip only explicitly declared non-runtime LFS objects in this source.
+        # Other repositories (especially simulator assets) retain normal smudging.
+        source_env = dict(env)
+        if source.get("skip_lfs_smudge", False):
+            source_env["GIT_LFS_SKIP_SMUDGE"] = "1"
         # Do not honor private GR00T_PATH / ROBOCASA_PATH overrides here.
         run(
             [
                 "bash",
+                "--noprofile",
+                "--norc",
                 "-c",
                 'source "$1"; unset OPD_PROFILE_SOURCE; '
                 'clone_or_reuse_repo OPD_PROFILE_SOURCE "$2" "$3" --no-checkout; '
@@ -154,13 +240,21 @@ def install(runtime: Path, dry_run: bool) -> None:
                 source["commit"],
             ],
             cwd=runtime,
-            env=env,
+            env=source_env,
         )
         run(pip + ["--editable", checkout], cwd=runtime, env=env)
     # The snapshot requires this exact CUDA/Torch/ABI wheel: no version fallback.
     run(pip + [profile["flash_attention"]["url"]], cwd=runtime, env=env)
-    env["PYTHONPATH"] = str(REPO)
-    run([python, __file__, "verify", "--runtime", runtime], cwd=runtime, env=env)
+    prepare_profile_config(runtime, profile)
+    env.update(profile_environment(runtime, profile))
+    if profile.get("environment") == "libero":
+        env.pop("MUJOCO_EGL_DEVICE_ID", None)
+        env.pop("OPD_LIBERO_AUTOMAP_EGL", None)
+    run(
+        [python, __file__, "verify", "--runtime", runtime, "--profile", directory.name],
+        cwd=runtime,
+        env=env,
+    )
     activation = (
         "# Generated for this checkout; source before launching Ray.\n"
         f"source {shlex.quote(str(runtime / 'venv/bin/activate'))}\n"
@@ -170,17 +264,54 @@ def install(runtime: Path, dry_run: bool) -> None:
         "export PYTHONNOUSERSITE=1\nexport MUJOCO_GL=egl\n"
         f"export OPD_ENV_PROFILE={shlex.quote(profile['id'])}\n"
     )
+    if profile.get("environment") == "libero":
+        activation += "unset MUJOCO_EGL_DEVICE_ID OPD_LIBERO_AUTOMAP_EGL\n"
+        activation += "".join(
+            f"export {key}={shlex.quote(value)}\n"
+            for key, value in profile_environment(runtime, profile).items()
+        )
     (runtime / "activate.sh").write_text(activation)
-    shutil.copytree(PROFILE, runtime / "profile")
+    shutil.copytree(directory, runtime / "profile")
     print(
-        f"Software verified. Next: resources in OPD_ENVIRONMENT.md.\n"
+        f"Software verified. Next: resources in "
+        f"{profile.get('setup_doc', 'OPD_ENVIRONMENT.md')}.\n"
         f"source {shlex.quote(str(runtime / 'activate.sh'))}"
     )
 
 
-def verify(runtime: Path, gpu: bool = False) -> dict:
+def verify_source_install(source: dict, checkout: Path) -> None:
+    """Require editable-install provenance from this interpreter's site-packages.
+
+    A source checkout on PYTHONPATH may expose egg-info before the installed
+    dist-info. That metadata has no direct_url.json and must not stand in for
+    the installed distribution's provenance.
+    """
+    paths = sorted({sysconfig.get_paths()[key] for key in ("purelib", "platlib")})
+    name = source["name"].lower().replace("-", "_")
+    installed = [
+        dist
+        for dist in importlib.metadata.distributions(path=paths)
+        if dist.metadata["Name"].lower().replace("-", "_") == name
+    ]
+    if len(installed) != 1:
+        raise ValueError(f"Expected one installed distribution for {source['name']}")
+    dist = installed[0]
+    direct_url = dist.read_text("direct_url.json")
+    if not direct_url:
+        raise ValueError(f"Missing installed direct_url.json for {source['name']}")
+    metadata = json.loads(direct_url)
+    if (
+        dist.version != source["version"]
+        or metadata.get("url") != checkout.as_uri()
+        or metadata.get("dir_info", {}).get("editable") is not True
+    ):
+        raise ValueError(f"Incorrect installed source provenance: {source['name']}")
+
+
+def verify(runtime: Path, gpu: bool = False, profile_name: str | None = None) -> dict:
     """Check all captured versions, source revisions, imports and optional CUDA."""
-    profile = load_profile()
+    directory = resolve_profile(profile_name)
+    profile = load_profile(directory)
     check_platform(profile)
     if Path(sys.prefix).resolve() != runtime / "venv":
         raise ValueError("Run verify with the requested runtime/venv/bin/python.")
@@ -192,7 +323,20 @@ def verify(runtime: Path, gpu: bool = False) -> dict:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
     os.environ.pop("TRANSFORMERS_CACHE", None)
-    pins = package_pins()
+    if profile.get("environment") == "libero":
+        config = runtime / "libero-config/config.yaml"
+        if not config.is_file() or json.loads(config.read_text()) != libero_config(
+            runtime
+        ):
+            raise ValueError(
+                "LIBERO private config is missing or references another runtime"
+            )
+        os.environ.update(profile_environment(runtime, profile))
+        os.environ.pop("MUJOCO_EGL_DEVICE_ID", None)
+        os.environ.pop("OPD_LIBERO_AUTOMAP_EGL", None)
+        # Setting PYTHONPATH alone does not change this already-running process.
+        sys.path.insert(0, str(runtime / "repos/libero"))
+    pins = package_pins(directory)
     pins.update(dict(pin.split("==") for pin in profile["bootstrap"]))
     for source in [*profile["sources"], profile["flash_attention"]]:
         pins[source["name"]] = source["version"]
@@ -223,22 +367,21 @@ def verify(runtime: Path, gpu: bool = False) -> dict:
             ],
             stdout=subprocess.DEVNULL,
         )
-        metadata = json.loads(
-            importlib.metadata.distribution(source["name"]).read_text("direct_url.json")
-        )
-        if metadata["url"] != checkout.as_uri():
-            raise ValueError(f"Source is loaded from outside this runtime: {metadata}")
-    for module in (
-        "torch",
-        "ray",
-        "mujoco",
-        "robosuite",
-        "robocasa",
-        "gr00t",
-        "flash_attn",
-        "rlinf.config",
-        "rlinf.envs.robocasa",
-        "rlinf.models.embodiment.gr00t.gr00t_n1d5.gr00t_action_model",
+        verify_source_install(source, checkout)
+    for module in profile.get(
+        "verification_imports",
+        (
+            "torch",
+            "ray",
+            "mujoco",
+            "robosuite",
+            "robocasa",
+            "gr00t",
+            "flash_attn",
+            "rlinf.config",
+            "rlinf.envs.robocasa",
+            "rlinf.models.embodiment.gr00t.gr00t_n1d5.gr00t_action_model",
+        ),
     ):
         importlib.import_module(module)
     for source in profile["sources"]:
@@ -284,6 +427,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("install", "verify"))
     parser.add_argument("--runtime", type=Path, required=True)
+    parser.add_argument(
+        "--profile", help=f"Bundled profile name (default: {PROFILE.name})"
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--gpu", action="store_true")
     args = parser.parse_args()
@@ -295,9 +441,9 @@ def main() -> None:
         parser.error("--dry-run is only available for install")
     runtime = args.runtime.resolve()
     if args.command == "install":
-        install(runtime, args.dry_run)
+        install(runtime, args.dry_run, args.profile)
     else:
-        verify(runtime, args.gpu)
+        verify(runtime, args.gpu, args.profile)
 
 
 if __name__ == "__main__":

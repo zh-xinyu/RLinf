@@ -63,8 +63,21 @@ def test_config_uses_physical_ids_and_labels_incomplete_rollout(tmp_path):
         (False, False, True),
     ],
 )
+@pytest.mark.parametrize(
+    "learning_rate,global_batch_size", [(None, None), (3e-5, None), (3e-5, 256)]
+)
+@pytest.mark.parametrize("cache_sizes", [(0, 0), (28, 26)])
+@pytest.mark.parametrize("sync_every_microbatch", [False, True])
 def test_default_dry_run_and_explicit_run_are_owner_scoped(
-    tmp_path, monkeypatch, run, fail_driver, allocation_smoke
+    tmp_path,
+    monkeypatch,
+    run,
+    fail_driver,
+    allocation_smoke,
+    learning_rate,
+    global_batch_size,
+    cache_sizes,
+    sync_every_microbatch,
 ):
     python, models = fixture_paths(tmp_path)
     output = tmp_path / "out"
@@ -86,6 +99,20 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
         "1",
         "3",
     ] + (["--run"] if run else [])
+    if learning_rate is not None:
+        argv += ["--learning-rate", str(learning_rate)]
+    if global_batch_size is not None:
+        argv += ["--global-batch-size", str(global_batch_size)]
+    if sync_every_microbatch:
+        argv += ["--sync-every-microbatch"]
+    if cache_sizes[0]:
+        argv += [
+            "--actor-cache-retention-gib",
+            str(cache_sizes[0]),
+            "--actor-cache-preallocate-gib",
+            str(cache_sizes[1]),
+        ]
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     if allocation_smoke:
         argv += [
             "--allocation-smoke",
@@ -103,10 +130,37 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
         )
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setenv("RAY_ADDRESS", "other-cluster:6379")
+    runtime_flags = (
+        {
+            "OPD_LIBERO_AUTOMAP_EGL": "1",
+            "NCCL_P2P_DISABLE": "1",
+            "NCCL_IB_DISABLE": "0",
+        }
+        if allocation_smoke
+        else {}
+    )
+    original_build_config = launcher.build_config
+
+    def build_with_existing_environment(args, paths):
+        from omegaconf import open_dict
+
+        cfg = original_build_config(args, paths)
+        if allocation_smoke:
+            with open_dict(cfg):
+                cfg.cluster.node_groups[0].env_configs[0].env_vars = [
+                    {"EXISTING_ENV": "preserved"}
+                ]
+        return cfg
+
+    monkeypatch.setattr(launcher, "build_config", build_with_existing_environment)
     monkeypatch.setattr(
         launcher,
         "read_runtime_environment",
-        lambda _: {"PYTHONPATH": str(launcher.REPO), "LIBERO_CONFIG_PATH": "/fixture"},
+        lambda _: {
+            "PYTHONPATH": str(launcher.REPO),
+            "LIBERO_CONFIG_PATH": "/fixture",
+            **runtime_flags,
+        },
     )
     ray_dir = tmp_path / "private-ray"
     ray_dir.mkdir()
@@ -157,6 +211,57 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
     assert manifest["incomplete_episodes"] is not allocation_smoke
     assert not manifest["performance_evidence"] and manifest["smoke_only"]
     assert manifest["seed_override"] == (2 if allocation_smoke else None)
+    assert manifest["learning_rate_override"] == learning_rate
+    assert manifest["global_batch_size_override"] == global_batch_size
+    from omegaconf import OmegaConf
+
+    resolved = OmegaConf.load(output / "resolved_config.yaml")
+    from rlinf.scheduler.cluster.config import ClusterConfig
+
+    validated = ClusterConfig.from_dict_cfg(resolved.cluster)
+    validated_env = validated.node_groups[0].env_configs[0]
+    node_env = resolved.cluster.node_groups[0].env_configs[0]
+    if allocation_smoke:
+        expected_vars = [{"EXISTING_ENV": "preserved"}] + [
+            {key: value} for key, value in runtime_flags.items()
+        ]
+        assert node_env.env_vars == expected_vars
+        assert validated_env.env_vars == expected_vars
+        assert manifest["runtime_env_vars"] == runtime_flags
+    else:
+        assert "env_vars" not in node_env
+        assert validated_env.env_vars is None
+        assert "runtime_env_vars" not in manifest
+    assert resolved.actor.global_batch_size == (global_batch_size or 64)
+    assert manifest["batch_recipe"] == {
+        "global_batch_size": resolved.actor.global_batch_size,
+        "micro_batch_size": 1,
+        "microbatches_per_rank": resolved.actor.global_batch_size // 4,
+    }
+    assert (
+        resolved.actor.fsdp_config.enable_gradient_accumulation
+        is not sync_every_microbatch
+    )
+    assert manifest["gradient_synchronization"] == {
+        "sync_every_microbatch": sync_every_microbatch,
+        "optimizer_accumulation_steps": resolved.actor.global_batch_size
+        // (4 * resolved.actor.micro_batch_size),
+    }
+    assert manifest["actor_cuda_cache"] == {
+        "retention_gib": cache_sizes[0],
+        "preallocate_gib": cache_sizes[1],
+    }
+    assert manifest["pytorch_cuda_alloc_conf"] == "expandable_segments:True"
+    if cache_sizes[0]:
+        assert resolved.actor.cuda_cache_retention_gib == cache_sizes[0]
+        assert resolved.actor.cuda_cache_preallocate_gib == cache_sizes[1]
+    else:
+        assert "cuda_cache_retention_gib" not in resolved.actor
+        assert "cuda_cache_preallocate_gib" not in resolved.actor
+    assert manifest["effective_learning_rate"] == resolved.actor.optim.lr
+    assert manifest["effective_value_learning_rate"] == resolved.actor.optim.value_lr
+    if learning_rate is not None:
+        assert resolved.actor.optim.lr == resolved.actor.optim.value_lr == learning_rate
     if allocation_smoke:
         assert manifest["effective_seeds"] == dict.fromkeys(
             (
@@ -183,6 +288,10 @@ def test_default_dry_run_and_explicit_run_are_owner_scoped(
         expected = "FAILED" if fail_driver else "OK"
         assert (output / "status").read_text().strip() == expected
         assert all("stop" not in command for command, _ in calls)
+        assert all(
+            env["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+            for _, env in calls
+        )
     else:
         assert calls == cleanups == checks == []
         assert (output / "status").read_text().strip() == "DRY_RUN"
@@ -192,6 +301,88 @@ def test_duplicate_gpu_ids_rejected_before_launch(tmp_path):
     args = SimpleNamespace(gpus=[0, 0, 1, 2], updates=2, rollout_steps=32)
     with pytest.raises(ValueError, match="distinct"):
         launcher.build_config(args, {})
+
+
+@pytest.mark.parametrize(
+    "retention,preallocate",
+    [
+        (-1, 0),
+        (28, -1),
+        (0, 1),
+        (28, 29),
+        (float("inf"), 0),
+        (28, float("nan")),
+        (True, 0),
+        (28, "26"),
+    ],
+)
+def test_invalid_actor_cache_sizes_rejected_before_launch(retention, preallocate):
+    args = SimpleNamespace(
+        gpus=[0, 1, 2, 3],
+        updates=2,
+        rollout_steps=32,
+        actor_cache_retention_gib=retention,
+        actor_cache_preallocate_gib=preallocate,
+    )
+    with pytest.raises(ValueError, match="Actor cache sizes"):
+        launcher.build_config(args, {})
+
+
+def test_actor_cache_override_only_changes_allocator_config(tmp_path):
+    from omegaconf import OmegaConf
+
+    python, models = fixture_paths(tmp_path)
+    args = SimpleNamespace(
+        python=python,
+        output=tmp_path / "out",
+        gpus=[0, 1, 2, 3],
+        updates=40,
+        rollout_steps=520,
+        config_name="libero_mopd_candidate_m1",
+    )
+    paths = {
+        "student": models / "student",
+        "libero_spatial": models / "spatial",
+        "libero_object": models / "object",
+        "libero_goal": models / "goal",
+        "libero_10": models / "long",
+    }
+    original = OmegaConf.to_container(launcher.build_config(args, paths), resolve=True)
+    args.actor_cache_retention_gib = 28
+    args.actor_cache_preallocate_gib = 24
+    changed = OmegaConf.to_container(launcher.build_config(args, paths), resolve=True)
+    assert changed["actor"].pop("cuda_cache_retention_gib") == 28
+    assert changed["actor"].pop("cuda_cache_preallocate_gib") == 24
+    assert changed == original
+
+
+def test_sync_every_microbatch_preserves_optimizer_batch(tmp_path):
+    from omegaconf import OmegaConf
+
+    python, models = fixture_paths(tmp_path)
+    args = SimpleNamespace(
+        python=python,
+        output=tmp_path / "out",
+        gpus=[0, 1, 2, 3],
+        updates=40,
+        rollout_steps=520,
+        config_name="libero_mopd_candidate_m1",
+    )
+    paths = {
+        "student": models / "student",
+        "libero_spatial": models / "spatial",
+        "libero_object": models / "object",
+        "libero_goal": models / "goal",
+        "libero_10": models / "long",
+    }
+    original = OmegaConf.to_container(launcher.build_config(args, paths), resolve=True)
+    args.sync_every_microbatch = True
+    changed = OmegaConf.to_container(launcher.build_config(args, paths), resolve=True)
+    assert changed["actor"]["global_batch_size"] == 64
+    assert changed["actor"]["micro_batch_size"] == 1
+    assert changed["actor"]["fsdp_config"]["enable_gradient_accumulation"] is False
+    changed["actor"]["fsdp_config"]["enable_gradient_accumulation"] = True
+    assert changed == original
 
 
 def test_real_placement_keeps_physical_ids_on_an_eight_gpu_node(tmp_path):
@@ -499,3 +690,143 @@ def test_invalid_seed_rejected_before_composition(tmp_path, seed):
     args = SimpleNamespace(gpus=[0, 1, 2, 3], rollout_steps=520, seed=seed)
     with pytest.raises(ValueError, match="seed must be an integer"):
         launcher.build_config(args, {})
+
+
+def test_learning_rate_override_only_changes_two_optimizer_fields(
+    tmp_path, monkeypatch
+):
+    from omegaconf import OmegaConf
+
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 1)
+    args.allocation_smoke = False
+    original = launcher.build_config(args, paths)
+    args.learning_rate = None
+    unchanged = launcher.build_config(args, paths)
+    assert OmegaConf.to_container(original, resolve=True) == OmegaConf.to_container(
+        unchanged, resolve=True
+    )
+    args.learning_rate = 3e-5
+    changed = launcher.build_config(args, paths)
+    assert changed.actor.optim.lr == changed.actor.optim.value_lr == 3e-5
+    changed.actor.optim.lr = original.actor.optim.lr
+    changed.actor.optim.value_lr = original.actor.optim.value_lr
+    assert OmegaConf.to_container(changed, resolve=True) == OmegaConf.to_container(
+        original, resolve=True
+    )
+
+
+@pytest.mark.parametrize(
+    "learning_rate", [0, -1e-5, float("nan"), float("inf"), -float("inf"), True, "3e-5"]
+)
+def test_invalid_learning_rate_rejected_before_composition(learning_rate):
+    args = SimpleNamespace(
+        gpus=[0, 1, 2, 3], rollout_steps=520, learning_rate=learning_rate
+    )
+    with pytest.raises(ValueError, match="learning-rate must be finite and positive"):
+        launcher.build_config(args, {})
+
+
+def test_canonical_profile_rejects_changed_learning_rate(tmp_path, monkeypatch):
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 1)
+    args.allocation_smoke = False
+    args.student_padding_profile = "canonical-fixed570"
+    args.learning_rate = 3e-5
+    with pytest.raises(ValueError, match="expects M1 T32/R2/LR3e-6"):
+        launcher.build_config(args, paths)
+
+
+@pytest.mark.parametrize("global_batch_size", [16, 64, 256])
+def test_native_global_batch_override_preserves_other_recipe_fields(
+    tmp_path, monkeypatch, global_batch_size
+):
+    from omegaconf import OmegaConf
+
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 1)
+    args.allocation_smoke = False
+    original = launcher.build_config(args, paths)
+    args.global_batch_size = None
+    unchanged = launcher.build_config(args, paths)
+    assert OmegaConf.to_container(original, resolve=True) == OmegaConf.to_container(
+        unchanged, resolve=True
+    )
+    assert original.actor.global_batch_size == 64
+    args.global_batch_size = global_batch_size
+    changed = launcher.build_config(args, paths)
+    assert changed.actor.global_batch_size == global_batch_size
+    assert changed.actor.micro_batch_size == 1
+    changed.actor.global_batch_size = original.actor.global_batch_size
+    assert OmegaConf.to_container(changed, resolve=True) == OmegaConf.to_container(
+        original, resolve=True
+    )
+
+
+@pytest.mark.parametrize(
+    "global_batch_size", [0, -16, 1, 4, 15, 17, 24, 64.0, True, "256", float("nan")]
+)
+def test_invalid_global_batch_rejected_before_composition(global_batch_size):
+    args = SimpleNamespace(
+        gpus=[0, 1, 2, 3], rollout_steps=520, global_batch_size=global_batch_size
+    )
+    with pytest.raises(ValueError, match="global-batch-size must be an integer"):
+        launcher.build_config(args, {})
+
+
+@pytest.mark.parametrize("global_batch_size", [64, 256])
+def test_canonical_profile_rejects_explicit_global_batch(
+    tmp_path, monkeypatch, global_batch_size
+):
+    args, paths = adaptive_smoke_fixture(tmp_path, monkeypatch, 1)
+    args.allocation_smoke = False
+    args.student_padding_profile = "canonical-fixed570"
+    args.global_batch_size = global_batch_size
+    with pytest.raises(ValueError, match="cannot be combined with canonical-fixed570"):
+        launcher.build_config(args, paths)
+
+
+@pytest.mark.parametrize(
+    "runtime_flags",
+    [
+        {},
+        {"OPD_LIBERO_AUTOMAP_EGL": "0"},
+        {"OPD_LIBERO_AUTOMAP_EGL": "1"},
+        {"NCCL_P2P_DISABLE": "0"},
+        {"NCCL_IB_DISABLE": "1"},
+        {
+            "OPD_LIBERO_AUTOMAP_EGL": "1",
+            "NCCL_P2P_DISABLE": "1",
+            "NCCL_IB_DISABLE": "1",
+        },
+    ],
+)
+def test_runtime_wrapper_preserves_optional_flags(monkeypatch, runtime_flags):
+    from pathlib import Path
+
+    values = {"PYTHONPATH": "/fixture/repo", "LIBERO_CONFIG_PATH": "/fixture/libero"}
+    values.update(runtime_flags)
+
+    def check_output(command, *, text):
+        assert command[:2] == ["/fixture/python", "-c"]
+        for key in launcher.OPTIONAL_RUNTIME_FLAGS:
+            assert key in command[2]
+        assert text is True
+        return json.dumps(values)
+
+    monkeypatch.setattr(launcher.subprocess, "check_output", check_output)
+    assert launcher.read_runtime_environment(Path("/fixture/python")) == values
+
+
+@pytest.mark.parametrize("key", launcher.OPTIONAL_RUNTIME_FLAGS)
+@pytest.mark.parametrize("value", ["", "true", "2", 1, None])
+def test_runtime_wrapper_rejects_invalid_optional_flags(monkeypatch, key, value):
+    from pathlib import Path
+
+    values = {
+        "PYTHONPATH": "/fixture/repo",
+        "LIBERO_CONFIG_PATH": "/fixture/libero",
+        key: value,
+    }
+    monkeypatch.setattr(
+        launcher.subprocess, "check_output", lambda *args, **kwargs: json.dumps(values)
+    )
+    with pytest.raises(ValueError, match=f"{key} must be"):
+        launcher.read_runtime_environment(Path("/fixture/python"))

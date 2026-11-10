@@ -11,6 +11,12 @@ per physical rollout round, native suite horizons, B64, microbatch1, LR3e-6,
 four optimizer-update warmup calls, and a constant scheduler. The launcher uses
 four explicitly selected physical GPUs and its private Ray instance.
 
+LR3e-6 is the current candidate YAML default, not a validated final choice.
+The separate [short LR probe](learning_rate_probe.md) tests LR3e-5 with
+per-microbatch gradient synchronization and no actor cache retention. Its
+20/40-update learning and matched evaluation results must be reviewed before
+freezing a common LR and runtime configuration for all four arms.
+
 | Arm | Config name | Allocation / loss weights | Reuse | Physical rounds | `--updates` | `--save-every-updates` |
 | --- | --- | --- | --- | ---: | ---: | ---: |
 | M0 | `libero_mopd_candidate_m0` | Uniform / equal | R1 | 150 | 150 | 25 |
@@ -75,3 +81,53 @@ see the [toolkit evaluation instructions](README.md#independent-evaluation-resul
 Keep the native policy profile and chosen evaluator/RNG protocol fixed across
 initialization and trained checkpoints. The full evaluation must validate all
 2000 unique task/state pairs before its result is accepted.
+
+## Full independent evaluation commands
+
+The isolated evaluation launcher defaults to only four representative tasks.
+**Always pass `--all-tasks` for the full benchmark:** 40 tasks, 50 official
+initial states per task, 2,000 episodes. Use the same four-rank layout and
+native input profile for initialization and every trained checkpoint. Its
+rank-local RNG protocol differs from the single-process diagnostic screens;
+compare scores within one evaluator protocol.
+
+Initial policy (no trained weights):
+
+```bash
+outputs/runtime/bin/python toolkits/libero_gr00t/launch_evaluation.py \
+  --python outputs/runtime/bin/python \
+  --student /absolute/path/to/student_fewshot --baseline \
+  --output /absolute/path/to/new_initial_evaluation_plan \
+  --all-tasks --student-padding-profile native \
+  --gpus <four_available_physical_GPU_IDs> \
+  --timeout-seconds 28800 --dry-run
+```
+
+Trained checkpoint (after its own strict standalone reload has passed):
+
+```bash
+outputs/runtime/bin/python toolkits/libero_gr00t/launch_evaluation.py \
+  --python outputs/runtime/bin/python \
+  --student /absolute/path/to/student_fewshot \
+  --weights /absolute/path/to/checkpoint/actor/model_state_dict/full_weights.pt \
+  --validation-protocol /absolute/path/to/that_checkpoint_screen/protocol.json \
+  --output /absolute/path/to/new_checkpoint_evaluation_plan \
+  --all-tasks --student-padding-profile native \
+  --gpus <four_available_physical_GPU_IDs> \
+  --timeout-seconds 28800 --dry-run
+```
+
+The protocol must identify these exact weights and base metadata; a protocol
+from another checkpoint is rejected. Inspect `launch.json` for all 40 task IDs,
+`trials_per_task: 50` and `expected_episodes: 2000`, plus the resolved native
+horizons in `resolved_config.yaml`. The eight-hour timeout is a bound, not a
+runtime estimate. A dry run validates configuration and artifact identity; it
+does not establish GPU execution or complete episode coverage.
+
+For an actual evaluation, replace `--dry-run` with `--run` and use a **new output
+directory**. Schedule it when the four selected GPUs are available; the launcher
+checks free memory but does not reserve GPUs for a future job. Keep `launch.json`,
+`resolved_config.yaml`, raw worker logs, `episodes.csv` and `summary.json`.
+Accept a result only after `status` is `OK`, all 2,000 unique task/state pairs
+are present, and checkpoint/input identity matches the intended run. These
+commands do not launch the formal matrix automatically.

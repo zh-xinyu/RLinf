@@ -125,8 +125,41 @@ def validate_opd_padding_config(cfg: DictConfig) -> bool:
     return canonical
 
 
+def validate_native_rollout_batch_size(cfg: DictConfig) -> int:
+    """Validate the opt-in, native-input deterministic rollout batching contract."""
+    size = cfg.get("opd_native_rollout_batch_size", 1)
+    if type(size) is not int or size < 1:
+        raise ValueError("opd_native_rollout_batch_size must be a positive integer")
+    if type(cfg.get("opd_native_rollout_batch_head", False)) is not bool:
+        raise ValueError("opd_native_rollout_batch_head must be a boolean")
+    skip = cfg.get("opd_skip_finished_rollout", False)
+    if type(skip) is not bool:
+        raise ValueError("opd_skip_finished_rollout must be a boolean")
+    if skip and (
+        size != 1
+        or cfg.get("opd_fixed_text_padding", None) is not False
+        or cfg.rl_head_config.noise_method != "flow_ode"
+        or cfg.rl_head_config.get("add_value_head", False)
+        or not cfg.rl_head_config.get("disable_dropout", False)
+    ):
+        raise ValueError(
+            "Finished-slot skipping requires native B1 flow_ode without a critic or dropout"
+        )
+    if size > 1 and (
+        cfg.get("opd_fixed_text_padding", None) is not False
+        or cfg.get("opd_canonical_fixed_padding", False)
+        or cfg.rl_head_config.noise_method != "flow_ode"
+        or not cfg.rl_head_config.get("disable_dropout", False)
+    ):
+        raise ValueError(
+            "Native rollout batching requires native text, flow_ode and disabled dropout"
+        )
+    return size
+
+
 def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     canonical_fixed_padding = validate_opd_padding_config(cfg)
+    native_rollout_batch_size = validate_native_rollout_batch_size(cfg)
     from rlinf.utils.patcher import Patcher
 
     Patcher.clear()
@@ -269,6 +302,15 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
                 f"{action_head_precision!r}."
             )
 
+    rotary_precision = cfg.get("opd_rotary_precision", None)
+    if rotary_precision not in (None, "fp32", "bf16"):
+        raise ValueError("opd_rotary_precision must be fp32 or bf16")
+    if rotary_precision is not None:
+        dtype = {"fp32": torch.float32, "bf16": torch.bfloat16}[rotary_precision]
+        for module in model.modules():
+            if isinstance(getattr(module, "inv_freq", None), torch.Tensor):
+                module.inv_freq = module.inv_freq.to(dtype)
+
     if cfg.rl_head_config.add_value_head:
         # reinitialize the value head after model loading, or there are nan values in the value head after model loading.
         model.action_head.value_head._init_weights()
@@ -296,6 +338,11 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
             raise ValueError("opd_fixed_text_padding must be a boolean")
         model.opd_fixed_text_padding = fixed_padding
     model.opd_canonical_fixed_padding = canonical_fixed_padding
+    model.opd_native_rollout_batch_size = native_rollout_batch_size
+    model.opd_skip_finished_rollout = cfg.get("opd_skip_finished_rollout", False)
+    model.opd_native_rollout_batch_head = cfg.get(
+        "opd_native_rollout_batch_head", False
+    )
 
     if cfg.get("skip_backbone_logits", False):
         from .memory_utils import enable_feature_only_backbone

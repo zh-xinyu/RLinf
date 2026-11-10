@@ -81,6 +81,36 @@ def test_resume_preserves_recipe_and_continues_total_update_budget(
     assert args.resume_summary["exact_replay"] is False
 
 
+def test_resume_requires_same_actor_cache_settings(tmp_path, monkeypatch):
+    args, paths, source, _, _ = resume_fixture(tmp_path, monkeypatch)
+    args.actor_cache_retention_gib = 28
+    args.actor_cache_preallocate_gib = 26
+    with pytest.raises(ValueError, match="recipe changed at actor"):
+        launch.build_config(args, paths)
+    OmegaConf.update(source, "actor.cuda_cache_retention_gib", 28.0, force_add=True)
+    OmegaConf.update(source, "actor.cuda_cache_preallocate_gib", 26.0, force_add=True)
+    OmegaConf.save(source, args.resume_checkpoint.parents[2] / "resolved_config.yaml")
+    cfg = launch.build_config(args, paths)
+    assert cfg.actor.cuda_cache_preallocate_gib == 26
+    args.actor_cache_preallocate_gib = 24
+    with pytest.raises(ValueError, match="recipe changed at actor"):
+        launch.build_config(args, paths)
+
+
+def test_resume_requires_same_microbatch_sync_mode(tmp_path, monkeypatch):
+    args, paths, source, _, _ = resume_fixture(tmp_path, monkeypatch)
+    args.sync_every_microbatch = True
+    with pytest.raises(ValueError, match="recipe changed at actor"):
+        launch.build_config(args, paths)
+    source.actor.fsdp_config.enable_gradient_accumulation = False
+    OmegaConf.save(source, args.resume_checkpoint.parents[2] / "resolved_config.yaml")
+    cfg = launch.build_config(args, paths)
+    assert cfg.actor.fsdp_config.enable_gradient_accumulation is False
+    args.sync_every_microbatch = False
+    with pytest.raises(ValueError, match="recipe changed at actor"):
+        launch.build_config(args, paths)
+
+
 @pytest.mark.parametrize(
     "key,value",
     [
@@ -203,5 +233,33 @@ def test_resume_cannot_change_any_seed_with_explicit_override(tmp_path, monkeypa
         == 0
     )
     args.seed = 1
+    with pytest.raises(ValueError, match="Resume recipe changed at actor"):
+        launch.build_config(args, paths)
+
+
+def test_learning_rate_override_cannot_change_resume_optimizer(tmp_path, monkeypatch):
+    args, paths, source, _, _ = resume_fixture(tmp_path, monkeypatch)
+    args.learning_rate = float(source.actor.optim.lr)
+    cfg = launch.build_config(args, paths)
+    assert cfg.actor.optim.lr == cfg.actor.optim.value_lr == args.learning_rate
+    args.learning_rate = 3e-5
+    with pytest.raises(ValueError, match="Resume recipe changed at actor"):
+        launch.build_config(args, paths)
+
+
+def test_global_batch_override_requires_original_resume_batch(tmp_path, monkeypatch):
+    args, paths, source, _, _ = resume_fixture(tmp_path, monkeypatch)
+    args.global_batch_size = int(source.actor.global_batch_size)
+    cfg = launch.build_config(args, paths)
+    assert cfg.actor.global_batch_size == args.global_batch_size
+    args.global_batch_size = 256
+    with pytest.raises(ValueError, match="Resume recipe changed at actor"):
+        launch.build_config(args, paths)
+    source.actor.global_batch_size = 256
+    OmegaConf.save(source, args.resume_checkpoint.parents[2] / "resolved_config.yaml")
+    cfg = launch.build_config(args, paths)
+    assert cfg.actor.global_batch_size == 256
+    assert cfg.actor.micro_batch_size == 1
+    args.global_batch_size = None
     with pytest.raises(ValueError, match="Resume recipe changed at actor"):
         launch.build_config(args, paths)

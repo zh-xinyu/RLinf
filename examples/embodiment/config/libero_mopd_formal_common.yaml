@@ -1,0 +1,23 @@
+# Accepted offline-update50 initialization; official 5/5/5/10 execution.
+# T32, B512, micro2/rank, LR3e-5, 100 physical rollout rounds.
+# Arm-specific update/save budgets are set by launch_formal.py.
+defaults:
+  - libero_mopd_mixed_k_common
+  - _self_
+
+runner:
+  max_steps: 200
+  save_interval: 50
+  logger:
+    project_name: FORMAL_libero_gr00t
+    experiment_name: libero_formal
+    wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,libero_formal}
+    wandb_group: ${oc.env:OPD_WANDB_GROUP,T32_offline50_seed0}
+
+env:
+  train:
+    total_num_envs: 32
+
+actor:
+  global_batch_size: 512
+  micro_batch_size: 2

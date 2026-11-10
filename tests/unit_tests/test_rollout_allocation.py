@@ -504,3 +504,153 @@ def test_allocation_probe_rejects_uncontrolled_changes(fault):
     target = allocator("static", **overrides)
     with pytest.raises(ValueError):
         target.load_state_dict(state, allocation_probe=fault != "implicit")
+
+
+def early_libero_allocator(*, tasks_per_suite=10, window_rounds=20):
+    """Mirror the four-suite T32 layout before all tasks have been visited."""
+    suites = ["libero_spatial", "libero_object", "libero_goal", "libero_10"]
+    horizons = [240, 320, 320, 520]
+    tasks = [
+        {
+            "task_id": i * tasks_per_suite + task,
+            "task": f"{suite}/{task}",
+            "suite": suite,
+            "horizon": horizons[i],
+        }
+        for i, suite in enumerate(suites)
+        for task in range(tasks_per_suite)
+    ]
+    return RolloutAllocator(
+        tasks,
+        4,
+        8,
+        1,
+        {"mode": "uniform", "seed": 0, "window_rounds": window_rounds},
+    )
+
+
+def legacy_sparse_state(source):
+    state = json.loads(json.dumps(source.state_dict()))
+    state.pop("task_catalog")
+    state["occurrences"] = {
+        key: value for key, value in state["occurrences"].items() if value
+    }
+    return state
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_early_checkpoint_preserves_unvisited_tasks_and_next_plan(legacy):
+    source = early_libero_allocator()
+    source.observe(outcomes(source.plan()))
+    state = source.state_dict()
+    assert len(state["task_catalog"]) == len(state["occurrences"]) == 40
+    assert sum(value == 0 for value in state["occurrences"].values()) == 8
+    if legacy:
+        state = legacy_sparse_state(source)
+        assert len(state["occurrences"]) == 32
+    before = json.dumps(state, sort_keys=True)
+    restored = early_libero_allocator()
+    restored.load_state_dict(state)
+    assert json.dumps(state, sort_keys=True) == before  # Never mutate legacy artifacts.
+    assert restored.cursors == source.cursors
+    assert restored.occurrences == source.occurrences
+    assert (
+        restored.plan() == source.plan()
+    )  # Includes tasks, reset seeds and occurrences.
+    assert restored.cursors == source.cursors
+    assert restored.occurrences == source.occurrences
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize(
+    "fault",
+    ["unknown", "negative", "float", "bool", "omitted_visited", "balanced_corruption"],
+)
+def test_early_checkpoint_rejects_corrupt_occurrence_counts(legacy, fault):
+    source = early_libero_allocator()
+    source.observe(outcomes(source.plan()))
+    state = legacy_sparse_state(source) if legacy else source.state_dict()
+    counts = state["occurrences"]
+    first, second = list(counts)[:2]
+    if fault == "unknown":
+        counts["unrecognized_task"] = 0
+    elif fault == "negative":
+        counts[first] = -1
+        counts[second] += 2
+    elif fault == "float":
+        counts[first] = 1.0
+    elif fault == "bool":
+        counts[first] = True
+    elif fault == "omitted_visited":
+        counts.pop(first)
+        counts[second] += 1
+    else:
+        counts[first] = 0
+        counts[second] += 1
+    with pytest.raises(ValueError):
+        early_libero_allocator().load_state_dict(state)
+
+
+@pytest.mark.parametrize(
+    "fault", ["reset_seed", "occurrence", "cursor", "history_truncated"]
+)
+def test_legacy_sparse_checkpoint_requires_exact_full_history(fault):
+    source = early_libero_allocator()
+    source.observe(outcomes(source.plan()))
+    state = legacy_sparse_state(source)
+    if fault in {"reset_seed", "occurrence"}:
+        state["history"][0][0][fault] += 1
+    elif fault == "cursor":
+        state["cursors"]["libero_spatial"] -= 1
+        state["cursors"]["libero_object"] += 1
+    else:
+        state["history"].pop()
+    with pytest.raises(ValueError):
+        early_libero_allocator().load_state_dict(state)
+
+
+def test_legacy_sparse_checkpoint_rejects_sliding_history_suffix():
+    source = early_libero_allocator(tasks_per_suite=50, window_rounds=1)
+    for _ in range(3):
+        source.observe(outcomes(source.plan()))
+    state = legacy_sparse_state(source)
+    assert len(state["history"]) == 2 < state["rounds"]
+    with pytest.raises(ValueError, match="complete history"):
+        early_libero_allocator(tasks_per_suite=50, window_rounds=1).load_state_dict(
+            state
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value", [("task_id", 99), ("horizon", 999), ("task", "renamed")]
+)
+def test_new_checkpoint_rejects_changes_to_unvisited_task_catalog(field, value):
+    source = early_libero_allocator()
+    source.observe(outcomes(source.plan()))
+    state = source.state_dict()
+    assert state["occurrences"]["libero_spatial/9"] == 0
+    state["task_catalog"][9][field] = value
+    with pytest.raises(ValueError, match="catalog"):
+        early_libero_allocator().load_state_dict(state)
+
+
+def test_new_checkpoint_rejects_omitted_zero_counter():
+    source = early_libero_allocator()
+    source.observe(outcomes(source.plan()))
+    state = source.state_dict()
+    del state["occurrences"]["libero_spatial/9"]
+    with pytest.raises(ValueError, match="omit catalog"):
+        early_libero_allocator().load_state_dict(state)
+
+
+def test_new_checkpoint_rejects_consistent_counters_that_disagree_with_history():
+    source = early_libero_allocator()
+    source.observe(outcomes(source.plan()))
+    state = source.state_dict()
+    state["cursors"] = dict(state["cursors"])
+    state["cursors"]["libero_spatial"] = 7
+    state["cursors"]["libero_object"] = 9
+    state["occurrences"]["libero_spatial/7"] = 0
+    state["occurrences"]["libero_object/8"] = 1
+    with pytest.raises(ValueError, match="replayed history"):
+        early_libero_allocator().load_state_dict(state)

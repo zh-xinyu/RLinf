@@ -17,9 +17,11 @@ runner:
   overlap_env_bootstrap: false
   use_training_pipeline: false
   logger:
-    project_name: LIBERO_MOPD_Candidates
+    project_name: libero_gr00t_pilot
     experiment_name: libero_mopd_candidate_common
-    logger_backends: [tensorboard]
+    logger_backends: [tensorboard, wandb]
+    wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,libero_gr00t_pilot}
+    wandb_group: ${oc.env:OPD_WANDB_GROUP,libero_gr00t_pilot}
   rollout_allocation:
     enabled: true
     mode: uniform

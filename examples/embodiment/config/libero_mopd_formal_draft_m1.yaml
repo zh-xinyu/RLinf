@@ -1,0 +1,8 @@
+# UNFROZEN: uniform/equal Refresh-R2,150 rounds/300 updates,25-round saves.
+defaults:
+  - libero_mopd_formal_draft_common
+  - _self_
+
+runner:
+  logger:
+    experiment_name: libero_mopd_formal_draft_m1_uniform_refresh_r2_T32_B256

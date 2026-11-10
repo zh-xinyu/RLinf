@@ -836,6 +836,16 @@ def validate_rollout_allocation_cfg(cfg: DictConfig) -> None:
         "libero_goal": 320,
         "libero_10": 520,
     }
+    if libero and cfg.env.train.get("task_suite_execution_lengths", None) is not None:
+        from rlinf.utils.execution_protocol import rollout_decision_steps
+
+        rollout_decision_steps(cfg.env.train, cfg.actor.model)
+        native_libero_horizons = {
+            "libero_spatial": 240,
+            "libero_object": 240,
+            "libero_goal": 320,
+            "libero_10": 480,
+        }
     selected_suites = list(cfg.env.train.get("task_suite_names", []))
     conditions = {
         "RoboCasa365 or standard multi-suite LIBERO": cfg.env.train.env_type
@@ -1009,11 +1019,23 @@ def validate_flow_refresh_cfg(cfg: DictConfig) -> None:
 
 
 def validate_embodied_cfg(cfg):
+    from rlinf.utils.execution_protocol import rollout_decision_steps
+
     only_eval = (
         cfg.runner.get("only_eval", False)
         or cfg.runner.get("task_type") == "embodied_eval"
     )
     model_cfg = cfg.rollout.model if only_eval else cfg.actor.model
+    for split in ("eval",) if only_eval else ("train",):
+        if cfg.env[split].get("task_suite_execution_lengths", None) is not None:
+            rollout_decision_steps(cfg.env[split], model_cfg)
+            if not only_eval and cfg.algorithm.loss_type not in (
+                "velocity_distill",
+                "analytic_local_kl",
+            ):
+                raise ValueError(
+                    "Mixed execution currently supports velocity distillation only"
+                )
     algorithm_cfg = cfg.get("algorithm", {}) or {}
     if not only_eval:
         validate_flow_refresh_cfg(cfg)

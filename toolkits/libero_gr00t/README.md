@@ -1,4 +1,26 @@
+# LIBERO toolkit: current entry and historical exploration
+
+For the current source-freeze candidate, use the repository-level
+[experiment contract](../../LIBERO_EXPERIMENTS.md) and
+[manual environment guide](../../LIBERO_ENVIRONMENT.md).
+The teacher-rollout SFT initializer and target-cluster admission are still pending.
+The remaining notes below describe historical runs and must not be used as a
+new-machine launch-ready handoff.
+
+Development branch: [native rollout batching](native_rollout_batching.md).
+Existing formal experiment source remains frozen; the new option defaults off.
+
+Stopped action00 control: [T64 formal control](formal_t64_commands.md).
+
+Current independent evaluation: [shared rollout-worker path](parallel_evaluation.md).
+The K8 distributed evaluator remains historical.
+
 # GR00T N1.5 / LIBERO MOPD exploration
+
+The primary100-round, official5/5/5/10experiment recipe is now
+[Formal T64 LIBERO experiments](formal_t64_commands.md), on action10GPUs0–3. It uses the accepted
+offline-update50student and W&B project `FORMAL_libero_gr00t`. The candidate
+and standalone sections below retain historical settings.
 
 This branch explores four-suite capability consolidation with public checkpoints,
 real LIBERO rollouts, and the production Method-3 loss. The standalone pilot and
@@ -106,8 +128,10 @@ training/evaluation interaction counts, and action-head checkpoints at updates
 20 and 40. Saved heads reference the unchanged base checkpoint and are reloaded
 for a consistency check. They contain no optimizer state; resume is unsupported.
 The T4 pilot completed: initial9/40, update20=2/40, update40=4/40.
-The matched LR3e-6 control completed9→7→6/40. Both failed the learning gate;
-falling velocity MSE alone is insufficient to freeze this setting.
+The matched LR3e-6 control completed9→7→6/40. Neither short run demonstrated
+improved task success. Early SR decline alone does not reject the setting;
+longer production training is needed, and falling velocity MSE alone is
+insufficient to freeze the recipe.
 
 The local `outputs/runtime/bin/python` wrapper reuses a read-only base environment
 and a LIBERO overlay. Inspect `outputs/runtime/env.sh` and `provenance.json` for
@@ -124,7 +148,11 @@ keys are `libero_spatial`, `libero_object`, `libero_goal`, and `libero_10`.
 Checkpoint paths come from the `OPD_*` environment variables listed in the YAML.
 
 Hydra composition, algorithm contracts, environment sampling, metadata adapters,
-and logging have CPU tests. Full production GPU training remains unverified.
+and logging have CPU tests. The native T32 candidate has also completed40
+production GPU updates and resumed with optimizer/scheduler state intact toward
+200 total updates. Its update80 checkpoint passed strict full-weight reload;
+longer learning acceptance remains pending. These results do not validate every
+draft or adaptive configuration.
 Unlike the standalone recipe, this draft samples all official initial states
 and disables in-training evaluation; it does not implement the [0, 2]/[1] split.
 The two paths therefore are not matched experimental controls.
@@ -145,7 +173,8 @@ The launcher uses private Ray ports/address files and owner-scoped cleanup,
 without joining or stopping existing clusters. Defaults are two updates,
 checkpoint at update two, and **32-step incomplete episodes** with capped suite
 horizons; this measures integration, not success rate. `--rollout-steps 520`
-retains full native suite horizons. No production smoke completion is claimed.
+retains full native suite horizons. The short-horizon default is not a learning
+experiment; the completed native T32 runs use the full-horizon override.
 To test the T32 quota path, add `--config-name libero_mopd_candidate_m1
 --rollout-steps 520 --updates 2` (on one command line) and use a new output
 directory. The smoke launcher always overrides the long-run budget and final
@@ -170,8 +199,9 @@ native horizons and at least one slot from every suite on each worker. On four
 workers, T16 leaves no adaptive freedom; T32 with eight slots per worker permits
 nonuniform integer global quotas, including quotas not divisible by four.
 Adaptive mode still requires a matching per-task teacher calibration artifact;
-the tiny screening results are not that artifact. This integration has CPU
-coverage; a complete production GPU training run remains to be verified.
+the tiny screening results are not that artifact. Uniform T32 collection has
+production GPU coverage; adaptive quota/weight updates and their checkpoint
+reload still require the queued GPU integration checks.
 
 Candidate matrix configs are available under
 [`examples/embodiment/config`](../../examples/embodiment/config/), sharing
@@ -206,7 +236,10 @@ bash evaluations/run_eval.sh libero libero_four_suite_gr00t_mopd_eval \
 Use the isolated runtime and private Ray setup; set the checkpoint and asset
 variables described in the evaluation YAML first. The wrapper's console log
 still goes to its timestamped `logs/` directory. Single-process strict reload
-has passed, but distributed trial-pool exhaustion still requires a GPU smoke.
+has passed. A four-rank distributed scheduler check completed200 unique
+task/state pairs: one selected task per suite,50 official states each, with no
+missing pairs or conflicting records. This verifies that selected-task trial
+pools complete; the full40-task x50-state evaluation remains pending.
 The formal scheduler uses a conservative fixed budget and continues B1 policy
 inference after slots finish; terminal slots freeze physics. Do not interpret
 this idle inference as additional environment interactions.
@@ -262,8 +295,10 @@ episodes but only a reload/inference smoke, not formal performance evidence.
 checkpoint update/round; `episodes.jsonl` records individual outcomes and timing;
 `summary.json` is written only after all requested episodes complete. This
 standalone check does not validate the distributed evaluator's episode scheduler.
-The exact full-weight GPU reload remains unverified until a real produced
-checkpoint passes this smoke.
+The native production update80 checkpoint passed strict full-weight GPU reload
+and a matched40-task screen. Every new checkpoint still requires its own reload
+and identity checks; this does not establish task improvement or adaptive-arm
+readiness.
 
 ## Shared-GPU smoke synchronization
 
@@ -509,3 +544,14 @@ scheduler epoch40 and LR3e-6 on every actor. Its first resumed round completed
 updates41/42 produced finite losses and gradients. This validates initial resume
 execution and cursor continuity, not bitwise equivalence or eventual performance.
 The longer continuation and formal learning comparison remain in progress.
+
+
+### Explicit controls for shared GPUs
+
+`launch_production.py --minimum-free-gib 26` changes the launch-time free-memory
+check only; the default remains30GiB. Use `--log-cuda-memory` to record the actor's
+allocated/reserved peaks for teacher supervision, flow refresh, and updates.
+These logs exclude other processes. The opt-in native batching argument
+`--native-microbatch-size 2` uses same-length text buckets and preserves the
+configured global batch and masked objective. Keep the microbatch setting the
+same across paired comparisons; it is independent of global batch size.

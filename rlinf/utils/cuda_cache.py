@@ -10,6 +10,19 @@ import math
 import torch
 
 
+def release_cuda_cache_to_floor() -> None:
+    """Release unused actor cache before a colocated rollout reloads its model.
+
+    An enabled retention policy refills only its configured reusable floor.
+    Live tensors and random-number streams are unchanged.
+    """
+    release = getattr(torch.cuda.empty_cache, "_rlinf_release_to_floor", None)
+    if release is None:
+        torch.cuda.empty_cache()
+    else:
+        release()
+
+
 def retain_cuda_cache(
     max_reserved_gib: float, preallocate_gib: float = 0, headroom_gib: float = 8
 ) -> None:
@@ -48,7 +61,10 @@ def retain_cuda_cache(
         if free < missing + headroom:
             raise RuntimeError(
                 "Insufficient free GPU memory for actor cache preallocation "
-                "and colocated-worker headroom; refusing to reserve memory."
+                "and colocated-worker headroom; refusing to reserve memory. "
+                f"Free={free / 1024**3:.2f} GiB, additional cache="
+                f"{missing / 1024**3:.2f} GiB, headroom="
+                f"{headroom_gib:.2f} GiB."
             )
         blocks = []
         try:
@@ -67,6 +83,12 @@ def retain_cuda_cache(
             original()
         warm_cache()
 
+    def release_to_floor() -> None:
+        torch.cuda.synchronize()
+        original()
+        warm_cache()
+
     warm_cache()
     bounded_empty_cache._rlinf_cache_retention = True
+    bounded_empty_cache._rlinf_release_to_floor = release_to_floor
     torch.cuda.empty_cache = bounded_empty_cache

@@ -13,6 +13,45 @@ import torch
 SUITE_STATS_KEY = "_suite_velocity_stats"
 
 
+def prefix_normalized_velocity_loss(
+    error: torch.Tensor,
+    mask: torch.Tensor | None,
+    prefix_lengths: torch.Tensor,
+    sample_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Average executed-prefix error per genuine observation before sample weighting.
+
+    Episode/text-padding validity remains separate from the action prefix. This
+    avoids assigning double suite weight to ten-action samples versus five-action
+    samples merely because their valid action-coordinate counts differ.
+    """
+    if error.ndim != 3 or prefix_lengths.shape != (error.shape[0],):
+        raise ValueError("Expected [batch,action,dim] errors and one prefix per row")
+    lengths = prefix_lengths.detach().to(device=error.device)
+    if torch.is_floating_point(lengths) or bool(
+        ((lengths < 1) | (lengths > error.shape[1])).any()
+    ):
+        raise ValueError(
+            "Executed prefixes must be positive integers within action width"
+        )
+    valid = (
+        torch.arange(error.shape[1], device=error.device)[None, :, None]
+        < lengths[:, None, None]
+    ).expand_as(error)
+    if mask is not None:
+        episode = mask
+        while episode.ndim < error.ndim:
+            episode = episode.unsqueeze(-1)
+        valid = valid & episode.expand_as(error).bool()
+    counts = valid.flatten(1).sum(1)
+    values = (error * valid).flatten(1).sum(1) / counts.clamp_min(1)
+    if sample_weights is not None:
+        if sample_weights.shape != values.shape:
+            raise ValueError("Need one suite loss coefficient per observation")
+        values = values * sample_weights.detach().to(values)
+    return values.sum() / (counts > 0).sum().clamp_min(1), valid.to(error.dtype)
+
+
 def normalized_suite_loss_weights(configured: Mapping, names: list[str]) -> list[float]:
     """Return positive suite coefficients with mean one in routing order."""
     if not isinstance(configured, Mapping) or set(configured) != set(names):

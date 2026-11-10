@@ -1,0 +1,5 @@
+defaults:
+  - libero_mopd_mixed_k_common
+  - _self_
+algorithm:
+  flow_refresh_updates: 2

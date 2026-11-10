@@ -41,6 +41,7 @@ from rlinf.envs.libero.utils import (
 )
 from rlinf.envs.libero.venv import ReconfigureSubprocEnv
 from rlinf.envs.utils import list_of_dict_to_dict_of_list, to_tensor
+from rlinf.utils.execution_protocol import suite_execution_lengths
 from rlinf.utils.logging import get_logger
 
 logger = get_logger()
@@ -187,6 +188,11 @@ class LiberoEnv(gym.Env):
                 raise ValueError(
                     "Suite horizons must be positive and fit within the rollout epoch"
                 )
+        self._suite_execution_lengths = None
+        if cfg.get("task_suite_execution_lengths", None) is not None:
+            self._suite_execution_lengths = suite_execution_lengths(
+                cfg, max(cfg.task_suite_execution_lengths.values())
+            )
         self._simulation_steps = 0
         self._settling_steps = 0
         self._reset_episodes = 0
@@ -695,6 +701,51 @@ class LiberoEnv(gym.Env):
         self._allocation_episode_plan = ordered
         self.reset_state_ids = np.asarray(reset_ids, dtype=np.int64)
 
+    def set_evaluation_episodes(self, task_id: int, trials: list[int]) -> None:
+        """Stage one fixed task and explicit official states for parallel evaluation.
+
+        Unlike allocation plans, evaluation packets need not contain every suite.
+        Reset seeds match the standalone evaluator; policy noise is managed by
+        the evaluation rollout worker independently for each task/state pair.
+        """
+        if (
+            not self.is_eval
+            or self.auto_reset
+            or not self.freeze_finished_episodes
+            or self.ignore_terminations
+            or self.group_size != 1
+            or self.task_sampling_strategy != "ordered"
+        ):
+            raise ValueError("Explicit evaluation requires ordered frozen episodes")
+        if self._allocation_episode_plan is not None and not np.all(
+            self._episode_terminated | self._episode_truncated
+        ):
+            raise ValueError("Cannot replace unfinished evaluation episodes")
+        catalog = {row["task_id"]: row for row in self.rollout_task_catalog}
+        if type(task_id) is not int or task_id not in catalog:
+            raise ValueError("Evaluation task is outside the configured task filter")
+        if (
+            len(trials) != self.num_envs
+            or len(set(trials)) != len(trials)
+            or any(type(trial) is not int or trial not in range(50) for trial in trials)
+            or self.trial_id_bins[task_id] != 50
+        ):
+            raise ValueError("Each slot requires a distinct official state in [0,49]")
+        offset = int(self.cumsum_trial_id_bins[task_id - 1]) if task_id else 0
+        self._allocation_episode_plan = [
+            dict(
+                catalog[task_id],
+                slot=slot,
+                trial_id=trial,
+                occurrence=trial,
+                reset_seed=int(self.cfg.seed),
+            )
+            for slot, trial in enumerate(trials)
+        ]
+        self.reset_state_ids = np.asarray(
+            [offset + trial for trial in trials], dtype=np.int64
+        )
+
     def rollout_episode_records(self) -> list[dict]:
         """Return completed native-horizon outcomes; exclude reset settling steps."""
         if self._allocation_episode_plan is None or not np.all(
@@ -892,6 +943,15 @@ class LiberoEnv(gym.Env):
                 )
             reset_state_ids = self.reset_state_ids
 
+        if self.is_eval and self._allocation_episode_plan is not None:
+            if (
+                list(env_idx) != list(range(self.num_envs))
+                or reset_state_ids is not None
+            ):
+                raise ValueError("Evaluation must reset the complete staged packet")
+            reset_state_ids = self.reset_state_ids
+            self._is_start = False
+
         if self.is_start:
             if self.is_eval:
                 self._task_success_stats = {}
@@ -979,11 +1039,13 @@ class LiberoEnv(gym.Env):
             infos,
         )
 
-    def _step_frozen(self, actions: np.ndarray, auto_reset: bool):
+    def _step_frozen(self, actions: np.ndarray, auto_reset: bool, execution_mask=None):
         """Advance only unfinished slots; terminal padding cannot change outcomes."""
         if self.current_raw_obs is None:
             raise RuntimeError("Reset LIBERO before stepping frozen episodes")
         active = ~(self._episode_terminated | self._episode_truncated)
+        if execution_mask is not None:
+            active &= np.asarray(execution_mask, dtype=bool)
         active_ids = np.flatnonzero(active)
         successes = np.zeros(self.num_envs, dtype=bool)
         if active_ids.size:
@@ -1036,11 +1098,30 @@ class LiberoEnv(gym.Env):
 
         raw_chunk_terminations = []
         raw_chunk_truncations = []
+        executed_lengths = None
+        if getattr(self, "_suite_execution_lengths", None) is not None:
+            if chunk_size != max(self._suite_execution_lengths.values()):
+                raise ValueError("Mixed execution action width differs from protocol")
+            executed_lengths = np.asarray(
+                [
+                    self._suite_execution_lengths[self._task_suite_labels[int(task)]]
+                    for task in self.task_ids
+                ]
+            )
         for i in range(chunk_size):
             actions = chunk_actions[:, i]
-            extracted_obs, step_reward, terminations, truncations, infos = self.step(
-                actions, auto_reset=False
-            )
+            if executed_lengths is None:
+                extracted_obs, step_reward, terminations, truncations, infos = (
+                    self.step(actions, auto_reset=False)
+                )
+            else:
+                if isinstance(actions, torch.Tensor):
+                    actions = actions.detach().cpu().numpy()
+                extracted_obs, step_reward, terminations, truncations, infos = (
+                    self._step_frozen(
+                        actions, auto_reset=False, execution_mask=i < executed_lengths
+                    )
+                )
             obs_list.append(extracted_obs)
             infos_list.append(infos)
 

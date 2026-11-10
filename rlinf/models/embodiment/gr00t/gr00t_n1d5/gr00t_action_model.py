@@ -16,7 +16,7 @@ import json
 import random
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 import numpy as np
 import torch
@@ -451,6 +451,7 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         action_input: BatchFeature,
         mode: Literal["train", "eval"] = "train",
         compute_values=True,
+        rollout_noise: Optional[dict[str, torch.Tensor] | Callable] = None,
     ) -> BatchFeature:
         backbone_output = self.process_backbone_output(backbone_output)
         # Get vision and language embeddings.
@@ -458,14 +459,33 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
         embodiment_id = action_input.embodiment_id
         # Embed state.
         state_features = self.state_encoder(action_input.state, embodiment_id)
+        self._opd_rollout_initial_noise_dtype = vl_embs.dtype
         # Set initial actions as the sampled noise.
         batch_size = vl_embs.shape[0]
         device = vl_embs.device
-        x_t = torch.randn(
-            size=(batch_size, self.config.action_horizon, self.config.action_dim),
-            dtype=vl_embs.dtype,
-            device=device,
-        )
+        shape = (batch_size, self.config.action_horizon, self.config.action_dim)
+        if callable(rollout_noise):
+            # Backbone output precision need not equal the autocast setting.
+            rollout_noise = rollout_noise(device, vl_embs.dtype)
+        if rollout_noise is None:
+            x_t = torch.randn(size=shape, dtype=vl_embs.dtype, device=device)
+        else:
+            if self.rl_config.noise_method != "flow_ode":
+                raise ValueError("Explicit native rollout noise requires flow_ode")
+            x_t = rollout_noise["initial"]
+            transition_noise = rollout_noise["transitions"]
+            if (
+                x_t.shape != shape
+                or x_t.dtype != vl_embs.dtype
+                or x_t.device != device
+                or transition_noise.shape
+                != (batch_size, self.num_inference_timesteps, *shape[1:])
+                or transition_noise.device != device
+                or transition_noise.dtype != torch.bfloat16
+            ):
+                raise ValueError(
+                    "Native rollout noise must match the head's shape, dtype and device"
+                )
 
         chains = [x_t]
         log_probs = []
@@ -539,7 +559,12 @@ class FlowMatchingActionHeadForRLActionPrediction(FlowmatchingActionHead):
                     compute_values=compute_values,
                 )
 
-            x_t = x_t_mean + self.sample_noise(x_t.shape, device) * x_t_std
+            noise = (
+                self.sample_noise(x_t.shape, device)
+                if rollout_noise is None
+                else transition_noise[:, idx]
+            )
+            x_t = x_t_mean + noise * x_t_std
             log_prob = self.get_logprob_norm(x_t, x_t_mean, x_t_std)
 
             chains.append(x_t)
@@ -923,9 +948,20 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         if (
+            getattr(self, "opd_skip_finished_rollout", False)
+            and "opd_rollout_active_mask" in env_obs
+        ):
+            return GR00T_N1_5_ForRLActionPrediction._predict_active_rollout_rows(
+                self, env_obs, mode, kwargs
+            )
+        if (
             getattr(self, "opd_fixed_text_padding", None) is False
             and env_obs["states"].shape[0] > 1
         ):
+            if getattr(self, "opd_native_rollout_batch_size", 1) > 1:
+                return GR00T_N1_5_ForRLActionPrediction._predict_native_rollout_batch(
+                    self, env_obs, mode=mode
+                )
             # Native prompts must reach the unmasked action head independently.
             # Pad only the returned storage payload, never the policy inference.
             from rlinf.utils.nested_dict_process import split_dict_to_chunk
@@ -938,6 +974,135 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
                 _cat_native_rollout_outputs([item[1] for item in predictions])
             )
 
+        normalized_input, is_batch, opd_raw_states = (
+            GR00T_N1_5_ForRLActionPrediction._prepare_rollout_inputs(self, env_obs)
+        )
+        normalized_action, result = self._get_rl_action(normalized_input, mode=mode)
+        if opd_raw_states is not None:
+            result["forward_inputs"]["opd_raw_states"] = opd_raw_states
+        unnormalized_action = self._get_unnormalized_action(normalized_action)
+        if not is_batch:
+            unnormalized_action = squeeze_dict_values(unnormalized_action)
+        raw_action = self.action_convert_fn(
+            unnormalized_action, chunk_size=self.output_action_chunks
+        )
+        return torch.from_numpy(raw_action), result
+
+    def _predict_active_rollout_rows(
+        self, env_obs: dict, mode: str, kwargs: dict
+    ) -> tuple:
+        """Reuse ignored terminal payloads; preserve active B1 calls and RNG draws."""
+        from rlinf.models.embodiment.gr00t.gr00t_n1d5.native_rollout import (
+            sample_native_rollout_noise,
+        )
+        from rlinf.utils.nested_dict_process import split_dict_to_chunk
+
+        if (
+            getattr(self, "training", False)
+            or getattr(self, "opd_native_rollout_batch_size", 1) != 1
+        ):
+            raise ValueError(
+                "Finished-slot skipping requires model.eval() and B1 inference"
+            )
+        mask = env_obs["opd_rollout_active_mask"]
+        size = int(env_obs["states"].shape[0])
+        if mask.dtype != torch.bool or tuple(mask.shape) != (size,):
+            raise ValueError(
+                "Rollout active mask must be a batch-aligned Boolean vector"
+            )
+        raw = dict(env_obs)
+        raw.pop("opd_rollout_active_mask")
+        rows = split_dict_to_chunk(raw, size)
+        cache = getattr(self, "_opd_frozen_rollout_cache", None)
+        if cache is None or len(cache) != size or bool(mask.all()):
+            cache = [None] * size
+        outputs = []
+        for row, active in enumerate(mask.cpu().tolist()):
+            if active:
+                cache[row] = self.predict_action_batch(rows[row], mode=mode, **kwargs)
+            else:
+                if cache[row] is None:
+                    raise ValueError(
+                        "A frozen slot needs a preceding active observation in this rollout"
+                    )
+                sample_native_rollout_noise(
+                    self.action_head,
+                    1,
+                    self.device,
+                    self.action_head._opd_rollout_initial_noise_dtype,
+                )
+            outputs.append(cache[row])
+        self._opd_frozen_rollout_cache = cache
+        self.opd_last_active_rollout_rows = int(mask.sum())
+        return torch.cat([value[0] for value in outputs]), _cat_native_rollout_outputs(
+            [value[1] for value in outputs]
+        )
+
+    def _predict_native_rollout_batch(
+        self, env_obs: dict, mode: str
+    ) -> tuple[torch.Tensor, dict]:
+        """Batch equal prepared shapes while restoring environment order and RNG."""
+        from rlinf.models.embodiment.gr00t.gr00t_n1d5.native_rollout import (
+            native_rollout_plan,
+            pack_native_rollout_inputs,
+            sample_native_rollout_noise,
+            slice_rollout_result,
+        )
+        from rlinf.utils.nested_dict_process import split_dict_to_chunk
+
+        if getattr(self, "training", False):
+            raise ValueError("Native rollout batching requires model.eval()")
+        rows = split_dict_to_chunk(env_obs, int(env_obs["states"].shape[0]))
+        prepared = [
+            GR00T_N1_5_ForRLActionPrediction._prepare_rollout_inputs(self, row)
+            for row in rows
+        ]
+        inputs = [item[0] for item in prepared]
+        plan = native_rollout_plan(inputs, self.opd_native_rollout_batch_size)
+        noise = None
+        outputs = [None] * len(rows)
+        for indices in plan:
+
+            def resolve_noise(device, dtype, indices=indices):
+                nonlocal noise
+                if noise is None:
+                    noise = sample_native_rollout_noise(
+                        self.action_head, len(rows), device, dtype
+                    )
+                selected = torch.tensor(indices, device=device)
+                return {
+                    key: value.index_select(0, selected) for key, value in noise.items()
+                }
+
+            normalized_action, result = self._get_rl_action(
+                pack_native_rollout_inputs(inputs, indices),
+                mode=mode,
+                rollout_noise=resolve_noise,
+            )
+            if prepared[indices[0]][2] is not None:
+                result["forward_inputs"]["opd_raw_states"] = torch.cat(
+                    [prepared[i][2] for i in indices]
+                )
+            for local, original in enumerate(indices):
+                action = self._get_unnormalized_action(
+                    normalized_action[local : local + 1]
+                )
+                raw_action = self.action_convert_fn(
+                    action, chunk_size=self.output_action_chunks
+                )
+                outputs[original] = (
+                    torch.from_numpy(raw_action),
+                    slice_rollout_result(result, local),
+                )
+        self.opd_last_native_rollout_batches = [len(indices) for indices in plan]
+        return torch.cat([item[0] for item in outputs]), _cat_native_rollout_outputs(
+            [item[1] for item in outputs]
+        )
+
+    def _prepare_rollout_inputs(
+        self, env_obs: dict
+    ) -> tuple[dict, bool, Optional[torch.Tensor]]:
+        """Keep the original per-observation preprocessing contract for inference."""
         # Here we have a source causing tiny inference-training inconsistency,
         # force convert the state to bf16 then back to float32 to reproduce the info loss in training.
         env_obs["states"] = env_obs["states"].to(torch.bfloat16)
@@ -1029,19 +1194,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         if getattr(self, "opd_fixed_text_padding", None) is False:
             normalized_input = restore_opd_text_padding(normalized_input)
 
-        normalized_action, result = self._get_rl_action(normalized_input, mode=mode)
-        if opd_raw_states is not None:
-            result["forward_inputs"]["opd_raw_states"] = opd_raw_states
-        unnormalized_action = self._get_unnormalized_action(normalized_action)
-
-        if not is_batch:
-            unnormalized_action = squeeze_dict_values(unnormalized_action)
-
-        raw_action = self.action_convert_fn(
-            unnormalized_action, chunk_size=self.output_action_chunks
-        )
-
-        return torch.from_numpy(raw_action), result
+        return normalized_input, is_batch, opd_raw_states
 
     def apply_transforms(self, obs: dict[str, Any]) -> dict[str, Any]:
         """
@@ -1072,6 +1225,7 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         self,
         normalized_input: dict[str, Any],
         mode: Literal["train", "eval"] = "train",
+        rollout_noise: Optional[dict[str, torch.Tensor] | Callable] = None,
     ) -> torch.Tensor:
         # We expand get_action() and replace action head inference with RL inference.
         inference_dtype = getattr(self, "inference_autocast_dtype", None)
@@ -1085,9 +1239,33 @@ class GR00T_N1_5_ForRLActionPrediction(GR00T_N1_5, BasePolicy):
         with context:
             backbone_inputs, action_inputs = self.prepare_input(normalized_input)
             backbone_outputs = self.backbone(backbone_inputs)
-            action_head_outputs, rlinf_outputs = self.action_head.get_rl_action(
-                backbone_outputs, action_inputs, mode=mode
-            )
+            if (
+                rollout_noise is not None
+                and backbone_outputs.backbone_features.shape[0] > 1
+                and not getattr(self, "opd_native_rollout_batch_head", False)
+            ):
+                from rlinf.models.embodiment.gr00t.gr00t_n1d5.native_rollout import (
+                    native_head_rows,
+                )
+
+                action_head_outputs, rlinf_outputs = native_head_rows(
+                    self.action_head,
+                    backbone_outputs,
+                    action_inputs,
+                    mode,
+                    rollout_noise,
+                )
+            else:
+                action_head_outputs, rlinf_outputs = self.action_head.get_rl_action(
+                    backbone_outputs,
+                    action_inputs,
+                    mode=mode,
+                    **(
+                        {"rollout_noise": rollout_noise}
+                        if rollout_noise is not None
+                        else {}
+                    ),
+                )
         actions = rlinf_outputs["actions"]
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
         actions = actions.float()

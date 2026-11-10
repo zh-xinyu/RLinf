@@ -1,6 +1,6 @@
 # Copyright 2026 The RLinf Authors.
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare an isolated production smoke; execute only with explicit --run.
+"""Prepare an isolated production run; execute only with explicit --run.
 
 GPU arguments are physical IDs, not indices into CUDA_VISIBLE_DEVICES. The
 launcher never joins an existing Ray cluster or invokes global Ray cleanup.
@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import io
 import json
+import math
 import os
 import signal
 import socket
@@ -24,6 +25,7 @@ from omegaconf import OmegaConf, open_dict
 
 from rlinf.config import validate_flow_refresh_cfg, validate_rollout_allocation_cfg
 from rlinf.scheduler.cluster.config import ClusterConfig
+from rlinf.utils.execution_protocol import rollout_decision_steps
 from toolkits.libero_gr00t.padding_profile import (
     PADDING_PROFILES,
     apply_student_padding_profile,
@@ -33,6 +35,11 @@ from toolkits.robocasa_mopd.owned_ray import OWNER_KEY, check_gpus, stop_owned
 
 REPO = Path(__file__).resolve().parents[2]
 CONFIG_NAME = "libero_four_suite_mopd_refresh_r2_gr00t_pilot"
+OPTIONAL_RUNTIME_FLAGS = (
+    "OPD_LIBERO_AUTOMAP_EGL",
+    "NCCL_P2P_DISABLE",
+    "NCCL_IB_DISABLE",
+)
 ALLOCATION_SMOKE_OVERRIDES = {
     "warmup_rounds": 2,
     "window_rounds": 2,
@@ -213,8 +220,66 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
     gpus = sorted(args.gpus)
     if len(gpus) != 4 or len(set(gpus)) != 4 or min(gpus) < 0:
         raise ValueError("Specify four distinct nonnegative physical GPU IDs")
-    if args.rollout_steps < 8 or args.rollout_steps > 520 or args.rollout_steps % 8:
+    mixed_execution = (
+        getattr(args, "execution_protocol", "legacy-k8") == "official-mixed"
+    )
+    if mixed_execution and args.rollout_steps != 480:
+        raise ValueError("Official mixed execution requires full physical horizon480")
+    if not mixed_execution and (
+        args.rollout_steps < 8 or args.rollout_steps > 520 or args.rollout_steps % 8
+    ):
         raise ValueError("rollout-steps must be a multiple of eight in [8, 520]")
+    minimum_free = getattr(args, "minimum_free_gib", 30)
+    if (
+        type(minimum_free) not in (int, float)
+        or not math.isfinite(minimum_free)
+        or minimum_free <= 0
+    ):
+        raise ValueError("minimum-free-gib must be finite and positive")
+    cache_retention = getattr(args, "actor_cache_retention_gib", 0)
+    cache_preallocate = getattr(args, "actor_cache_preallocate_gib", 0)
+    if (
+        any(
+            type(value) not in (int, float) or not math.isfinite(value) or value < 0
+            for value in (cache_retention, cache_preallocate)
+        )
+        or cache_preallocate > cache_retention
+    ):
+        raise ValueError(
+            "Actor cache sizes must be finite and nonnegative, with preallocation <= retention"
+        )
+    learning_rate = getattr(args, "learning_rate", None)
+    if learning_rate is not None and (
+        type(learning_rate) not in (int, float)
+        or not math.isfinite(learning_rate)
+        or learning_rate <= 0
+    ):
+        raise ValueError("learning-rate must be finite and positive")
+    global_batch_size = getattr(args, "global_batch_size", None)
+    if global_batch_size is not None and (
+        type(global_batch_size) is not int
+        or global_batch_size < 16
+        or global_batch_size % 16
+    ):
+        raise ValueError(
+            "global-batch-size must be an integer >= 16 and a multiple of 16 "
+            "for four ranks and four balanced suites"
+        )
+    trajectories = getattr(args, "trajectories_per_round", None)
+    if trajectories is not None and (
+        type(trajectories) is not int or trajectories < 16 or trajectories % 16
+    ):
+        raise ValueError(
+            "trajectories-per-round must be >=16 and a multiple of16 for four ranks and four suites"
+        )
+    native_micro = getattr(args, "native_microbatch_size", None)
+    if native_micro is not None and native_micro not in (1, 2, 4, 8, 16):
+        raise ValueError("native-microbatch-size must be 1, 2, 4, 8, or 16")
+    native_rollout = getattr(args, "native_rollout_batch_size", None)
+    if native_rollout is not None and (
+        type(native_rollout) is not int or native_rollout < 1
+    ):
+        raise ValueError("native-rollout-batch-size must be a positive integer")
     seed = getattr(args, "seed", None)
     if seed is not None and (type(seed) is not int or not 0 <= seed < 2**31):
         raise ValueError("seed must be an integer in [0, 2147483647]")
@@ -223,6 +288,20 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
     if allocation_smoke and resume_checkpoint is not None:
         raise ValueError("allocation-smoke cannot be combined with resume-checkpoint")
     config_name = getattr(args, "config_name", CONFIG_NAME)
+    formal = getattr(args, "run_purpose", "pilot") == "formal"
+    if formal and (
+        config_name
+        not in {
+            f"libero_mopd_formal_{prefix}m{i}"
+            for prefix in ("", "t64_")
+            for i in range(4)
+        }
+        or not mixed_execution
+        or allocation_smoke
+    ):
+        raise ValueError(
+            "Formal runs require an official-mixed formal config without smoke overrides"
+        )
     padding_profile = getattr(args, "student_padding_profile", "native")
     if padding_profile not in PADDING_PROFILES:
         raise ValueError("Unknown student padding profile")
@@ -231,12 +310,19 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
         and config_name != "libero_mopd_candidate_m1"
     ):
         raise ValueError("canonical-fixed570 is an experimental M1/R2 profile only")
+    if padding_profile == "canonical-fixed570" and global_batch_size is not None:
+        raise ValueError(
+            "global-batch-size cannot be combined with canonical-fixed570; "
+            "that profile requires B256/micro4"
+        )
     if allocation_smoke and config_name not in {
         "libero_mopd_candidate_m2",
         "libero_mopd_candidate_m3",
+        "libero_mopd_mixed_k_m2",
+        "libero_mopd_mixed_k_m3",
     }:
         raise ValueError("allocation-smoke is only valid for adaptive M2/M3")
-    if allocation_smoke and args.rollout_steps != 520:
+    if allocation_smoke and args.rollout_steps != (480 if mixed_execution else 520):
         raise ValueError("allocation-smoke requires full native horizons (520)")
     with initialize_config_dir(
         version_base=None, config_dir=str(REPO / "examples/embodiment/config")
@@ -255,6 +341,62 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             "Save interval must be a complete-round multiple within the run"
         )
     with open_dict(cfg):
+        if getattr(args, "log_cuda_memory", False):
+            cfg.algorithm.log_cuda_memory = True
+        if getattr(args, "sync_every_microbatch", False):
+            # Keep loss scaling and optimizer accumulation unchanged; reduce
+            # each microbatch into a sharded gradient instead of using no_sync.
+            cfg.actor.fsdp_config.enable_gradient_accumulation = False
+        if cache_retention:
+            cfg.actor.cuda_cache_retention_gib = float(cache_retention)
+            cfg.actor.cuda_cache_preallocate_gib = float(cache_preallocate)
+        if trajectories is not None:
+            if int(cfg.env.train.rollout_epoch) != 1:
+                raise ValueError("Parallel T override requires one rollout epoch")
+            cfg.env.train.total_num_envs = trajectories
+        if global_batch_size is not None:
+            cfg.actor.global_batch_size = global_batch_size
+        if native_micro is not None:
+            if padding_profile != "native":
+                raise ValueError(
+                    "native-microbatch-size requires native student inputs"
+                )
+            if cfg.actor.global_batch_size % (16 * native_micro):
+                raise ValueError(
+                    "Global batch must divide evenly across ranks, suites, and teacher microbatches"
+                )
+            cfg.actor.micro_batch_size = native_micro
+            if native_micro > 1:
+                cfg.algorithm.native_text_microbatches = True
+        if native_rollout is not None:
+            cfg.rollout.model.opd_native_rollout_batch_size = native_rollout
+            from rlinf.models.embodiment.gr00t.gr00t_n1d5 import (
+                validate_native_rollout_batch_size,
+            )
+
+            validate_native_rollout_batch_size(
+                OmegaConf.merge(cfg.actor.model, cfg.rollout.model)
+            )
+        if getattr(args, "skip_finished_rollout", False):
+            cfg.rollout.model.opd_skip_finished_rollout = True
+            from rlinf.models.embodiment.gr00t.gr00t_n1d5 import (
+                validate_native_rollout_batch_size,
+            )
+
+            validate_native_rollout_batch_size(
+                OmegaConf.merge(cfg.actor.model, cfg.rollout.model)
+            )
+            if (
+                not cfg.env.train.get("freeze_finished_episodes", False)
+                or cfg.env.train.auto_reset
+                or cfg.env.train.ignore_terminations
+            ):
+                raise ValueError(
+                    "skip-finished-rollout requires frozen non-reset episodes"
+                )
+        if learning_rate is not None:
+            cfg.actor.optim.lr = float(learning_rate)
+            cfg.actor.optim.value_lr = float(learning_rate)
         if seed is not None:
             cfg.actor.seed = seed
             cfg.rollout.seed = seed
@@ -301,7 +443,9 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             if suite != "student":
                 cfg.rollout.expert_models[suite].model_path = str(path)
         cfg.runner.logger.log_path = str(args.output)
-        cfg.runner.logger.experiment_name = "libero_production_smoke"
+        cfg.runner.logger.experiment_name = (
+            "libero_formal" if formal else "libero_production_smoke"
+        )
         cfg.runner.max_steps = args.updates
         cfg.runner.save_interval = save_interval
         cfg.runner.val_check_interval = -1
@@ -330,6 +474,13 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             suite: min(horizon, args.rollout_steps)
             for suite, horizon in cfg.env.train.task_suite_horizons.items()
         }
+        configured_execution = cfg.env.train.get("task_suite_execution_lengths", None)
+        if mixed_execution != (configured_execution is not None):
+            raise ValueError(
+                "Execution-protocol CLI and composed configuration disagree"
+            )
+        if mixed_execution:
+            rollout_decision_steps(cfg.env.train, cfg.actor.model)
     OmegaConf.resolve(cfg)
     student_input_contract(cfg.actor.model, padding_profile)
     student_input_contract(cfg.rollout.model, padding_profile)
@@ -347,6 +498,7 @@ def read_runtime_environment(python: Path) -> dict[str, str]:
         "PYTHONPATH",
         "LIBERO_CONFIG_PATH",
         "MUJOCO_GL",
+        *OPTIONAL_RUNTIME_FLAGS,
         "NUMBA_CACHE_DIR",
         "OMP_NUM_THREADS",
         "MKL_NUM_THREADS",
@@ -364,6 +516,9 @@ def read_runtime_environment(python: Path) -> dict[str, str]:
     values = json.loads(result)
     if not values.get("LIBERO_CONFIG_PATH") or not values.get("PYTHONPATH"):
         raise ValueError("Runtime wrapper must source LIBERO env.sh and PYTHONPATH")
+    for key in OPTIONAL_RUNTIME_FLAGS:
+        if key in values and values[key] not in ("0", "1"):
+            raise ValueError(f"{key} must be '0' or '1'")
     return values
 
 
@@ -432,9 +587,14 @@ def main() -> None:
     parser.add_argument("--gpus", nargs=4, type=int, required=True)
     parser.add_argument(
         "--config-name",
-        choices=[CONFIG_NAME] + [f"libero_mopd_candidate_m{i}" for i in range(4)],
+        choices=[CONFIG_NAME]
+        + [f"libero_mopd_candidate_m{i}" for i in range(4)]
+        + [f"libero_mopd_mixed_k_m{i}" for i in range(4)]
+        + [f"libero_mopd_formal_m{i}" for i in range(4)]
+        + [f"libero_mopd_formal_t64_m{i}" for i in range(4)],
         default=CONFIG_NAME,
     )
+    parser.add_argument("--run-purpose", choices=["pilot", "formal"], default="pilot")
     parser.add_argument(
         "--allocation-smoke",
         action="store_true",
@@ -457,13 +617,81 @@ def main() -> None:
         default=None,
         help="Set actor/rollout/environment/allocation seeds together (0..2147483647); omitted preserves YAML seeds",
     )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Override actor LR and value LR for a fresh probe; omitted preserves YAML; resume still requires the original LR",
+    )
+    parser.add_argument(
+        "--global-batch-size",
+        type=int,
+        default=None,
+        help="Override native global batch (>=16, multiple of 16), preserving microbatch; omitted preserves YAML; resume requires the original batch",
+    )
+    parser.add_argument(
+        "--native-microbatch-size",
+        type=int,
+        default=None,
+        help="Opt-in same-length native text buckets; preserves selected samples and masked objective",
+    )
+    parser.add_argument(
+        "--trajectories-per-round",
+        type=int,
+        default=None,
+        help="Parallel environment count for one-epoch quota collection; >=16 and multiple of16; resume requires original T",
+    )
+    parser.add_argument(
+        "--minimum-free-gib",
+        type=float,
+        default=30,
+        help="Launch-time free-memory requirement per selected GPU; does not change the learning recipe",
+    )
+    parser.add_argument(
+        "--native-rollout-batch-size",
+        type=int,
+        default=None,
+        help="Experimental same-shape native student inference buckets; default preserves B1; changes rollout protocol",
+    )
+    parser.add_argument(
+        "--log-cuda-memory",
+        action="store_true",
+        help="Log actor-local teacher, refresh and update allocation peaks",
+    )
+    parser.add_argument(
+        "--skip-finished-rollout",
+        action="store_true",
+        help="Keep B1 behavior while skipping frozen terminal slots and replaying their RNG draws",
+    )
     parser.add_argument("--updates", type=int, default=2)
+    parser.add_argument(
+        "--sync-every-microbatch",
+        action="store_true",
+        help="Reduce-scatter each microbatch to save gradient memory; preserve global batch and optimizer cadence",
+    )
+    parser.add_argument(
+        "--actor-cache-retention-gib",
+        type=float,
+        default=0,
+        help="Opt-in actor allocator-cache retention bound; zero preserves the YAML recipe",
+    )
+    parser.add_argument(
+        "--actor-cache-preallocate-gib",
+        type=float,
+        default=0,
+        help="Reusable actor cache floor, no larger than retention; requires 8 GiB colocated-worker headroom",
+    )
     parser.add_argument(
         "--save-every-updates",
         type=int,
         help="Optional checkpoint interval at complete rollout rounds",
     )
     parser.add_argument("--rollout-steps", type=int, default=32)
+    parser.add_argument(
+        "--execution-protocol",
+        choices=["legacy-k8", "official-mixed"],
+        default="legacy-k8",
+    )
     parser.add_argument("--cpus", type=int, default=16)
     parser.add_argument(
         "--timeout-seconds",
@@ -499,6 +727,21 @@ def main() -> None:
                 raise FileNotFoundError(path / filename)
     runtime_vars = read_runtime_environment(args.python)
     cfg = build_config(args, checkpoint_paths)
+    runtime_flags = {
+        key: runtime_vars[key] for key in OPTIONAL_RUNTIME_FLAGS if key in runtime_vars
+    }
+    if runtime_flags:
+        with open_dict(cfg):
+            node_env = cfg.cluster.node_groups[0].env_configs[0]
+            merged_vars = {
+                key: value
+                for entry in (node_env.get("env_vars") or [])
+                for key, value in entry.items()
+            }
+            merged_vars.update(runtime_flags)
+            node_env.env_vars = [{key: value} for key, value in merged_vars.items()]
+    # Validate the final environment overrides using the driver's real schema.
+    ClusterConfig.from_dict_cfg(cfg.cluster)
     args.output.mkdir(parents=True)
     revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
@@ -537,7 +780,7 @@ def main() -> None:
         RAY_TMPDIR=str(ray_root),
         RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES="1",
         CUDA_VISIBLE_DEVICES=",".join(map(str, sorted(args.gpus))),
-        GPU_FREE_MB=str(30 * 1024),
+        GPU_FREE_MB=str(int(args.minimum_free_gib * 1024)),
         MUJOCO_GL="egl",
         PYOPENGL_PLATFORM="egl",
         RAY_USAGE_STATS_ENABLED="0",
@@ -551,6 +794,8 @@ def main() -> None:
         "--node-ip-address=127.0.0.1",
         f"--num-cpus={args.cpus}",
         "--num-gpus=4",
+        "--min-worker-port=0",
+        "--max-worker-port=0",
         "--object-store-memory=2147483648",
         "--include-dashboard=true",
         "--dashboard-host=127.0.0.1",
@@ -570,6 +815,7 @@ def main() -> None:
     ]
     manifest = {
         "mode": "run" if args.run else "dry_run",
+        "purpose": args.run_purpose,
         "owner": owner,
         "physical_gpus": sorted(args.gpus),
         "ray_address": env["RAY_ADDRESS"],
@@ -584,6 +830,22 @@ def main() -> None:
         "rollout_rounds": args.updates // int(cfg.algorithm.flow_refresh_updates),
         "config_name": args.config_name,
         "seed_override": args.seed,
+        "learning_rate_override": args.learning_rate,
+        "global_batch_size_override": args.global_batch_size,
+        "effective_learning_rate": float(cfg.actor.optim.lr),
+        "effective_value_learning_rate": float(cfg.actor.optim.value_lr),
+        "actor_cuda_cache": {
+            "retention_gib": float(cfg.actor.get("cuda_cache_retention_gib", 0)),
+            "preallocate_gib": float(cfg.actor.get("cuda_cache_preallocate_gib", 0)),
+        },
+        "pytorch_cuda_alloc_conf": env.get("PYTORCH_CUDA_ALLOC_CONF"),
+        "gradient_synchronization": {
+            "sync_every_microbatch": not bool(
+                cfg.actor.fsdp_config.enable_gradient_accumulation
+            ),
+            "optimizer_accumulation_steps": int(cfg.actor.global_batch_size)
+            // (4 * int(cfg.actor.micro_batch_size)),
+        },
         "effective_seeds": {
             key: OmegaConf.select(cfg, key)
             for key in (
@@ -595,19 +857,36 @@ def main() -> None:
         },
         "trajectories_per_round": int(cfg.env.train.total_num_envs),
         "rollout_steps": args.rollout_steps,
-        "incomplete_episodes": args.rollout_steps < 520,
+        "incomplete_episodes": args.rollout_steps
+        < (480 if args.execution_protocol == "official-mixed" else 520),
+        "execution_protocol": args.execution_protocol,
+        "rollout_decision_steps": rollout_decision_steps(
+            cfg.env.train, cfg.actor.model
+        ),
         "performance_evidence": False,
         "student_padding_profile": args.student_padding_profile,
+        "native_rollout_batch_size": int(
+            cfg.rollout.model.get("opd_native_rollout_batch_size", 1)
+        ),
         "student_input_contract": student_input_contract(
             cfg.actor.model, args.student_padding_profile
         ),
         "batch_recipe": {
             "global_batch_size": int(cfg.actor.global_batch_size),
             "micro_batch_size": int(cfg.actor.micro_batch_size),
-            "microbatches_per_rank": int(cfg.actor.global_batch_size)
-            // (4 * int(cfg.actor.micro_batch_size)),
+            "microbatches_per_rank": (
+                None
+                if cfg.algorithm.get("native_text_microbatches", False)
+                else int(cfg.actor.global_batch_size)
+                // (4 * int(cfg.actor.micro_batch_size))
+            ),
+            **(
+                {"native_text_microbatches": True}
+                if cfg.algorithm.get("native_text_microbatches", False)
+                else {}
+            ),
         },
-        "smoke_only": True,
+        "smoke_only": args.run_purpose != "formal",
         "allocation_smoke": args.allocation_smoke,
         "allocation_smoke_overrides": (
             dict(ALLOCATION_SMOKE_OVERRIDES) if args.allocation_smoke else {}
@@ -615,13 +894,15 @@ def main() -> None:
         "timeout_seconds": args.timeout_seconds,
         "differences_from_standalone": [
             "Production Ray/FSDP, all suites on each actor rank; see trajectories_per_round",
-            "All official training initial states; no held-out evaluation in this smoke",
+            "All official training initial states; independent evaluation is scheduled separately",
             "First update uses rollout flow; subsequent update refreshes flow",
             "Four CPU-cached teachers per actor, streamed to GPU one at a time",
             "Production checkpoint at final update; no standalone head-only save",
         ],
-        "gpu_free_preflight": "30 GiB per selected card, checked only with --run",
+        "gpu_free_preflight": f"{args.minimum_free_gib:g} GiB per selected card, checked only with --run",
     }
+    if runtime_flags:
+        manifest["runtime_env_vars"] = runtime_flags
     manifest_path = args.output / "launch.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     status = args.output / "status"

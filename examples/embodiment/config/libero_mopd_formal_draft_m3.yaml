@@ -1,0 +1,18 @@
+# UNFROZEN: Adaptive-Sync R1,150 rounds/updates,25-round saves.
+# Requires the same fresh accepted calibration as M2 before formal use.
+defaults:
+  - libero_mopd_formal_draft_common
+  - _self_
+
+runner:
+  max_steps: 150
+  save_interval: 25
+  logger:
+    experiment_name: libero_mopd_formal_draft_m3_adaptive_sync_r1_T32_B256
+  rollout_allocation:
+    mode: adaptive
+    teacher_reference_file: ${oc.env:OPD_LIBERO_TEACHER_REFERENCE}
+
+algorithm:
+  flow_refresh_updates: 1
+  sync_suite_loss_weights: true

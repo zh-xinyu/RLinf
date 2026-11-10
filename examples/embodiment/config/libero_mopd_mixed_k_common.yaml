@@ -1,0 +1,54 @@
+# Mixed-prefix chain acceptance and final T study; formal budget is not frozen yet.
+defaults:
+  - libero_mopd_candidate_common
+  - _self_
+
+algorithm:
+  native_text_microbatches: true
+  log_observation_pool_metrics: true
+
+actor:
+  global_batch_size: 512
+  micro_batch_size: 2
+  model:
+    num_action_chunks: 10
+  optim:
+    lr: 3.0e-5
+    value_lr: 3.0e-5
+    lr_warmup_steps: 4
+  fsdp_config:
+    enable_gradient_accumulation: false
+
+env:
+  train:
+    max_episode_steps: 480
+    max_steps_per_rollout_epoch: 480
+    task_suite_horizons:
+      libero_spatial: 240
+      libero_object: 240
+      libero_goal: 320
+      libero_10: 480
+    task_suite_execution_lengths:
+      libero_spatial: 5
+      libero_object: 5
+      libero_goal: 5
+      libero_10: 10
+  eval:
+    auto_reset: false
+    ignore_terminations: false
+    freeze_finished_episodes: true
+    max_episode_steps: 480
+    max_steps_per_rollout_epoch: 480
+    task_suite_horizons: ${env.train.task_suite_horizons}
+    task_suite_execution_lengths: ${env.train.task_suite_execution_lengths}
+
+rollout:
+  expert_models:
+    libero_spatial:
+      opd_rotary_precision: bf16
+    libero_object:
+      opd_rotary_precision: bf16
+    libero_goal:
+      opd_rotary_precision: bf16
+    libero_10:
+      opd_rotary_precision: bf16

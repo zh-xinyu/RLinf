@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import gc
 import json
 import time
 from contextlib import nullcontext
@@ -42,6 +43,10 @@ from rlinf.algorithms.flow_opd import (
     validate_cross_metadata_flow_objective,
 )
 from rlinf.algorithms.losses import flow_sde_kl_weights
+from rlinf.algorithms.native_microbatch import (
+    native_microbatch_plan,
+    select_native_microbatch,
+)
 from rlinf.algorithms.registry import (
     calculate_adv_and_returns,
     get_policy_loss,
@@ -86,6 +91,7 @@ from rlinf.utils.distributed import (
 from rlinf.utils.distributed import (
     compute_rollout_metrics as compute_math_rollout_metrics,
 )
+from rlinf.utils.execution_protocol import mask_executed_prefix
 from rlinf.utils.metric_utils import (
     CRITIC_EXPLAINED_VARIANCE_KEY,
     append_to_dict,
@@ -1247,6 +1253,20 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 "weight should be offloaded in sync_model_to_rollout"
             )
             self.offload_param_and_grad(True)
+            if self.cfg.actor.get("cuda_cache_retention_gib", 0):
+                from rlinf.utils.cuda_cache import release_cuda_cache_to_floor
+
+                # Drop state-dict GPU views before returning the synchronization
+                # handle. The runner waits for this handle before rollout reload;
+                # clearing in recv_rollout_trajectories races that reload.
+                del state_dict
+                gc.collect()
+                release_cuda_cache_to_floor()
+                self.log_info(
+                    "CUDA cache after rollout handoff: "
+                    f"allocated={torch.cuda.memory_allocated() / 2**30:.2f} GiB, "
+                    f"reserved={torch.cuda.memory_reserved() / 2**30:.2f} GiB."
+                )
 
     @Worker.timer("actor/recv_traj")
     async def recv_rollout_trajectories(self, input_channel: Channel) -> None:
@@ -1289,6 +1309,21 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 "dones"
             ]  # [n_chunk_step, rollout_epoch x bsz, num_action_chunks]
             loss_mask, loss_mask_sum = compute_loss_mask(dones)
+            execution_lengths = (
+                self.cfg.get("env", {})
+                .get("train", {})
+                .get("task_suite_execution_lengths", None)
+            )
+            if execution_lengths is not None:
+                loss_mask = mask_executed_prefix(
+                    loss_mask,
+                    rollout_batch["forward_inputs"]["teacher_ids"],
+                    self._teacher_names(),
+                    execution_lengths,
+                )
+                loss_mask_sum = loss_mask.sum(dim=(0, 2), keepdim=True).expand_as(
+                    loss_mask
+                )
 
             if self.cfg.algorithm.reward_type == "chunk_level":
                 loss_mask = loss_mask.any(dim=-1, keepdim=True)
@@ -1660,6 +1695,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         g.manual_seed(self.cfg.actor.seed + self._rank + self._sample_draw_count * 7919)
 
         chosen, drawn, distinct = [], {}, {}
+        pool_diagnostics = {}
         for i, suite in enumerate(suites):
             pool = torch.nonzero(
                 (teacher_ids == suite) & valid, as_tuple=False
@@ -1682,6 +1718,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             chosen.append(take)
             drawn[self._teacher_names()[suite]] = int(take.numel())
             distinct[self._teacher_names()[suite]] = int(min(pool.numel(), quota))
+            if self.cfg.algorithm.get("log_observation_pool_metrics", False):
+                name = self._teacher_names()[suite]
+                pool_diagnostics[f"actor/observation_pool_size_per_rank/{name}"] = (
+                    float(pool.numel())
+                )
+                pool_diagnostics[f"actor/sampled_unique_per_rank/{name}"] = float(
+                    take.unique().numel()
+                )
+                pool_diagnostics[f"actor/replacement_fraction/{name}"] = (
+                    1.0 - take.unique().numel() / max(take.numel(), 1)
+                )
+        self._observation_pool_diagnostics = pool_diagnostics
 
         idx = torch.cat(chosen)
         # Shuffle so a micro-batch is not a single suite.
@@ -2316,6 +2364,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         observation_pool = self.rollout_batch
         # Count executed controls before collapsing to chunk-level training masks.
         control_mask, _ = compute_loss_mask(observation_pool["dones"])
+        execution_lengths = (
+            self.cfg.get("env", {})
+            .get("train", {})
+            .get("task_suite_execution_lengths", None)
+        )
+        if execution_lengths is not None:
+            control_mask = mask_executed_prefix(
+                control_mask,
+                observation_pool["forward_inputs"]["teacher_ids"],
+                self._teacher_names(),
+                execution_lengths,
+            )
         interaction_metrics = all_reduce_dict(
             {"refresh/real_env_steps_this_rollout": float(control_mask.sum())},
             op=torch.distributed.ReduceOp.SUM,
@@ -2363,6 +2423,15 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         metrics["refresh/optimizer_updates"] = self.lr_scheduler.last_epoch
         metrics["refresh/physical_rollouts"] = self.version + 1
         return metrics
+
+    def _native_microbatch_plan(self, inputs):
+        """Synchronize native text buckets while retaining all selected draws."""
+        lengths = inputs["eagle_attention_mask"].sum(dim=-1)
+        plan = native_microbatch_plan(lengths, self.cfg.actor.micro_batch_size)
+        slots = all_reduce_int(len(plan), op=torch.distributed.ReduceOp.MAX)
+        return native_microbatch_plan(
+            lengths, self.cfg.actor.micro_batch_size, minimum_slots=slots
+        )
 
     @torch.no_grad()
     def _prepare_flow_refresh_batch(self) -> None:
@@ -2418,9 +2487,16 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 torch.random.default_generator.manual_seed(seed)
                 for device_index in devices:
                     torch.cuda.default_generators[device_index].manual_seed(seed)
-            micro_batches = split_dict_to_chunk(
-                inputs, size // self.cfg.actor.micro_batch_size
+            bucket_native = self.cfg.algorithm.get("native_text_microbatches", False)
+            plan = self._native_microbatch_plan(inputs) if bucket_native else None
+            micro_batches = (
+                [select_native_microbatch(inputs, slot) for slot in plan]
+                if bucket_native
+                else split_dict_to_chunk(
+                    inputs, size // self.cfg.actor.micro_batch_size
+                )
             )
+            restored_chains = None
             for micro_idx, micro in enumerate(micro_batches):
                 micro = put_tensor_device(micro, self.device)
                 with self.amp_context:
@@ -2428,10 +2504,23 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                         forward_type=ForwardType.FLOW_REFRESH,
                         forward_inputs=micro,
                     )
-                chains.append(output["chains"].detach().cpu())
+                generated = output["chains"].detach().cpu()
+                if bucket_native:
+                    slot = plan[micro_idx]
+                    if restored_chains is None:
+                        restored_chains = generated.new_empty(
+                            (size, *generated.shape[1:])
+                        )
+                    restored_chains[slot.indices[: slot.valid_rows]] = generated[
+                        : slot.valid_rows
+                    ]
+                else:
+                    chains.append(generated)
                 micro_batches[micro_idx] = None
                 del micro, output
-        inputs["chains"] = torch.cat(chains, dim=0)
+        inputs["chains"] = (
+            restored_chains if bucket_native else torch.cat(chains, dim=0)
+        )
         self.log_info(
             f"Refreshed {size} sampled flows in "
             f"{time.perf_counter() - refresh_start:.2f}s on rank {self._rank}."
@@ -2585,17 +2674,43 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                     f"{train_global_batch_size=}, {self.cfg.actor.micro_batch_size}"
                 )
 
-                train_micro_batch = split_dict_to_chunk(
-                    train_global_batch,
-                    train_global_batch_size // self.cfg.actor.micro_batch_size,
+                bucket_native = self.cfg.algorithm.get(
+                    "native_text_microbatches", False
                 )
+                if bucket_native:
+                    if self.cfg.algorithm.loss_type not in VELOCITY_DISTILL_LOSS_TYPES:
+                        raise ValueError(
+                            "Native text buckets require velocity distillation"
+                        )
+                    if not bool(train_global_batch["loss_mask"].all()):
+                        raise ValueError(
+                            "Native text buckets require fully valid selected chunks"
+                        )
+                    plan = self._native_microbatch_plan(
+                        train_global_batch["forward_inputs"]
+                    )
+                    train_micro_batch = []
+                    for slot in plan:
+                        batch = select_native_microbatch(train_global_batch, slot)
+                        batch["loss_mask"][slot.valid_rows :] = False
+                        batch["_native_valid_rows"] = slot.valid_rows
+                        batch["_native_loss_scale"] = (
+                            slot.valid_rows / train_global_batch_size
+                        )
+                        batch["_native_metric_slots"] = len(plan)
+                        train_micro_batch.append(batch)
+                else:
+                    train_micro_batch = split_dict_to_chunk(
+                        train_global_batch,
+                        train_global_batch_size // self.cfg.actor.micro_batch_size,
+                    )
 
                 self.optimizer.zero_grad()
                 for idx, batch in enumerate(train_micro_batch):
                     self.train_micro_batch(
                         micro_batch=batch,
                         metrics=metrics,
-                        is_last=(idx + 1) == self.gradient_accumulation,
+                        is_last=(idx + 1) == len(train_micro_batch),
                     )
                     # avoid gpu memory leak
                     train_micro_batch[idx] = None
@@ -2619,6 +2734,12 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 }
                 if len(lr_list) > 1:
                     data["critic/lr"] = lr_list[1]
+                if bucket_native:
+                    data["actor/native_microbatch_slots"] = len(plan)
+                    data["actor/native_microbatch_utilization"] = (
+                        train_global_batch_size
+                        / (len(plan) * self.cfg.actor.micro_batch_size)
+                    )
                 append_to_dict(metrics, data)
         # put LR scheduler step here
         self.lr_scheduler.step()
@@ -2626,6 +2747,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         clear_memory()
         explained_variance_stats = pop_critic_explained_variance_stats(metrics)
         mean_metric_dict = {key: np.mean(value) for key, value in metrics.items()}
+        mean_metric_dict.update(getattr(self, "_observation_pool_diagnostics", {}))
         mean_metric_dict = all_reduce_dict(
             mean_metric_dict, op=torch.distributed.ReduceOp.AVG
         )
@@ -2699,6 +2821,19 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 "teacher_velocity": micro_batch["teacher_velocities"],
                 "loss_mask": loss_mask,
             }
+            execution_lengths = (
+                self.cfg.get("env", {})
+                .get("train", {})
+                .get("task_suite_execution_lengths", None)
+            )
+            if execution_lengths is not None:
+                ids = forward_inputs["teacher_ids"].reshape(-1).long()
+                lengths = torch.tensor(
+                    [execution_lengths[name] for name in self._teacher_names()],
+                    device=ids.device,
+                    dtype=torch.long,
+                )[ids]
+                loss_kwargs["action_prefix_lengths"] = lengths
             if self.cfg.algorithm.loss_type == "analytic_local_kl":
                 loss_kwargs["kl_weight"] = micro_batch["nft_kl_weight"]
             if "distillation_sample_weights" in micro_batch:
@@ -2717,10 +2852,65 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                     self._suite_loss_stats = suite_stats
                 else:
                     self._suite_loss_stats.add_(suite_stats)
-            loss = loss / self.gradient_accumulation
+            if "_native_loss_scale" in micro_batch:
+                scale = micro_batch["_native_loss_scale"]
+                valid = micro_batch["_native_valid_rows"]
+                # The loss denominator excludes padded duplicate rows. Reweight
+                # by genuine rows / original local batch, not bucket count.
+                with torch.no_grad():
+                    student = student_out["v_theta"][:valid].float().flatten(1)
+                    teacher = (
+                        micro_batch["teacher_velocities"][:valid].float().flatten(1)
+                    )
+                    if execution_lengths is not None and valid:
+                        shape = student_out["v_theta"][:valid].shape
+                        prefix = (
+                            (
+                                torch.arange(shape[1], device=student.device)[
+                                    None, :, None
+                                ]
+                                < lengths[:valid, None, None]
+                            )
+                            .expand(shape)
+                            .flatten(1)
+                        )
+                        student = student * prefix
+                        teacher = teacher * prefix
+                    if valid:
+                        metrics_data["actor/velocity_cosine"] = (
+                            torch.nn.functional.cosine_similarity(
+                                student, teacher, dim=-1, eps=1e-8
+                            )
+                            .mean()
+                            .item()
+                        )
+                        metrics_data["actor/student_velocity_norm"] = (
+                            student.norm(dim=-1).mean().item()
+                        )
+                        metrics_data["actor/teacher_velocity_norm"] = (
+                            teacher.norm(dim=-1).mean().item()
+                        )
+                        if "nft_kl_weight" in micro_batch:
+                            metrics_data["actor/kl_weight_mean"] = (
+                                micro_batch["nft_kl_weight"][:valid]
+                                .float()
+                                .mean()
+                                .item()
+                            )
+                metrics_data["actor/total_loss"] = (
+                    loss.detach().item() / self.gradient_accumulation
+                )
+                factor = micro_batch["_native_metric_slots"] * scale
+                metrics_data = {
+                    key: value * factor if valid else 0.0
+                    for key, value in metrics_data.items()
+                }
+                backward_loss = loss * scale
+            else:
+                backward_loss = loss / self.gradient_accumulation
+                metrics_data["actor/total_loss"] = backward_loss.detach().item()
             with backward_ctx:
-                self.grad_scaler.scale(loss).backward()
-            metrics_data["actor/total_loss"] = loss.detach().item()
+                self.grad_scaler.scale(backward_loss).backward()
             append_to_dict(metrics, metrics_data)
             return
 

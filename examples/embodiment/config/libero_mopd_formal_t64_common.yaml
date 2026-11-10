@@ -1,0 +1,19 @@
+# T64 control: identical numerical recipe except T and proportional quota cap.
+# Reusable allocator cache is a node-local OOM mitigation, without RNG draws.
+defaults:
+  - libero_mopd_formal_common
+  - _self_
+
+runner:
+  rollout_allocation:
+    max_quota_change: 6
+  logger:
+    wandb_group: ${oc.env:OPD_WANDB_GROUP,T64_offline50_seed0}
+
+env:
+  train:
+    total_num_envs: 64
+
+actor:
+  cuda_cache_retention_gib: 28
+  cuda_cache_preallocate_gib: 26

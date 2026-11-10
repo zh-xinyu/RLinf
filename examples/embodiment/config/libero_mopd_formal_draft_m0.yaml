@@ -1,0 +1,13 @@
+# UNFROZEN: uniform/equal R1,150 rounds/updates,25-round saves.
+defaults:
+  - libero_mopd_formal_draft_common
+  - _self_
+
+runner:
+  max_steps: 150
+  save_interval: 25
+  logger:
+    experiment_name: libero_mopd_formal_draft_m0_uniform_r1_T32_B256
+
+algorithm:
+  flow_refresh_updates: 1

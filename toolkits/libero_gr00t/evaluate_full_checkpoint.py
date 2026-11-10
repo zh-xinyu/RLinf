@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import torch
 from omegaconf import OmegaConf
 
+from rlinf.utils.execution_protocol import suite_execution_lengths
 from toolkits.libero_gr00t.padding_profile import (
     PADDING_PROFILES,
     student_input_contract,
@@ -104,6 +105,7 @@ def candidate_model_config(
 ):
     """Extract the exact supported actor input contract from a resolved run config."""
     cfg = OmegaConf.load(config_path)
+    training_env = cfg.get("env", {}).get("train", {})
     model = OmegaConf.create(OmegaConf.to_container(cfg.actor.model, resolve=True))
     required = {
         "model_type": "gr00t",
@@ -113,19 +115,34 @@ def candidate_model_config(
         "obs_converter_type": "libero_grouped",
         "embodiment_projector_id": 31,
         "disable_image_tiling": True,
-        "num_action_chunks": 8,
+        "num_action_chunks": 10
+        if training_env.get("task_suite_execution_lengths", None) is not None
+        else 8,
         "denoising_steps": 4,
     }
     for key, value in required.items():
         if model.get(key) != value:
             raise ValueError(f"Unsupported reload contract {key}: expected {value!r}")
     student_input_contract(model, student_padding_profile)
+    suite_execution_lengths(training_env, int(model.num_action_chunks))
     rollout_model = OmegaConf.select(cfg, "rollout.model")
     if rollout_model is not None:
         # Actor and rollout can differ in loading controls, but not in the
         # declared student policy input contract.
         effective_rollout = OmegaConf.merge(model, rollout_model)
         student_input_contract(effective_rollout, student_padding_profile)
+        if "opd_native_rollout_batch_size" in effective_rollout:
+            model.opd_native_rollout_batch_size = (
+                effective_rollout.opd_native_rollout_batch_size
+            )
+        if "opd_native_rollout_batch_head" in effective_rollout:
+            model.opd_native_rollout_batch_head = (
+                effective_rollout.opd_native_rollout_batch_head
+            )
+        if "opd_skip_finished_rollout" in effective_rollout:
+            model.opd_skip_finished_rollout = (
+                effective_rollout.opd_skip_finished_rollout
+            )
     if model.rl_head_config.noise_method != "flow_ode":
         raise ValueError("Reload smoke requires the candidate ODE inference policy")
     if not model.rl_head_config.get("disable_dropout", False):
@@ -308,8 +325,17 @@ def main() -> None:
         **loaded,
     }
     (args.output / "protocol.json").write_text(json.dumps(protocol, indent=2) + "\n")
+    training_env = OmegaConf.load(args.config).env.train
+    execution = training_env.get("task_suite_execution_lengths", None)
     results = []
     for suite in args.suites:
+        execute = int(execution[suite]) if execution is not None else 8
+        if execution is not None:
+            from toolkits.libero_gr00t import probe
+
+            probe.HORIZONS[suite] = int(training_env.task_suite_horizons[suite])
+            model.output_action_chunks = execute
+            model.action_head.action_chunk = execute
 
         def write(row):
             row = {"suite": suite, **row}
@@ -320,7 +346,7 @@ def main() -> None:
         eval_args = SimpleNamespace(
             suite=suite,
             seed=args.seed,
-            execute=8,
+            execute=execute,
             eval_tasks=args.tasks,
             eval_initial_states=args.trials,
         )

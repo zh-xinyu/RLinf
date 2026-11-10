@@ -39,6 +39,7 @@ from rlinf.envs.wrappers import RecordVideo
 from rlinf.scheduler import Channel, Cluster, CommMapper, Worker
 from rlinf.utils.data_iter_utils import split_list
 from rlinf.utils.distributed import masked_stats, normalize_from_stats
+from rlinf.utils.execution_protocol import rollout_decision_steps
 from rlinf.utils.metric_utils import compute_split_num
 from rlinf.utils.nested_dict_process import (
     clone_nested_to_cpu,
@@ -146,15 +147,13 @@ class EnvWorker(Worker):
             self.eval_batch_size = self.cfg.env.eval.total_num_envs // self.stage_num
         self.n_train_chunk_steps = 0
         if self.enable_train:
-            self.n_train_chunk_steps = (
-                self.cfg.env.train.max_steps_per_rollout_epoch
-                // self.model_cfg.num_action_chunks
+            self.n_train_chunk_steps = rollout_decision_steps(
+                self.cfg.env.train, self.model_cfg
             )
         self.n_eval_chunk_steps = 0
         if self.enable_eval:
-            self.n_eval_chunk_steps = (
-                self.cfg.env.eval.max_steps_per_rollout_epoch
-                // self.model_cfg.num_action_chunks
+            self.n_eval_chunk_steps = rollout_decision_steps(
+                self.cfg.env.eval, self.model_cfg
             )
         self.actor_split_num = (
             1 if not self.enable_train else self.get_actor_split_num()
@@ -926,6 +925,28 @@ class EnvWorker(Worker):
             "obs": env_batch["obs"],
             "final_obs": env_batch["final_obs"],
         }
+        if (
+            getattr(self, "cfg", {})
+            .get("rollout", {})
+            .get("model", {})
+            .get("opd_skip_finished_rollout", False)
+        ):
+            env = self.cfg.env.train
+            if (
+                not env.get("freeze_finished_episodes", False)
+                or env.auto_reset
+                or env.ignore_terminations
+                or self.cfg.algorithm.loss_type
+                not in ("velocity_distill", "analytic_local_kl")
+            ):
+                raise ValueError(
+                    "Finished-slot skipping requires frozen, non-reset distillation episodes"
+                )
+            data["obs"] = dict(data["obs"])
+            dones = env_batch["dones"]
+            data["obs"]["opd_rollout_active_mask"] = ~dones.reshape(dones.shape[0], -1)[
+                :, -1
+            ]
         if self.enable_rlt:
             data["rlt_switch_flags"] = env_batch.get("rlt_switch_flags", None)
             data["intervene_flags"] = env_batch.get("intervene_flags", None)

@@ -1,0 +1,19 @@
+# UNFROZEN formal draft. Learning/runtime/calibration/evaluation gates are pending.
+# Shared150 physical rounds; evaluate separately at rounds0/25/50/75/100/125/150.
+# LR3e-5 remains provisional and is changed here only after recipe acceptance.
+defaults:
+  - libero_mopd_candidate_common
+  - _self_
+
+actor:
+  global_batch_size: 256
+  micro_batch_size: 1
+  cuda_cache_retention_gib: 0
+  cuda_cache_preallocate_gib: 0
+  optim:
+    lr: 3.0e-5
+    value_lr: 3.0e-5
+    lr_warmup_steps: 4
+    lr_scheduler: constant
+  fsdp_config:
+    enable_gradient_accumulation: false

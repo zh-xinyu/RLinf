@@ -87,3 +87,49 @@ def test_preallocation_refuses_insufficient_headroom(monkeypatch):
     with pytest.raises(RuntimeError, match="headroom"):
         retain_cuda_cache(28, preallocate_gib=26)
     assert not getattr(torch.cuda.empty_cache, "_rlinf_cache_retention", False)
+
+
+def test_handoff_releases_cache_below_retention_limit(monkeypatch):
+    from rlinf.utils.cuda_cache import release_cuda_cache_to_floor
+
+    gib = 1024**3
+    memory = {"reserved": gib, "allocated": gib // 2}
+    events = []
+
+    class Block:
+        def __init__(self, size):
+            self.size = size
+            memory["allocated"] += size
+            memory["reserved"] = max(memory.values())
+
+        def __del__(self):
+            memory["allocated"] -= self.size
+
+    def release():
+        events.append("release")
+        memory["reserved"] = memory["allocated"]
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "memory_reserved", lambda: memory["reserved"])
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda: (30 * gib, 48 * gib))
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda: None)
+    monkeypatch.setattr(torch.cuda, "empty_cache", release)
+    monkeypatch.setattr(torch, "empty", lambda size, **kwargs: Block(size))
+    retain_cuda_cache(2, preallocate_gib=1)
+    memory["reserved"] = 7 * gib // 4
+    torch.cuda.empty_cache()
+    assert events == []  # Ordinary retention keeps this cache and can starve peers.
+    rng = torch.get_rng_state().clone()
+    release_cuda_cache_to_floor()
+    assert events == ["release"]
+    assert memory == {"reserved": gib, "allocated": gib // 2}
+    assert torch.equal(rng, torch.get_rng_state())
+
+
+def test_handoff_without_retention_uses_regular_empty_cache(monkeypatch):
+    from rlinf.utils.cuda_cache import release_cuda_cache_to_floor
+
+    calls = []
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.append("release"))
+    release_cuda_cache_to_floor()
+    assert calls == ["release"]

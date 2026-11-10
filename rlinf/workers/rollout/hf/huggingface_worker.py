@@ -36,6 +36,7 @@ from rlinf.hybrid_engines.weight_syncer import WeightSyncer
 from rlinf.models import get_model
 from rlinf.models.embodiment.base_policy import BasePolicy
 from rlinf.scheduler import Channel, Cluster, Worker, split_channel_message
+from rlinf.utils.execution_protocol import rollout_decision_steps
 from rlinf.utils.placement import HybridComponentPlacement
 from rlinf.utils.utils import seed_everything
 
@@ -104,16 +105,14 @@ class MultiStepRolloutWorker(Worker):
         self.enable_cuda_graph = cfg.rollout.get("enable_cuda_graph", False)
 
         self.n_train_chunk_steps = (
-            cfg.env.train.max_steps_per_rollout_epoch
-            // self.model_cfg.num_action_chunks
+            rollout_decision_steps(cfg.env.train, self.model_cfg)
             if self.enable_train
             else 0
         )
         self.n_eval_chunk_steps = 0
         if self.enable_eval:
-            self.n_eval_chunk_steps = (
-                cfg.env.eval.max_steps_per_rollout_epoch
-                // self.model_cfg.num_action_chunks
+            self.n_eval_chunk_steps = rollout_decision_steps(
+                cfg.env.eval, self.model_cfg
             )
         self.collect_prev_infos = self.cfg.rollout.get("collect_prev_infos", True)
         self.version = 0
@@ -147,6 +146,20 @@ class MultiStepRolloutWorker(Worker):
             if "action_head_precision" in self.cfg.rollout.model:
                 rollout_model_config.action_head_precision = (
                     self.cfg.rollout.model.action_head_precision
+                )
+            if "opd_native_rollout_batch_size" in self.cfg.rollout.model:
+                rollout_model_config.opd_native_rollout_batch_size = (
+                    self.cfg.rollout.model.opd_native_rollout_batch_size
+                )
+
+            if "opd_native_rollout_batch_head" in self.cfg.rollout.model:
+                rollout_model_config.opd_native_rollout_batch_head = (
+                    self.cfg.rollout.model.opd_native_rollout_batch_head
+                )
+
+            if "opd_skip_finished_rollout" in self.cfg.rollout.model:
+                rollout_model_config.opd_skip_finished_rollout = (
+                    self.cfg.rollout.model.opd_skip_finished_rollout
                 )
 
         self.hf_model: BasePolicy = get_model(rollout_model_config)

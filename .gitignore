@@ -41,3 +41,6 @@ outputs/
 /tests/unit_tests/test_mopd_setup.py
 /tests/unit_tests/test_mopd_nodes.py
 /image.png
+
+# Keep Python bytecode ignored after the requirements allowlist.
+**/__pycache__/

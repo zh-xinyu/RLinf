@@ -19,6 +19,7 @@ import torch
 from rlinf.algorithms.registry import register_policy_loss
 from rlinf.algorithms.suite_distillation import (
     SUITE_STATS_KEY,
+    prefix_normalized_velocity_loss,
     sample_weighted_velocity_loss,
     suite_velocity_statistics,
 )
@@ -518,6 +519,7 @@ def compute_velocity_distill_loss(
     teacher_ids: Optional[torch.Tensor] = None,
     num_teachers: int = 0,
     sample_weights: Optional[torch.Tensor] = None,
+    action_prefix_lengths: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, dict]:
     """On-policy velocity distillation (Method 1).
@@ -565,12 +567,22 @@ def compute_velocity_distill_loss(
             "actor/student_velocity_norm": s_flat.norm(dim=-1).mean().item(),
             "actor/teacher_velocity_norm": t_flat.norm(dim=-1).mean().item(),
         }
+    if action_prefix_lengths is not None:
+        loss, mask = prefix_normalized_velocity_loss(
+            sq_err, loss_mask, action_prefix_lengths
+        )
+        metrics_data["actor/velocity_mse"] = loss.detach().item()
     if teacher_ids is not None:
         metrics_data[SUITE_STATS_KEY] = suite_velocity_statistics(
             sq_err, sq_err, mask, teacher_ids, num_teachers
         )
     if sample_weights is not None:
-        loss = sample_weighted_velocity_loss(sq_err, mask, sample_weights)
+        if action_prefix_lengths is None:
+            loss = sample_weighted_velocity_loss(sq_err, mask, sample_weights)
+        else:
+            loss, _ = prefix_normalized_velocity_loss(
+                sq_err, loss_mask, action_prefix_lengths, sample_weights
+            )
         metrics_data["actor/optimization_loss"] = loss.detach().item()
     return loss, metrics_data
 
@@ -662,6 +674,7 @@ def compute_analytic_local_kl_loss(
     teacher_ids: Optional[torch.Tensor] = None,
     num_teachers: int = 0,
     sample_weights: Optional[torch.Tensor] = None,
+    action_prefix_lengths: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, dict]:
     """Local Flow-SDE analytic reverse KL (Method 3 / M3-Hybrid).
@@ -729,12 +742,26 @@ def compute_analytic_local_kl_loss(
             "actor/teacher_velocity_norm": t_flat.norm(dim=-1).mean().item(),
             "actor/kl_weight_mean": kl_weight.float().mean().item(),
         }
+    if action_prefix_lengths is not None:
+        loss, mask = prefix_normalized_velocity_loss(
+            weighted, loss_mask, action_prefix_lengths
+        )
+        unweighted_mse, _ = prefix_normalized_velocity_loss(
+            sq_err, loss_mask, action_prefix_lengths
+        )
+        metrics_data["actor/analytic_kl"] = loss.detach().item()
+        metrics_data["actor/velocity_mse"] = unweighted_mse.detach().item()
     if teacher_ids is not None:
         metrics_data[SUITE_STATS_KEY] = suite_velocity_statistics(
             sq_err, weighted, mask, teacher_ids, num_teachers
         )
     if sample_weights is not None:
-        loss = sample_weighted_velocity_loss(weighted, mask, sample_weights)
+        if action_prefix_lengths is None:
+            loss = sample_weighted_velocity_loss(weighted, mask, sample_weights)
+        else:
+            loss, _ = prefix_normalized_velocity_loss(
+                weighted, loss_mask, action_prefix_lengths, sample_weights
+            )
         metrics_data["actor/optimization_loss"] = loss.detach().item()
     return loss, metrics_data
 
