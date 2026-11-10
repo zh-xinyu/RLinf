@@ -1,5 +1,11 @@
 # GR00T N1.5 / LIBERO: manual environment installation
 
+**Collaborator cluster constraint:** importing custom container images is not
+allowed. Use the [approved-platform-image route](LIBERO_CLUSTER_SETUP.md) for
+this handoff: bootstrap/uv through the internal source when available, with a
+pure-pip fallback. The public-network procedure below remains the reference
+installation route, not the collaborator's final command list.
+
 This guide prepares the experiment runtime from a Git checkout. Run each numbered
 stage separately and retain its output. A coding agent is not required. Software
 installation and target-machine acceptance are separate stages; the new cluster

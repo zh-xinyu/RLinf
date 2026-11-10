@@ -12,7 +12,8 @@ student's flow trajectories and teacher supervision.
 | Purpose | Entry |
 | --- | --- |
 | Check current setting and acceptance status | [Experiment contract](LIBERO_EXPERIMENTS.md) |
-| Request a cluster image and install manually | [Environment guide](LIBERO_ENVIRONMENT.md) |
+| Install on the collaborator's approved platform image | [Cluster setup plan](LIBERO_CLUSTER_SETUP.md) |
+| Inspect reference profiles and installation acceptance | [Environment guide](LIBERO_ENVIRONMENT.md) |
 | Inspect shared rollout-worker evaluation | [Evaluation protocol](toolkits/libero_gr00t/parallel_evaluation.md) |
 | Inspect implementation and historical pilots | [Toolkit notes](toolkits/libero_gr00t/README.md) |
 | Reproduce the separate RoboCasa environment | [RoboCasa profile](OPD_ENVIRONMENT.md) |
