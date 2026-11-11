@@ -47,8 +47,9 @@ def test_adaptive_config_matches_uniform_except_allocation_and_query_share(
     ]
     for c in (before, after):
         c["runner"].pop("logger")
-        c["runner"]["rollout_allocation"].pop("mode")
-        c["runner"]["rollout_allocation"].pop("teacher_reference_file")
+        # Owner-side allocator tuning is intentional; the numerical training,
+        # model, execution and evaluation contract must stay aligned instead.
+        c["runner"].pop("rollout_allocation")
         c["algorithm"].pop("sync_suite_query_weights")
     assert before == after
     forwarded = adaptive.adaptive_arguments(
