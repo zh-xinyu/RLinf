@@ -256,3 +256,10 @@ without retraining. Per-round status/output/failed-attempt records are in
 `post_training_evaluation.json`. Single-round `--eval-round` remains optional.
 The low-level launchers and runner's inline validation remain separate; the
 manual wrapper coordinates sequential jobs on the same allocation.
+
+The wrapper also automatically merges all completed checkpoints into
+`<results>/checkpoint_summary.csv` (91 rows for the full matrix) and
+`<results>/checkpoint_results.csv` (3640 task rows), with shared initialization
+deduplication, identity checks and locked atomic upserts. Raw episode files remain
+in each evaluation folder. [CSV documentation](LIBERO_COMMANDS.md#6-automatically-merged-csv-results)
+describes fields, incomplete-result guards and export-only recovery.

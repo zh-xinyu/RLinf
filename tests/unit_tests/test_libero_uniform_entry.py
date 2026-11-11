@@ -12,6 +12,12 @@ from toolkits.libero_gr00t import launch_uniform as uniform
 from toolkits.libero_gr00t import run_uniform as entry
 
 
+@pytest.fixture(autouse=True)
+def mock_result_export(monkeypatch):
+    """Dispatch-only tests use stub evaluators; CSV audits have a separate suite."""
+    monkeypatch.setattr(entry, "record_evaluation", lambda *a, **k: None)
+
+
 def machine_file(tmp_path, **overrides):
     config = {
         key: str(tmp_path / key)

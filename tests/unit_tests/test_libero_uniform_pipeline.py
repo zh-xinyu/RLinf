@@ -12,6 +12,12 @@ from toolkits.libero_gr00t import run_uniform as entry
 from toolkits.libero_gr00t.parallel_evaluation import audit_episodes
 
 
+@pytest.fixture(autouse=True)
+def mock_result_export(monkeypatch):
+    """Pipeline mocks do not create evaluation outcomes; test audits separately."""
+    monkeypatch.setattr(entry, "record_evaluation", lambda *a, **k: None)
+
+
 def setup_machine(tmp_path, repeats=1):
     config = {key: str(tmp_path / key) for key in entry.REQUIRED}
     machine = tmp_path / "machine.json"
@@ -39,6 +45,8 @@ def test_default_training_then_all_evaluations_and_evaluate_only(
 ):
     machine, run = setup_machine(tmp_path, repeats)
     calls = []
+    exports = []
+    monkeypatch.setattr(entry, "record_evaluation", lambda *a, **k: exports.append(a))
 
     def child(command, **kwargs):
         assert kwargs["check"] is True
@@ -53,6 +61,7 @@ def test_default_training_then_all_evaluations_and_evaluate_only(
     args = ["--machine", str(machine), "--r", str(repeats), "--seed", "0", "--run"]
     entry.main(args)
     assert len(calls) == 12
+    assert [args[4] for args in exports] == list(range(0, 101, 10))
     assert "--baseline" in calls[1]
     for round_, command in zip(range(10, 101, 10), calls[2:], strict=True):
         assert (
@@ -83,6 +92,39 @@ def test_no_evaluation_after_training_failure(tmp_path, monkeypatch):
         entry.main(["--machine", str(machine), "--r", "1", "--seed", "0", "--run"])
     assert len(calls) == 1
     assert not (run / "post_training_evaluation.json").exists()
+
+
+def test_csv_failure_keeps_evaluated_output_for_export_retry(tmp_path, monkeypatch):
+    machine, run = setup_machine(tmp_path)
+    completed_training(run, 1)
+    calls = []
+    monkeypatch.setattr(
+        entry.subprocess, "run", lambda command, **k: calls.append(command)
+    )
+
+    def fail_export(*args, **kwargs):
+        raise OSError("temporary CSV storage failure")
+
+    monkeypatch.setattr(entry, "record_evaluation", fail_export)
+    args = [
+        "--machine",
+        str(machine),
+        "--r",
+        "1",
+        "--seed",
+        "0",
+        "--evaluate-all",
+        "--run",
+    ]
+    with pytest.raises(OSError):
+        entry.main(args)
+    state = json.loads((run / "post_training_evaluation.json").read_text())
+    assert state["rounds"]["0"]["status"] == "EVALUATED"
+    old_output = state["rounds"]["0"]["output"]
+    calls.clear()
+    monkeypatch.setattr(entry, "record_evaluation", lambda *a, **k: None)
+    entry.main(args)
+    assert calls[0][calls[0].index("--output") + 1] == old_output
 
 
 def test_missing_checkpoint_rejects_evaluation_before_any_child(tmp_path, monkeypatch):

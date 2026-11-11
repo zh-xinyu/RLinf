@@ -209,6 +209,13 @@ Record evaluation costs separately from training interaction budgets.
 
 ## 6. Required results
 
+The manual entrypoint automatically maintains `checkpoint_summary.csv` and
+`checkpoint_results.csv` in the machine JSON's results root after each audited
+evaluation. All nine runs share these files; round0 is deduplicated. Return these
+generated files instead of manually copying scores into blank templates. The
+first is the convenient one-row-per-checkpoint table for plotting; the second
+matches the task-level template. See [CSV details](LIBERO_COMMANDS.md#6-automatically-merged-csv-results).
+
 Return the following, with paths referenced from the summary CSV:
 
 - Raw independent `episodes.json`/`episodes.csv`, task summaries, coverage audit

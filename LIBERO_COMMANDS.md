@@ -185,3 +185,46 @@ layout under that config's directory; R/seed must identify that same experiment.
 
 See [the handoff](LIBERO_HANDOFF.md) for initialization gates, files to return,
 the nine-run evaluation budget and the deferred Adaptive scope.
+
+## 6. Automatically merged CSV results
+
+After each complete checkpoint evaluation, the entrypoint updates two files in
+the machine JSON's **results directory**, shared across all nine runs:
+
+| File | Rows / contents |
+| --- | --- |
+| `checkpoint_summary.csv` | One row per checkpoint: R/seed/round/update, Spatial/Object/Goal/Long SR and suite-macro SR, episode count, interaction counters and raw output path |
+| `checkpoint_results.csv` | One row per task/checkpoint: successes, episodes and SR, with the same run/checkpoint identity and budgets; matches the task-level handoff template |
+
+The complete nine-run matrix has 91 summary rows (90 trained checkpoints plus
+one shared initial result) and 3640 task rows. SR values are fractions from 0 to 1.
+Filter the summary to round100 to obtain the main-result rows for the three
+training seeds. You do not need to fill these CSVs manually or copy templates into
+the results directory. The final means/std over training seeds can be computed
+from these per-seed rows; training seeds are not pooled as extra evaluation states.
+
+Writes use a shared file lock and atomic replacement. Re-exporting the same
+checkpoint updates its key instead of appending a duplicate. Incomplete outcomes,
+changed checkpoint identity or a different base/protocol cannot silently replace
+existing scores. Source/model/protocol identities are also saved in
+`results_identity.json`. Keep the same results root for the intended nine runs;
+distinct storage roots produce separate CSVs.
+
+Actual simulation counters are read from `libero_uniform/rollout_allocation.jsonl`
+when available. Training wall time stays empty when not independently available;
+missing cost fields are not fabricated or confused with evaluation time. Retain
+the original training logs and per-checkpoint evaluation folders.
+
+CSV export also runs after optional single-checkpoint evaluation. If raw
+evaluation succeeded but export failed, `post_training_evaluation.json` records
+EVALUATED rather than COMPLETE. `--evaluate-all --run` can audit/reuse that result
+and retry the export. A CSV-only recovery command, using ordinary Python and no
+GPU job, is also available:
+
+```bash
+python3 -m toolkits.libero_gr00t.collect_results \
+  --results /absolute/path/results \
+  --evaluation /absolute/path/results/evaluations/Uniform-R4_seed1_round040 \
+  --r 4 --seed 1 --round 40 \
+  --training-run /absolute/path/results/Uniform-R4_seed1
+```

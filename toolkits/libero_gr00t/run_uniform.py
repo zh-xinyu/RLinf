@@ -12,6 +12,8 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from toolkits.libero_gr00t.collect_results import record_evaluation
+
 REPO = Path(__file__).resolve().parents[2]
 REQUIRED = {"python", "models", "spatial_teacher", "student", "results"}
 OPTIONAL = {
@@ -257,10 +259,18 @@ def evaluate_saved_checkpoints(
                 fcntl.flock(stream, fcntl.LOCK_EX)
                 print(shlex.join(command), flush=True)
                 subprocess.run(command, env=dict(os.environ), cwd=REPO, check=True)
+            record["status"] = "EVALUATED"
+            persist()
+            record_evaluation(
+                Path(config["results"]), output, args.r, args.seed, round_, run
+            )
             record["status"] = "COMPLETE"
             persist()
         except BaseException as error:
-            record.update(status="FAILED", error=repr(error))
+            record.update(
+                status="EVALUATED" if record["status"] == "EVALUATED" else "FAILED",
+                error=repr(error),
+            )
             state["status"] = "FAILED"
             persist()
             raise
@@ -321,6 +331,17 @@ def main(argv: list[str] | None = None) -> None:
     command, env = launch_spec(args)
     print(shlex.join(command), flush=True)
     subprocess.run(command, env=env, cwd=REPO, check=True)
+    if args.run and args.eval_round is not None:
+        output = Path(command[command.index("--output") + 1])
+        training_config = Path(command[command.index("--config") + 1])
+        record_evaluation(
+            Path(config["results"]),
+            output,
+            args.r,
+            args.seed,
+            args.eval_round,
+            training_config.parent,
+        )
     if args.run and args.eval_round is None and not args.train_only:
         run = Path(command[command.index("--output") + 1])
         evaluate_saved_checkpoints(args, config, run)
