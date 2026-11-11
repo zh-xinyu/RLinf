@@ -7,6 +7,9 @@ import sys
 from toolkits.libero_gr00t import launch_formal as historical
 from toolkits.libero_gr00t import launch_production as production
 
+# Preserve 100 physical rounds, with the newly agreed ten-round save/eval grid.
+ARMS = {"m0": (100, 10), "m1": (200, 20), "m2": (200, 20), "m3": (100, 10)}
+
 
 def query_arguments(argv: list[str]) -> list[str]:
     """Reuse the fixed budgets and safe resource flags of the formal launcher."""
@@ -20,6 +23,9 @@ def query_arguments(argv: list[str]) -> list[str]:
         raise ValueError("The adaptive-query recipe requires trajectory-budget64")
     arm = forwarded[index].removeprefix(prefix)
     forwarded[index] = f"libero_mopd_adaptive_query_{arm}"
+    updates, save = ARMS[arm]
+    forwarded[forwarded.index("--updates") + 1] = str(updates)
+    forwarded[forwarded.index("--save-every-updates") + 1] = str(save)
     return forwarded
 
 

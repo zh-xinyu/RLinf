@@ -96,10 +96,10 @@ public upload location for this new artifact is still pending.
 
 | Arm | Rollout allocation / query allocation | R | Rounds | Optimizer updates | Save at updates |
 | --- | --- | ---: | ---: | ---: | --- |
-| M0 | Uniform / equal | 1 | 100 | 100 | 25/50/75/100 |
-| M1 | Uniform / equal | 2 | 100 | 200 | 50/100/150/200 |
-| M2 | Adaptive / synchronized | 2 | 100 | 200 | 50/100/150/200 |
-| M3 | Adaptive / synchronized | 1 | 100 | 100 | 25/50/75/100 |
+| M0 | Uniform / equal | 1 | 100 | 100 | 10/20/.../100 |
+| M1 | Uniform / equal | 2 | 100 | 200 | 20/40/.../200 |
+| M2 | Adaptive / synchronized | 2 | 100 | 200 | 20/40/.../200 |
+| M3 | Adaptive / synchronized | 1 | 100 | 100 | 10/20/.../100 |
 
 Shared: one node/four ranks; T64trajectories/round,16environment slots/rank,
 B512, micro2/rank, LR3e-5, four **optimizer-update** warmup steps then constant,
@@ -122,7 +122,7 @@ Use rollout rounds as the main x-axis, and retain trajectories, actual simulatio
 steps, optimizer updates and wall time. Equal trajectory budgets do not imply
 equal physics budgets when suite allocation and episode lengths change.
 Use the same operational allocator/cache settings across compared arms and
-record GPU sharing. Saving every25rounds and independent evaluation are separate
+record GPU sharing. Saving every10rounds and independent evaluation are separate
 jobs: saving does not automatically launch evaluation.
 
 ## Portable command contract
@@ -167,8 +167,8 @@ packets and private episode RNG replace training quota sampling; the physics,
 observation conversion, action execution and policy interfaces are shared.
 The historical standalone K8 YAML/launcher is not the current protocol.
 
-Evaluate round0once and each arm at25/50/75/100rounds:17checkpoints, each40tasks
-×50official initial states0–49=2000episodes. Fixed seed1234, private episode
+Evaluate round0once and each arm every10rounds through round100:41checkpoints
+for the first seed, each40tasks×50official initial states0–49=2000episodes. Fixed seed1234, private episode
 noise seed `1234 + local_task_id*100 + trial_id`; five parallel states/task/GPU.
 Require full pair coverage before computing a reportable score.
 
@@ -223,3 +223,11 @@ and replaces synchronized suite loss coefficients with synchronized query counts
 synthetic donor comparison matched every plan/query allocation. GPU acceptance
 and initialization confirmation remain separate. See the
 [current implementation guide](toolkits/libero_gr00t/adaptive_query.md).
+
+## Measurement-grid revision
+
+The user requested independent evaluation every10physical rounds. New adaptive-
+query YAMLs and their dedicated launcher now save every10rounds (R1:10updates;
+R2:20updates), retaining100rounds. Historical formal configurations are unchanged.
+See the adaptive-query guide for seed scheduling and proposed, not yet activated,
+microbatch/controller changes. Independent evaluation is a separate queued job.

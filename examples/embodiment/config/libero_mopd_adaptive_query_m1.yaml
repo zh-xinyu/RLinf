@@ -1,11 +1,11 @@
-# M1: Uniform-R2; 100 physical rounds, save every 25 rounds.
+# M1: Uniform-R2; 100 physical rounds, save every 10 rounds.
 defaults:
   - libero_mopd_adaptive_query_common
   - _self_
 
 runner:
   max_steps: 200
-  save_interval: 50
+  save_interval: 20
   logger:
     wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,M1_Uniform-R2_T64_B512_seed0}
   rollout_allocation:

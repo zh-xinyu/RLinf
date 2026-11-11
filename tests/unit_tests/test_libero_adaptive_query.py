@@ -310,7 +310,7 @@ def test_new_recipe_changes_only_method_not_tested_training_parameters(
         gpus=[0, 1, 2, 3],
         config_name=f"libero_mopd_adaptive_query_{arm}",
         updates=100 * repeats,
-        save_every_updates=25 * repeats,
+        save_every_updates=10 * repeats,
         rollout_steps=480,
         execution_protocol="official-mixed",
         run_purpose="formal",
@@ -318,15 +318,19 @@ def test_new_recipe_changes_only_method_not_tested_training_parameters(
     )
     new = production.build_config(args, paths)
     args.config_name = f"libero_mopd_formal_t64_{arm}"
+    args.save_every_updates = 25 * repeats  # Historical recipes remain unchanged.
     old = production.build_config(args, paths)
     adaptive = arm in {"m2", "m3"}
     assert new.algorithm.sync_suite_query_weights == adaptive
     assert new.algorithm.sync_suite_loss_weights is False
     assert new.algorithm.suite_loss_weights is None
     assert new.runner.max_steps // repeats == 100
-    assert new.runner.save_interval // repeats == 25
+    assert new.runner.save_interval // repeats == 10
+    forwarded = launcher.query_arguments(["--arm", arm, "--dry-run"])
+    assert forwarded[forwarded.index("--save-every-updates") + 1] == str(10 * repeats)
     before, after = [OmegaConf.to_container(c, resolve=True) for c in (old, new)]
     allowed = {
+        ("runner", "save_interval"),
         ("runner", "logger", "experiment_name"),
         ("runner", "logger", "wandb_group"),
         ("runner", "logger", "wandb_run_name"),

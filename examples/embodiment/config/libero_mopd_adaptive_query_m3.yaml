@@ -1,11 +1,11 @@
-# M3: Adaptive-R1; 100 physical rounds, save every 25 rounds.
+# M3: Adaptive-R1; 100 physical rounds, save every 10 rounds.
 defaults:
   - libero_mopd_adaptive_query_common
   - _self_
 
 runner:
   max_steps: 100
-  save_interval: 25
+  save_interval: 10
   logger:
     wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,M3_Adaptive-R1_T64_B512_seed0}
   rollout_allocation:

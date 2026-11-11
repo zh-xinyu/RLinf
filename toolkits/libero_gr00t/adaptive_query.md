@@ -50,7 +50,7 @@ and queries the matching teacher at the resulting flow state.
 | LR warmup / scheduler | Four optimizer updates, then constant |
 | Allocator warmup/window/interval | 20/20/10physical rounds |
 | Coverage / change cap | Five episodes/task/window; six trajectories/suite/decision |
-| Main budget / saves | 100physical rounds; save every25rounds |
+| Main budget / saves | 100physical rounds; save every10rounds |
 | W&B | `FORMAL_libero_gr00t`; default group `T64_gap_query_seed0` |
 
 With four workers and one rollout epoch, minimum quota is4/suite. Over a20-round
@@ -63,10 +63,10 @@ the current quota. M3 time weighting and LR warmup are separate from this window
 
 | Arm | Rollout / query allocation | R | Updates | Save at updates |
 | --- | --- | ---: | ---: | --- |
-| M0 | Uniform / uniform | 1 | 100 | 25/50/75/100 |
-| M1 | Uniform / uniform | 2 | 200 | 50/100/150/200 |
-| M2 | Adaptive / synchronized | 2 | 200 | 50/100/150/200 |
-| M3 | Adaptive / synchronized | 1 | 100 | 25/50/75/100 |
+| M0 | Uniform / uniform | 1 | 100 | 10/20/.../100 |
+| M1 | Uniform / uniform | 2 | 200 | 20/40/.../200 |
+| M2 | Adaptive / synchronized | 2 | 200 | 20/40/.../200 |
+| M3 | Adaptive / synchronized | 1 | 100 | 10/20/.../100 |
 
 New YAMLs are `examples/embodiment/config/libero_mopd_adaptive_query_m0.yaml`
 through `m3.yaml`, sharing `libero_mopd_adaptive_query_common.yaml`.
@@ -101,7 +101,7 @@ when teacher weights and the observation/action/execution signature are unchange
 
 GPU acceptance must precede real `--run` launches. No GPU experiment is started
 by this development change. Independent evaluation still uses the shared rollout-
-worker evaluator, fixed40tasks×50states and the same K/horizons. The25-round save
+worker evaluator, fixed40tasks×50states and the same K/horizons. The10-round save
 and evaluation grid remains unchanged. Checkpoints from the old weighting method
 must not be resumed as the new method; use the same base initialization and a
 fresh optimizer. New-method continuation retains strict same-recipe validation.
@@ -127,6 +127,35 @@ the prefix-normalized gradient to an independent per-query objective; replay
 recipes against the historical T64 controls. GPU/FSDP/model acceptance remains
 pending on an allocated node.
 
+## Experiment planning revision on2026-11-11
+
+The agreed save/independent-evaluation grid is now every10physical rounds through
+round100, plus a shared round0 evaluation. Keep100rounds and the existing2000-
+episode checkpoint protocol. This is41checkpoint evaluations for the first seed
+(82,000episodes); three training seeds with one shared round0 need242,000episodes.
+Evaluation is scheduled separately and does not run inside the training loop.
+The initial development receipts below preserve the earlier25-round grid; current
+YAML/launcher tests cover the new10-round grid.
+
+Plan seed0 for all four arms first, then repeat with seeds1/2, using the same
+initialization and evaluation state/episode-RNG protocol. Set `--seed` and the
+W&B group/run name explicitly for each repeat. Three training seeds
+allow reporting seed-level mean/standard deviation; a single seed is exploratory.
+
+The following are recommendations, **not active configuration changes**:
+
+- Try microbatch4 in a bounded GPU timing/memory/gradient acceptance check while
+  keeping B512. Select one microbatch for all four arms before formal comparison.
+  Native token-length buckets and floating-point accumulation mean mathematical
+  equivalence does not imply bitwise-identical training or a guaranteed speedup.
+- Consider allocator warmup/window/interval10/10/5, with min_task_episodes3.
+  At minimum quota4 and window10, each suite supplies40episodes, about4/task;
+  retaining the old coverage gate5 can stall allocation. Current defaults remain
+  the tested20/20/10and gate5 until a controller revision is adopted.
+- Keep Method3 noise_level0.3. It defines the reference local-SDE KL weights;
+  ODE rollout and refresh remain deterministic conditional on the sampled initial
+  noise. Existing T64 run configurations also used0.3.
+
 ## Development validation on2026-11-11
 
 411CPU regressions passed, including21new adaptive-query tests. Changed Python
@@ -142,3 +171,7 @@ The saved `*_CONFIG_ONLY.yaml` files intentionally contain placeholder model,
 reference and runtime paths. They are inspection artifacts, not executable runs.
 No GPU smoke, policy evaluation or training was launched. Target-machine and
 initializer acceptance remain pending.
+
+The measurement-grid revision passed27targeted CPU regressions (the21new-method
+checks and six historical T64 checks), plus Ruff lint/format and doc/shell checks.
+Loss, microbatch and controller timing are unchanged. No GPU job was launched.
