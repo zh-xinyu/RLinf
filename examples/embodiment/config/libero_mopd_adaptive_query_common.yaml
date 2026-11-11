@@ -17,7 +17,7 @@ runner:
     window_rounds: 10
     interval_rounds: 10
     min_task_episodes: 1
-    max_quota_change: 6
+    max_quota_change: 8
 
 algorithm:
   suite_query_weights: null

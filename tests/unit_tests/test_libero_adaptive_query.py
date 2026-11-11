@@ -44,7 +44,7 @@ def make_allocator(**overrides):
         "rho": 1.0,
         "epsilon": 0.0,
         "priority_power": 2.0,
-        "max_quota_change": 6,
+        "max_quota_change": 8,
     }
     config.update(overrides)
     return RolloutAllocator(tasks, 4, 16, 1, config, dict.fromkeys(NAMES, 1.0))
@@ -72,7 +72,7 @@ def test_squared_gap_replay_preserves_forty_task_coverage_and_round_timing(all_s
             assert list(diagnostics["probabilities"].values()) == pytest.approx(
                 probabilities
             )
-            assert allocator.quotas == bounded_quotas(probabilities, 64, previous, 4, 6)
+            assert allocator.quotas == bounded_quotas(probabilities, 64, previous, 4, 8)
             if all_success:
                 assert allocator.quotas == [16] * 4
         else:
@@ -331,7 +331,7 @@ def test_new_recipe_changes_only_method_not_tested_training_parameters(
         control.interval_rounds,
         control.min_task_episodes,
         control.max_quota_change,
-    ) == (10, 10, 10, 1, 6)
+    ) == (10, 10, 10, 1, 8)
     assert new.runner.max_steps // repeats == 100
     assert new.runner.save_interval // repeats == 10
     forwarded = launcher.query_arguments(["--arm", arm, "--dry-run"])
@@ -348,6 +348,7 @@ def test_new_recipe_changes_only_method_not_tested_training_parameters(
         ("runner", "rollout_allocation", "warmup_rounds"),
         ("runner", "rollout_allocation", "window_rounds"),
         ("runner", "rollout_allocation", "min_task_episodes"),
+        ("runner", "rollout_allocation", "max_quota_change"),
         ("algorithm", "sync_suite_loss_weights"),
         ("algorithm", "suite_loss_weights"),
         ("algorithm", "sync_suite_query_weights"),
@@ -426,4 +427,4 @@ def test_uniform_and_adaptive_share_first_ten_physical_rounds():
     uniform.plan()
     assert adaptive.last_diagnostics["decision"]
     assert adaptive.quotas != uniform.quotas
-    assert max(abs(a - b) for a, b in zip(adaptive.quotas, uniform.quotas)) <= 6
+    assert max(abs(a - b) for a, b in zip(adaptive.quotas, uniform.quotas)) <= 8

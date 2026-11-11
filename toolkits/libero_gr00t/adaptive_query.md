@@ -50,7 +50,7 @@ and queries the matching teacher at the resulting flow state.
 | Optimizer | LR3e-5, AdamW(.9,.95), decay0, clip1 |
 | LR warmup / scheduler | Four optimizer updates, then constant |
 | Allocator warmup/window/interval | 10/10/10physical rounds |
-| Coverage / change cap | One episode/task validity check; six trajectories/suite/decision |
+| Coverage / change cap | One episode/task validity check; eight trajectories/suite/decision |
 | Main budget / saves | 100physical rounds; save every10rounds |
 | W&B | `FORMAL_libero_gr00t`; default group `T64_gap_query_W10_I10_seed0` |
 
@@ -66,10 +66,12 @@ every task must have an SR denominator. It does not truncate the records used,
 reduce the actual number of episodes, or add a tunable statistical confidence gate.
 Unexpected missing-task coverage still holds the quota and records a diagnostic.
 
-Retain max_quota_change=6as the fixed bound used by the RoboTwin runs. It is not
-mathematically required by the gap law, but prevents abrupt jumps in physical and
-query resource shares. It remains a disclosed controller setting rather than a
-separate sweep. No new EMA, mixing coefficient or demand proxy is introduced.
+Use max_quota_change=8for LIBERO T64, half the initial uniform quota16. RoboTwin
+runs used6; the allocation law is shared while this actuator bound is benchmark-
+specific. It is not mathematically required by the gap law, but caps abrupt
+physical/query share changes. Keep interval10so each decision can use one complete
+window collected under the preceding quota. The bound remains disclosed and fixed
+rather than swept. No new EMA, mixing coefficient or demand proxy is introduced.
 
 ## Matrix and entrypoint
 
@@ -188,7 +190,8 @@ Loss, microbatch and controller timing are unchanged. No GPU job was launched.
 
 The user selected window10and interval10to reduce independent tuning choices.
 The active YAML now also ties allocator warmup to10, sets the task-coverage
-validity check to1, and keeps the donor's max-change6bound. Historical formal
+validity check to1, and initially kept the donor's max-change6bound. The later
+request to increase movement raised the LIBERO bound to8; timing stays10/10/10. Historical formal
 YAMLs and their20/20/10/gate5settings remain untouched. Synthetic checks establish
 quota/coverage/timing correctness; they do not establish stable policy gains.
 Microbatch remains2pending the separate GPU speed/memory check.
@@ -198,3 +201,11 @@ The single-timescale revision passed94targeted CPU regressions. Coverage gates
 active gate1is a validity check rather than an extra allocation preference.
 Uniform and Adaptive plans match over the first ten physical rounds; the first
 adaptive decision is for round11. No GPU job or model experiment was launched.
+
+## Larger allocation movement
+
+The user requested a larger per-decision limit. Set max_quota_change8; retain
+window/interval/warmup10, minimum quota4and the task-presence check1. The initial
+uniform16quota can move into[8,24] at the first decision, while all suites still
+sum to64. Five-round decisions remain a possible later comparison, not the active
+recipe. Core training, measurement grid and runtime are unchanged.

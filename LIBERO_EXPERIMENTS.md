@@ -111,7 +111,7 @@ are repeats; start with0. Existing YAMLs and launch validation encode this recip
 
 Adaptive uses the verified teacher calibration, rho1, epsilon0 and squared
 positive suite SR gaps. The current controller uses warmup=window=interval=10
-physical rounds, a one-episode/task validity check and fixed quota-change cap6
+physical rounds, a one-episode/task validity check and fixed quota-change cap8
 per suite/decision. Uniform quotas are16/16/16/16. Query counts follow actual
 projected quotas; extra suite loss coefficients are disabled. Learning progress
 is diagnostic only. First adaptive decision is round11. At the minimum quota4,
@@ -236,8 +236,9 @@ microbatch/controller changes. Independent evaluation is a separate queued job.
 
 ## Single-timescale controller revision
 
-Warmup/window/interval are now10/10/10physical rounds. Keep max_quota_change6,
-aligned with the RoboTwin implementation, and use min_task_episodes1solely to
+Warmup/window/interval are now10/10/10physical rounds. The initial change kept
+max_quota_change6from RoboTwin; the subsequent user-requested increase sets8
+for LIBERO T64. Use min_task_episodes1solely to
 reject an undefined task SR. No rollout/query/loss equation changed. The numerical
 training settings, save/evaluation grid and pending initializer/GPU gates remain
 unchanged. Stability of policy gains still requires real multi-seed experiments.
