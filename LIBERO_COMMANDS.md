@@ -94,7 +94,20 @@ plan's resolved recipe if the actual run does not exist yet. Results go to
 `<results>/evaluations/initial_student/`; share this single result across all nine
 runs. Complete initialization acceptance before starting the formal queue.
 
-## 4. Launch one of the nine training runs
+## 4. Launch training followed by automatic evaluation
+
+Each `--run` command trains all 100 physical rounds, waits for training's owned
+Ray processes to exit, then automatically evaluates the shared initial student
+and saved rounds 10/20/30/40/50/60/70/80/90/100 on the same allocated GPUs. It does
+not evaluate after every optimizer update or pause training every ten rounds.
+The checkpoint scores are still measured at every ten-round save boundary.
+
+A completed shared initial evaluation is reused only after checking model/source
+identities, inference protocol and full raw episode coverage. Completed matching
+checkpoint evaluations can also be reused. Incomplete/stale outputs are not
+silently overwritten. Retain the allocation for **training plus evaluation**;
+the first run can require 22,000 evaluation episodes, later runs 20,000 each.
+The command returns successfully only after all scheduled evaluations finish.
 
 Each line below is a complete independent command. Run only the line wanted;
 do not paste all nine into a shared four-GPU allocation as background jobs.
@@ -124,9 +137,26 @@ agreed fresh retry, choose a new `--output /absolute/new/path`. This starts a ne
 run; it is not a resume option. Strict resume uses the lower-level launcher and
 the same recipe, as described in its existing checkpoint/resume contract.
 
-## 5. Evaluate saved checkpoints by physical round
+## 5. Optional separate training or checkpoint evaluation
 
-For example, evaluate round 40 of Uniform-R4/seed1:
+The normal `--run` command already includes all scheduled evaluations. For a
+training-only job, add `--train-only`. To finish/recheck the evaluation queue for
+an already completed training run without retraining, use:
+
+```bash
+python3 -m toolkits.libero_gr00t.run_uniform \
+  --machine outputs/local/libero_machine.json --r 4 --seed 1 --evaluate-all --run
+```
+
+This reads `post_training_evaluation.json` from the training directory. Complete
+matching results are audited and reused. A stage previously recorded as failed
+or interrupted receives a new `_attemptN` output directory on this explicit retry;
+its original outputs are retained, and the receipt identifies the current result.
+If training failed or any scheduled checkpoint is missing, evaluation does not
+start. This command resumes evaluation, not optimizer training.
+
+A single-checkpoint evaluation remains available for inspection or manual work.
+For example, round 40 of Uniform-R4/seed1:
 
 ```bash
 # Review a plan first.
@@ -139,8 +169,8 @@ python3 -m toolkits.libero_gr00t.run_uniform \
 
 The wrapper chooses update **160**, without manual checkpoint arithmetic. Results
 go to `<results>/evaluations/Uniform-R4_seed1_round040/`. Repeat for rounds
-10/20/30/40/50/60/70/80/90/100 of every run. Independent evaluation is a separate
-job; training does not launch it automatically.
+10/20/30/40/50/60/70/80/90/100 of every run. Independent evaluations run as sequential child jobs after training. The normal
+entrypoint queues them automatically; these single-checkpoint commands are optional.
 
 All evaluations use 40 tasks x 50 official states, evaluation seed **1234** and
 five parallel states/task/GPU. `--seed 1` identifies the training run; it does not

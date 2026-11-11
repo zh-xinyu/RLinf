@@ -32,7 +32,8 @@ Offline-Distilled-50 experiments as results of the new initialization.
 The current collaborator matrix is Uniform-R1/R2/R4, each with training seeds
 0/1/2: nine runs, one node/four GPUs, T64 trajectories/round, 100 rounds and B512. Training microbatch defaults to 4/card; node acceptance may
 select 8/card consistently for all nine runs.
-Save and independently evaluate every 10 rounds. Adaptive experiments will be
+Save every 10 rounds; after training, the manual entrypoint automatically
+evaluates all saved rounds on the same allocation. Adaptive experiments will be
 assigned separately after local tuning; their source and common runtime are
 retained. Independent evaluation uses 40 tasks x 50 states per checkpoint through
 the training environment/rollout implementation. Installation is isolated from

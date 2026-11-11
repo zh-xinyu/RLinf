@@ -128,7 +128,7 @@ microbatch selection is an admission step and must be consistent across all nine
 runs. The common Adaptive runtime supports it, but Adaptive numerical configs
 remain internal until the owner supplies the later recipe.
 
-## 4. Manual command entrypoint
+## 4. Manual command entrypoint with automatic follow-up evaluation
 
 Use [LIBERO_COMMANDS.md](LIBERO_COMMANDS.md) for the complete manual workflow,
 including all nine training commands and checkpoint evaluation by physical round.
@@ -144,6 +144,12 @@ python3 -m toolkits.libero_gr00t.run_uniform \
 python3 -m toolkits.libero_gr00t.run_uniform \
   --machine outputs/local/libero_machine.json --r 4 --seed 1 --run
 ```
+
+With `--run`, the wrapper completes the full 100-round training, waits for
+owned-Ray cleanup, and automatically evaluates the shared initial student and
+saved rounds 10 through 100 on the same GPUs. Add `--train-only` only when a
+separate training allocation is intended. `--evaluate-all --run` evaluates an
+already completed run without training again.
 
 The wrapper calls the configured runtime without requiring activation or repeated
 exports. R/seed determine the tracked numerical preset, result directory and W&B
@@ -165,12 +171,14 @@ student acceptance remain prerequisites, not actions performed by this wrapper.
 ## 5. Independent evaluations
 
 Evaluation uses the training environment/rollout implementation in the same
-runtime. It is scheduled separately from training, not automatically by saving.
+runtime. The manual entrypoint schedules it automatically after the entire training run
+finishes. Checkpoint saving during training does not start concurrent evaluation.
 Every checkpoint uses 40 tasks x 50 official states 0–49, seed 1234, five parallel
 states/task/GPU and eight CPUs per active GPU. Require complete episode coverage.
 
-Use `--eval-round 0` for the shared initial student after creating an R1/seed0
-training plan, or choose a saved round for a trained model:
+Normal training commands automatically queue every saved round. The following
+single-checkpoint commands are optional: `--eval-round 0` measures the shared
+initial student; a nonzero value selects a saved physical round, not extra training:
 
 ```bash
 python3 -m toolkits.libero_gr00t.run_uniform \
@@ -222,3 +230,14 @@ and macro SR at round 100 (mean and standard deviation over three training
 seeds), plus training interaction/compute costs. Also retain individual-seed
 results; do not combine counts as if training seeds were extra evaluation states. Model
 initialization and teacher calibration are shared preparation costs.
+
+## Automatic evaluation receipts
+
+Reserve job time for training plus its sequential post-training evaluation queue.
+Each run writes `post_training_evaluation.json`, with per-round output paths and
+failure/attempt history. A successful training-only status does not imply all
+measurements finished; require this receipt's COMPLETE status and audited raw
+results. Shared initial and matching completed checkpoint results are reused only
+with model/protocol/source and coverage checks. Failed or stale folders are never
+silently replaced. See the command guide for `--evaluate-all --run` recovery and
+`--config` handling for a relocated completed run.

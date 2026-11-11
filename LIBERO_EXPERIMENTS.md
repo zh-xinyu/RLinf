@@ -122,7 +122,9 @@ Each run collects 6400 student trajectories; the nine-run total is 57,600.
 Optimizer compute differs by design. Use physical rollout rounds as the main
 x-axis; also retain trajectories, executed simulation steps, update count and
 wall time. Equal trajectory budgets do not imply equal physics budgets.
-Saving every 10 rounds and independent evaluation are separate jobs.
+Saving remains every 10 rounds. The manual entrypoint completes training and
+owned-Ray cleanup before automatically evaluating every saved round in sequential
+child jobs; it does not run evaluations concurrently with training.
 
 Tracked YAMLs are `examples/embodiment/config/libero_mopd_uniform_r{1,2,4}.yaml`.
 For manual execution use [the command guide](LIBERO_COMMANDS.md): one local
@@ -242,3 +244,15 @@ freeze one admitted value for all nine runs. Keep B512/LR/optimizer/evaluation
 unchanged. No micro4/8 target-cluster GPU evidence is claimed by the CPU checks.
 The retained Adaptive YAMLs are still owner-tuning candidates; align their final
 microbatch with the Uniform controls when preparing the later handoff.
+
+## Automatic evaluation after a complete training run
+
+`run_uniform ... --run` now means train all 100 rounds, exit owned training
+processes, then evaluate shared round 0 and saved rounds 10/20/.../100. Default
+training commands for R1/R2/R4 are identical except R/seed. Matching complete
+results require identity/protocol and raw coverage validation before reuse.
+`--train-only` opts out; `--evaluate-all --run` finishes/rechecks measurements
+without retraining. Per-round status/output/failed-attempt records are in
+`post_training_evaluation.json`. Single-round `--eval-round` remains optional.
+The low-level launchers and runner's inline validation remain separate; the
+manual wrapper coordinates sequential jobs on the same allocation.

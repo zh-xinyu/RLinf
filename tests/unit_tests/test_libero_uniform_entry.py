@@ -34,7 +34,7 @@ def test_manual_commands_agree_with_frozen_recipe_and_logging(
     calls = []
     monkeypatch.setattr(entry.subprocess, "run", lambda *a, **k: calls.append((a, k)))
     argv = ["--machine", str(path), "--r", str(reuse), "--seed", str(seed)]
-    entry.main(argv + (["--run"] if run else []))
+    entry.main(argv + (["--run", "--train-only"] if run else []))
     (command,), kwargs = calls[0]
     assert command[:3] == [
         str(tmp_path / "python"),

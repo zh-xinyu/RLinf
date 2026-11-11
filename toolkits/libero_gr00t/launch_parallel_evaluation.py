@@ -269,8 +269,50 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cpus", type=int, default=8)
     parser.add_argument("--timeout-seconds", type=float, default=14400)
     parser.add_argument("--trace", action="store_true")
+    parser.add_argument(
+        "--reuse-complete",
+        action="store_true",
+        help="Reuse an existing run only after identity and full raw coverage audit",
+    )
     parser.add_argument("--run", action="store_true")
     return parser.parse_args()
+
+
+def reuse_completed(output: Path, expected: dict) -> None:
+    """Reject stale/incomplete evaluation folders rather than overwrite results."""
+    actual = json.loads((output / "manifest.json").read_text())
+    if actual.get("mode") != "run":
+        raise ValueError(f"Cannot reuse a plan as completed evaluation: {output}")
+    for key in (
+        "base_checkpoint_identity",
+        "metadata_sha256",
+        "weights_sha256",
+        "tasks",
+        "trials",
+        "execution_lengths",
+        "horizons",
+        "rng_protocol",
+        "seed",
+        "inference_model_config",
+        "source_sha256",
+    ):
+        if key not in actual or actual[key] != expected[key]:
+            raise ValueError(f"Existing evaluation identity differs at {key}: {output}")
+    rows = []
+    for task in expected["tasks"]:
+        directory = output / f"task_{task:02d}"
+        if (directory / "status").read_text().strip() != "OK":
+            raise ValueError(f"Incomplete evaluation task: {directory}")
+        rows.extend(json.loads((directory / "episodes.json").read_text()))
+    audited = audit_episodes(rows, expected["tasks"], expected["trials"])
+    if not audited["complete"]:
+        raise ValueError(f"Incomplete evaluation coverage: {output}")
+    if json.loads((output / "summary.json").read_text()) != audited:
+        raise ValueError(
+            f"Existing evaluation summary differs from raw outcomes: {output}"
+        )
+    if not (output / "episodes.csv").is_file():
+        raise FileNotFoundError(output / "episodes.csv")
 
 
 def main() -> None:
@@ -302,7 +344,7 @@ def main() -> None:
             if not getattr(args, name).exists():
                 raise FileNotFoundError(getattr(args, name))
     args.output = args.output.resolve()
-    if args.output.exists():
+    if args.output.exists() and not (args.run and args.reuse_complete):
         raise FileExistsError(args.output)
     model, _ = candidate_model_config(args.config, args.student)
     manifest = {
@@ -341,6 +383,19 @@ def main() -> None:
         "seed": args.seed,
         "mode": "run" if args.run else "dry_run",
     }
+    inference = OmegaConf.to_container(model, resolve=True)
+    inference.pop("model_path", None)
+    # These are the same explicit overrides applied by task_config().
+    inference.update(
+        opd_native_rollout_batch_size=1,
+        opd_native_rollout_batch_head=False,
+        opd_skip_finished_rollout=False,
+    )
+    manifest["inference_model_config"] = inference
+    if args.output.exists():
+        reuse_completed(args.output, manifest)
+        print(f"Reused audited complete evaluation: {args.output}")
+        return
     # Hydra uses process-global state: compose serially before GPU threads.
     configs = {}
     for i, task in enumerate(args.tasks):

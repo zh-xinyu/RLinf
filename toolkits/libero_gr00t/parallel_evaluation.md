@@ -88,7 +88,10 @@ previous single-environment path for comparison.
 
 These are the independent evaluation artifacts to retain alongside training
 records. The launcher writes raw results locally and does not require W&B.
-Saving a training checkpoint still does not automatically start evaluation.
+Saving alone does not start evaluation. The current
+[manual Uniform entrypoint](../../LIBERO_COMMANDS.md) automatically runs this
+evaluator for all saved rounds after the complete training job exits; it also
+supports training-only and evaluation-only modes.
 
 ## Validation on action10
 

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -178,6 +179,95 @@ def evaluation_spec(args: argparse.Namespace, config: dict, label: str) -> list[
     return command
 
 
+def evaluate_saved_checkpoints(
+    args: argparse.Namespace, config: dict, run: Path
+) -> None:
+    """Evaluate saved rounds sequentially after the owned training job has exited."""
+    import fcntl
+
+    if (run / "status").read_text().strip() != "OK":
+        raise ValueError(
+            "Automatic evaluation requires a successfully completed training run"
+        )
+    resolved = run / "resolved_config.yaml"
+    for round_ in range(10, 101, 10):
+        weights = (
+            run
+            / "libero_uniform/checkpoints"
+            / f"global_step_{round_ * args.r}"
+            / "actor/model_state_dict/full_weights.pt"
+        )
+        if not weights.is_file():
+            raise FileNotFoundError(weights)
+    identity = {
+        "r": args.r,
+        "seed": args.seed,
+        "training_config_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+    }
+    receipt = run / "post_training_evaluation.json"
+    state = {"identity": identity, "status": "RUNNING", "rounds": {}}
+    if receipt.exists():
+        previous = json.loads(receipt.read_text())
+        if previous["identity"] != identity:
+            raise ValueError(
+                "Post-training evaluation recipe changed; use the original resolved run"
+            )
+        state["rounds"] = previous["rounds"]
+
+    def persist() -> None:
+        temporary = receipt.with_suffix(".json.partial")
+        temporary.write_text(json.dumps(state, indent=2) + "\n")
+        temporary.replace(receipt)
+
+    label = f"Uniform-R{args.r}_seed{args.seed}"
+    for round_ in range(0, 101, 10):
+        selected = argparse.Namespace(**vars(args))
+        selected.config = resolved
+        selected.eval_round = round_
+        selected.output = None
+        command = evaluation_spec(selected, config, label)
+        default_output = Path(command[command.index("--output") + 1])
+        previous = state["rounds"].get(str(round_), {})
+        output = Path(previous.get("output", str(default_output)))
+        attempts = list(previous.get("failed_attempts", []))
+        if previous.get("status") in ("FAILED", "RUNNING"):
+            attempts.append(str(output))
+            attempt = 2
+            while output.exists():
+                output = default_output.with_name(
+                    default_output.name + f"_attempt{attempt}"
+                )
+                attempt += 1
+        command[command.index("--output") + 1] = str(output)
+        command.append("--reuse-complete")
+        record = {
+            "status": "RUNNING",
+            "output": str(output),
+            "optimizer_update": round_ * args.r,
+            "failed_attempts": attempts,
+        }
+        state["rounds"][str(round_)] = record
+        persist()
+        try:
+            # Separate jobs may share an initial result; serialize each output's
+            # identity/coverage check and creation, without holding GPU tensors.
+            lock = default_output.parent / ".locks" / (default_output.name + ".lock")
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            with lock.open("a") as stream:
+                fcntl.flock(stream, fcntl.LOCK_EX)
+                print(shlex.join(command), flush=True)
+                subprocess.run(command, env=dict(os.environ), cwd=REPO, check=True)
+            record["status"] = "COMPLETE"
+            persist()
+        except BaseException as error:
+            record.update(status="FAILED", error=repr(error))
+            state["status"] = "FAILED"
+            persist()
+            raise
+    state["status"] = "COMPLETE"
+    persist()
+
+
 def main(argv: list[str] | None = None) -> None:
     """Run the selected runtime wrapper; no activation or shell exports needed."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -196,15 +286,44 @@ def main(argv: list[str] | None = None) -> None:
         type=Path,
         help="Evaluation only: relocated resolved training config",
     )
+    followup = parser.add_mutually_exclusive_group()
+    followup.add_argument(
+        "--train-only",
+        action="store_true",
+        help="Skip default post-training evaluations",
+    )
+    followup.add_argument(
+        "--evaluate-all",
+        action="store_true",
+        help="Evaluate/recheck all saved rounds without training",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--run", action="store_true", help="Start admitted experiment")
     mode.add_argument("--dry-run", action="store_true", help="Default: write plan only")
     args = parser.parse_args(argv)
-    if args.config is not None and args.eval_round is None:
-        parser.error("--config is only supported with --eval-round")
+    if args.eval_round is not None and (args.train_only or args.evaluate_all):
+        parser.error(
+            "--eval-round cannot be combined with --train-only or --evaluate-all"
+        )
+    if args.config is not None and args.eval_round is None and not args.evaluate_all:
+        parser.error("--config is only supported with --eval-round or --evaluate-all")
+    if args.evaluate_all and (not args.run or args.output is not None):
+        parser.error("--evaluate-all requires --run; use --config for a relocated run")
+    config = machine_config(args.machine)
+    if args.evaluate_all:
+        run = (
+            args.config.parent
+            if args.config
+            else Path(config["results"]) / f"Uniform-R{args.r}_seed{args.seed}"
+        )
+        evaluate_saved_checkpoints(args, config, run.absolute())
+        return
     command, env = launch_spec(args)
     print(shlex.join(command), flush=True)
     subprocess.run(command, env=env, cwd=REPO, check=True)
+    if args.run and args.eval_round is None and not args.train_only:
+        run = Path(command[command.index("--output") + 1])
+        evaluate_saved_checkpoints(args, config, run)
 
 
 if __name__ == "__main__":
