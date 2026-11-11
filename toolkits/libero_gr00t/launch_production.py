@@ -598,7 +598,8 @@ def main() -> None:
         + [f"libero_mopd_candidate_m{i}" for i in range(4)]
         + [f"libero_mopd_mixed_k_m{i}" for i in range(4)]
         + [f"libero_mopd_formal_m{i}" for i in range(4)]
-        + [f"libero_mopd_formal_t64_m{i}" for i in range(4)],
+        + [f"libero_mopd_formal_t64_m{i}" for i in range(4)]
+        + [f"libero_mopd_adaptive_query_m{i}" for i in range(4)],
         default=CONFIG_NAME,
     )
     parser.add_argument("--run-purpose", choices=["pilot", "formal"], default="pilot")

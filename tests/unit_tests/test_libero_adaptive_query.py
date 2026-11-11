@@ -373,6 +373,34 @@ def test_dedicated_launcher_defaults_to_t64_and_rejects_recipe_overrides():
         launcher.query_arguments(["--arm", "m1", "--global-batch-size", "256"])
 
 
+@pytest.mark.parametrize("arm", ["m0", "m1", "m2", "m3"])
+def test_dedicated_launcher_passes_production_cli_before_runtime_lookup(tmp_path, arm):
+    """Exercise the real CLI whitelist without starting a runtime or GPU work."""
+    with pytest.raises(FileNotFoundError, match="missing_runtime_python"):
+        launcher.main(
+            [
+                "--arm",
+                arm,
+                "--python",
+                str(tmp_path / "missing_runtime_python"),
+                "--models",
+                str(tmp_path / "models"),
+                "--student",
+                str(tmp_path / "student"),
+                "--spatial-teacher",
+                str(tmp_path / "spatial"),
+                "--gpus",
+                "0",
+                "1",
+                "2",
+                "3",
+                "--output",
+                str(tmp_path / "plan"),
+            ]
+        )
+    assert not (tmp_path / "plan").exists()
+
+
 @pytest.mark.parametrize("field", ["suite_loss_weights", "sync_suite_loss_weights"])
 def test_validation_rejects_double_weighting(field):
     cfg = OmegaConf.create(
