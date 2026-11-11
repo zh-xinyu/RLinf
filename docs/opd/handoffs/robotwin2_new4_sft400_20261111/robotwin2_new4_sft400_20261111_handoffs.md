@@ -1,6 +1,6 @@
-# RoboTwin 2.0 / π0.5：新四任务、三 seeds 交接
+# 2026-11-11 实验交接：RoboTwin 2.0 / π0.5 新四任务 Joint-SFT400
 
-2026-11-11。本交接替代旧四任务 SFT500/SFT2000 配方。**每组训练完成后，立即测评round5/10/…/50的全部10个checkpoints，100 episodes/task；结果写入CSV后再启动下一组。** 交付附件为本文与 `checkpoint_results.csv`；脚本及完整资源 manifest 在仓库。
+2026-11-11。本交接替代旧四任务 SFT500/SFT2000 配方。**每组训练完成后，立即测评round5/10/…/50的全部10个checkpoints，100 episodes/task；结果写入CSV后再启动下一组。** 只需发送本文；`checkpoint_results.csv`、`experiment_results.csv`由运行代码自动生成，无需发送CSV模板。脚本及完整资源 manifest 在仓库。
 
 - 分支：`release/robotwin2-new4`；固定 tag：`robotwin2-new4-train-eval-20261111`。记录实际 `git rev-parse HEAD`。
 - 初始化：新四任务 **Joint-SFT400**，固定预算冷启动；四任务各45条训练示范，所有8组从同一权重新建 optimizer。不是旧SFT500，也不从上一组终点续训。
@@ -169,7 +169,7 @@ partition/时长按集群修改；Slurm必须提供四卡CUDA mask，CPU/RAM与J
 
 请返回：
 
-- `deliverables/checkpoint_results.csv`、`experiment_results.csv`、`training_summary.json` 和所有W&B链接；模板80行全部标为正式测评计划，每行包含四任务SR、等权macro SR、pool SHA、原始结果目录与完成状态。
+- `deliverables/checkpoint_results.csv`、`experiment_results.csv`、`training_summary.json` 和所有W&B链接；自动生成的checkpoint表覆盖80个正式测评点，每行包含四任务SR、等权macro SR、pool SHA、原始结果目录与完成状态。
 - `prepared/`、全部smoke结果、validation/Slurm日志，以及全部 `eval/<job>/round<N>/<task>/` 的summary/config/episodes和日志。
 - 每个 `train/<run>/` 的resolved config、launch/runtime、代码快照、JSONL、driver/Ray日志；包括实际rollout trajectories、simulation steps、update/round计数、时间和显存。
 - 八组的全部10个policy保存点及最新完整恢复状态；至少保留至正式测评与负责人确认归档。
