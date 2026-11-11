@@ -150,6 +150,8 @@ def record_evaluation(
     seed: int,
     round_: int,
     training_run: Path | None = None,
+    *,
+    method: str = "uniform",
 ) -> None:
     """Atomically merge task/macro results from one audited checkpoint evaluation."""
     if not results.is_dir():
@@ -157,12 +159,13 @@ def record_evaluation(
             f"Prepare and mount the CSV destination first: {results}"
         )
     if (
-        repeats not in (1, 2, 4)
+        method not in ("uniform", "adaptive")
+        or repeats not in (1, 2, 4)
         or seed not in (0, 1, 2)
         or round_ not in range(0, 101, 10)
     ):
         raise ValueError(
-            "Expected Uniform R1/R2/R4, seed0/1/2 and a ten-round checkpoint"
+            "Expected Uniform/Adaptive R1/R2/R4, seed0/1/2 and a ten-round checkpoint"
         )
     manifest, counts = audited_counts(output)
     weights = manifest.get("weights")
@@ -179,7 +182,7 @@ def record_evaluation(
             raise ValueError("Weights do not match the requested physical round and R")
         checkpoint = manifest["weights_sha256"]
     row = {
-        "arm": "INITIAL" if round_ == 0 else f"Uniform-R{repeats}",
+        "arm": "INITIAL" if round_ == 0 else f"{method.capitalize()}-R{repeats}",
         "seed": "" if round_ == 0 else seed,
         "round": round_,
         "optimizer_update": round_ * repeats,
@@ -190,7 +193,7 @@ def record_evaluation(
     if round_ == 0:
         row.update(training_simulation_steps=0, training_wall_seconds=0)
     elif training_run is not None:
-        history = training_run / "libero_uniform/rollout_allocation.jsonl"
+        history = training_run / f"libero_{method}/rollout_allocation.jsonl"
         if history.exists():
             matching = [
                 json.loads(line)
@@ -251,13 +254,20 @@ def main() -> None:
         "--csv-dir", "--results", dest="results", type=Path, required=True
     )
     parser.add_argument("--evaluation", type=Path, required=True)
+    parser.add_argument("--method", choices=("uniform", "adaptive"), default="uniform")
     parser.add_argument("--r", type=int, choices=(1, 2, 4), required=True)
     parser.add_argument("--seed", type=int, choices=(0, 1, 2), required=True)
     parser.add_argument("--round", type=int, choices=range(0, 101, 10), required=True)
     parser.add_argument("--training-run", type=Path)
     args = parser.parse_args()
     record_evaluation(
-        args.results, args.evaluation, args.r, args.seed, args.round, args.training_run
+        args.results,
+        args.evaluation,
+        args.r,
+        args.seed,
+        args.round,
+        args.training_run,
+        method=args.method,
     )
 
 

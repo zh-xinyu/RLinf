@@ -73,6 +73,10 @@ physical/query share changes. Keep interval10so each decision can use one comple
 window collected under the preceding quota. The bound remains disclosed and fixed
 rather than swept. No new EMA, mixing coefficient or demand proxy is introduced.
 
+For the new shared manual entry and owner-only parameter tuning, use the
+[Adaptive release workflow](../../LIBERO_ADAPTIVE.md). The legacy four-arm
+entrypoint below remains available independently.
+
 ## Internal candidate matrix and entrypoint
 
 Adaptive is retained for owner-side tuning and a later handoff. The current

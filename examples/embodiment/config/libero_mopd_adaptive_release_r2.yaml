@@ -1,0 +1,12 @@
+defaults:
+  - libero_mopd_adaptive_release_common
+  - _self_
+
+runner:
+  max_steps: 200
+  save_interval: 20
+  logger:
+    wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,Adaptive-R2_T64_B512}
+
+algorithm:
+  flow_refresh_updates: 2

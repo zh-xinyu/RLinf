@@ -1,6 +1,6 @@
 # Copyright 2026 The RLinf Authors.
 # SPDX-License-Identifier: Apache-2.0
-"""Select a frozen Uniform experiment using a local machine JSON and R/seed."""
+"""Select Uniform or owner-tuned Adaptive experiments using machine JSON and R/seed."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ OPTIONAL = {
     "timeout_seconds",
     "actor_cache_retention_gib",
     "actor_cache_preallocate_gib",
+    "teacher_reference_bundle",
 }
 
 
@@ -51,6 +52,11 @@ def machine_config(path: Path) -> dict:
         "actor_cache_preallocate_gib": 12,
         **config,
     }
+    bundle = config.get("teacher_reference_bundle")
+    if bundle is not None and (
+        not isinstance(bundle, str) or not Path(bundle).is_absolute()
+    ):
+        raise ValueError("teacher_reference_bundle must be null or an absolute path")
     gpus = config["gpus"]
     if (
         not isinstance(gpus, list)
@@ -78,10 +84,60 @@ def machine_config(path: Path) -> dict:
     return config
 
 
+def experiment_name(args: argparse.Namespace) -> str:
+    """Use distinct training/checkpoint directories for the selected method."""
+    return "libero_" + getattr(args, "method", "uniform")
+
+
+def run_label(args: argparse.Namespace) -> str:
+    """Keep Uniform names stable while separating Adaptive R/seed records."""
+    return (
+        f"{getattr(args, 'method', 'uniform').capitalize()}-R{args.r}_seed{args.seed}"
+    )
+
+
+def prepare_adaptive_reference(args: argparse.Namespace, config: dict) -> Path:
+    """Verify and relocate the published calibration before a training launch."""
+    configured = config.get("teacher_reference_bundle")
+    bundle = (
+        Path(configured)
+        if configured
+        else REPO / "toolkits/libero_gr00t/configs/teacher_reference_release.json"
+    )
+    if not bundle.is_file():
+        raise FileNotFoundError(
+            f"Adaptive calibration bundle has not been published: {bundle}. "
+            "Wait for the owner-tuned release or set teacher_reference_bundle for a local probe."
+        )
+    fingerprint = hashlib.sha256(
+        bundle.read_bytes() + args.machine.read_bytes()
+    ).hexdigest()[:20]
+    output = (
+        Path(config["results"]) / "teacher_reference_cache" / (fingerprint + ".json")
+    )
+    command = [
+        config["python"],
+        "-m",
+        "toolkits.libero_gr00t.reference_bundle",
+        "bind",
+        "--bundle",
+        str(bundle),
+        "--machine",
+        str(args.machine.absolute()),
+        "--r",
+        str(args.r),
+        "--output",
+        str(output),
+    ]
+    print(shlex.join(command), flush=True)
+    subprocess.run(command, env=dict(os.environ), cwd=REPO, check=True)
+    return output
+
+
 def launch_spec(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
     """Derive output and logging labels from the same R/seed passed to training."""
     config = machine_config(args.machine)
-    label = f"Uniform-R{args.r}_seed{args.seed}"
+    label = run_label(args)
     if args.eval_round is not None:
         return evaluation_spec(args, config, label), dict(os.environ)
     output = args.output or Path(config["results"]) / (
@@ -90,7 +146,9 @@ def launch_spec(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
     command = [
         config["python"],
         "-m",
-        "toolkits.libero_gr00t.launch_uniform",
+        "toolkits.libero_gr00t.launch_adaptive"
+        if getattr(args, "method", "uniform") == "adaptive"
+        else "toolkits.libero_gr00t.launch_uniform",
         "--reuse-updates",
         str(args.r),
         "--seed",
@@ -125,9 +183,11 @@ def launch_spec(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
     env = dict(os.environ)
     env.update(
         WANDB_MODE=config["wandb_mode"],
-        OPD_WANDB_GROUP=f"T64_uniform_seed{args.seed}",
-        OPD_WANDB_RUN_NAME=f"Uniform-R{args.r}_T64_B512_seed{args.seed}",
+        OPD_WANDB_GROUP=f"T64_{getattr(args, 'method', 'uniform')}_seed{args.seed}",
+        OPD_WANDB_RUN_NAME=f"{getattr(args, 'method', 'uniform').capitalize()}-R{args.r}_T64_B512_seed{args.seed}",
     )
+    if getattr(args, "bound_teacher_reference", None) is not None:
+        env["OPD_LIBERO_TEACHER_REFERENCE"] = str(args.bound_teacher_reference)
     return command, env
 
 
@@ -184,7 +244,7 @@ def evaluation_spec(args: argparse.Namespace, config: dict, label: str) -> list[
     else:
         weights = (
             training_config.parent
-            / "libero_uniform/checkpoints"
+            / (experiment_name(args) + "/checkpoints")
             / f"global_step_{args.eval_round * args.r}"
             / "actor/model_state_dict/full_weights.pt"
         )
@@ -208,7 +268,7 @@ def evaluate_saved_checkpoints(
     for round_ in range(10, 101, 10):
         weights = (
             run
-            / "libero_uniform/checkpoints"
+            / (experiment_name(args) + "/checkpoints")
             / f"global_step_{round_ * args.r}"
             / "actor/model_state_dict/full_weights.pt"
         )
@@ -234,7 +294,7 @@ def evaluate_saved_checkpoints(
         temporary.write_text(json.dumps(state, indent=2) + "\n")
         temporary.replace(receipt)
 
-    label = f"Uniform-R{args.r}_seed{args.seed}"
+    label = run_label(args)
     for round_ in range(0, 101, 10):
         selected = argparse.Namespace(**vars(args))
         selected.config = resolved
@@ -275,7 +335,13 @@ def evaluate_saved_checkpoints(
             record["status"] = "EVALUATED"
             persist()
             record_evaluation(
-                Path(config["csv_dir"]), output, args.r, args.seed, round_, run
+                Path(config["csv_dir"]),
+                output,
+                args.r,
+                args.seed,
+                round_,
+                run,
+                method=getattr(args, "method", "uniform"),
             )
             record["status"] = "COMPLETE"
             persist()
@@ -294,6 +360,7 @@ def evaluate_saved_checkpoints(
 def main(argv: list[str] | None = None) -> None:
     """Run the selected runtime wrapper; no activation or shell exports needed."""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--method", choices=("uniform", "adaptive"), default="uniform")
     parser.add_argument("--machine", type=Path, required=True)
     parser.add_argument("--r", type=int, choices=(1, 2, 4), required=True)
     parser.add_argument("--seed", type=int, choices=(0, 1, 2), required=True)
@@ -339,10 +406,12 @@ def main(argv: list[str] | None = None) -> None:
         run = (
             args.config.parent
             if args.config
-            else Path(config["results"]) / f"Uniform-R{args.r}_seed{args.seed}"
+            else Path(config["results"]) / run_label(args)
         )
         evaluate_saved_checkpoints(args, config, run.absolute())
         return
+    if args.method == "adaptive" and args.eval_round is None:
+        args.bound_teacher_reference = prepare_adaptive_reference(args, config)
     command, env = launch_spec(args)
     print(shlex.join(command), flush=True)
     subprocess.run(command, env=env, cwd=REPO, check=True)
@@ -356,6 +425,7 @@ def main(argv: list[str] | None = None) -> None:
             args.seed,
             args.eval_round,
             training_config.parent,
+            method=args.method,
         )
     if args.run and args.eval_round is None and not args.train_only:
         run = Path(command[command.index("--output") + 1])

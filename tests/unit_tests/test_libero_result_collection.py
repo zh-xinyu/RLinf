@@ -165,3 +165,16 @@ def test_concurrent_exports_keep_all_experiments(tmp_path):
         )
     assert len(rows(root / "checkpoint_summary.csv")) == 3
     assert len(rows(root / "checkpoint_results.csv")) == 120
+
+
+def test_uniform_and_adaptive_share_csvs_and_initial_but_keep_distinct_arms(tmp_path):
+    root = tmp_path / "results"
+    initial = evaluation(tmp_path / "initial")
+    for method in ("uniform", "adaptive"):
+        results.record_evaluation(root, initial, 2, 0, 0, method=method)
+        output = evaluation(tmp_path / method, repeats=2, round_=10)
+        results.record_evaluation(root, output, 2, 0, 10, method=method)
+    summary = rows(root / "checkpoint_summary.csv")
+    assert {r["arm"] for r in summary} == {"INITIAL", "Uniform-R2", "Adaptive-R2"}
+    assert len(summary) == 3
+    assert len(rows(root / "checkpoint_results.csv")) == 120

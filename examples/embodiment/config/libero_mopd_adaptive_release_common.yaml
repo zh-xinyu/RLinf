@@ -1,0 +1,30 @@
+# Owner-tuned Adaptive recipe; publishing this file must not change Uniform.
+defaults:
+  - libero_mopd_adaptive_query_common
+  - _self_
+
+runner:
+  logger:
+    experiment_name: libero_adaptive
+    wandb_group: ${oc.env:OPD_WANDB_GROUP,T64_adaptive}
+  rollout_allocation:
+    mode: adaptive
+    teacher_reference_file: ${oc.env:OPD_LIBERO_TEACHER_REFERENCE}
+    # Candidate values, retained for owner-side tuning before assignment.
+    warmup_rounds: 10
+    window_rounds: 10
+    interval_rounds: 10
+    min_task_episodes: 1
+    rho: 1.0
+    epsilon: 0.0
+    priority_power: 2.0
+    max_quota_change: 8
+
+algorithm:
+  sync_suite_query_weights: true
+  sync_suite_loss_weights: false
+  suite_query_weights: null
+  suite_loss_weights: null
+
+actor:
+  micro_batch_size: 4

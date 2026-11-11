@@ -25,7 +25,7 @@ candidate as an ancestor, not conflicting releases of the same commit.
 | Teacher-rollout SFT trainer | Native flow matching, finite100-update training, strict resumed optimizer state and exported head/metadata identity |
 | New SFT100 initializer | Screening incomplete:76/80episodes; confirmation and SFT100→MOPD transition probe pending |
 | Portable runtime entrypoints | Previously used node hooks packaged in source; CPU checks pass; fresh target-image EGL/NCCL/model acceptance pending |
-| Adaptive calibration portability | Raw800-episode calibration exists; content-verified relocation to collaborator paths remains to be packaged |
+| Adaptive calibration portability | Raw800-episode calibration exists; export/content-verified relocation tools pass CPU tests; final50/task bundle publication remains pending |
 
 Do not replace the missing acceptance evidence with a partial aggregate, an
 older initializer, or installation success. No new training/evaluation is
@@ -271,3 +271,15 @@ Machine JSON requires `csv_dir` as an absolute, prepared writable directory;
 Actual training-plus-evaluation/evaluation launches preflight CSV write access
 before GPU work. All nine runs should share `csv_dir`. No implicit local CSV
 fallback is used. The two paths can both be on NAS if desired.
+
+## Adaptive handoff interface prepared
+
+`run_experiment --method adaptive` now shares machine JSON, runtime, admitted
+microbatch, post-training evaluation and NAS CSV export with Uniform. Independent
+Adaptive-only release YAMLs protect the fixed Uniform recipes. No Adaptive run
+is added to the collaborator list yet. The owner will tune locally, publish the
+final parameter YAML and portable reference bundle, then push this release branch.
+The collaborator can update the tracking branch and reuse the same machine file.
+[Adaptive workflow](LIBERO_ADAPTIVE.md) records file locations, export/bind checks,
+commands, recovery and update steps. GPU acceptance of the new Adaptive entry
+remains separate from CPU tests and existing historical MOPD evidence.

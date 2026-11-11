@@ -5,6 +5,12 @@ Complete [installation](LIBERO_CLUSTER_SETUP.md), stage the four teachers and
 accepted student, and pass node/student admission before actual experiments.
 These commands do not install packages or automatically queue nine jobs.
 
+For the later owner-tuned Adaptive experiments, use the same machine JSON with
+`run_experiment --method adaptive`; Uniform defaults and existing commands remain
+unchanged. [Adaptive publication and pull workflow](LIBERO_ADAPTIVE.md) explains
+the separate parameter file and automatic content-verified reference binding.
+Those experiments remain outside the current nine-run collaborator assignment.
+
 ## 1. Set machine paths once
 
 Run from the repository root. Copy the tracked example to a private ignored file:

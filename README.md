@@ -13,6 +13,7 @@ student's flow trajectories and teacher supervision.
 | --- | --- |
 | Prepare the collaborator queue, starting with Uniform | [Experiment handoff](LIBERO_HANDOFF.md) |
 | Manually start training/evaluation by R and seed | [Command guide](LIBERO_COMMANDS.md) |
+| Tune Adaptive and publish a later runnable recipe | [Adaptive release workflow](LIBERO_ADAPTIVE.md) |
 | Inspect the current adaptive method and four-arm commands | [Adaptive query protocol](toolkits/libero_gr00t/adaptive_query.md) |
 | Check current setting and acceptance status | [Experiment contract](LIBERO_EXPERIMENTS.md) |
 | Install on the collaborator's approved platform image | [Cluster setup plan](LIBERO_CLUSTER_SETUP.md) |

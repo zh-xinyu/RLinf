@@ -4,6 +4,7 @@
   "spatial_teacher": "/absolute/persistent/path/models/spatial",
   "student": "/absolute/persistent/path/accepted-student-hf",
   "results": "/absolute/persistent/path/results",
+  "teacher_reference_bundle": null,
   "csv_dir": "/absolute/nas/path/libero-mopd-results",
   "gpus": [0, 1, 2, 3],
   "cpus": 32,

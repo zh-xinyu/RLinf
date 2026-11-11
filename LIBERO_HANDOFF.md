@@ -91,6 +91,12 @@ provide a later pinned configuration/handoff. Do not run the retained M2/M3 YAML
 or treat the present controller values as a finalized collaborator recipe.
 Teacher50 calibration and portable reference binding remain separate preparation.
 
+Adaptive now has a prepared manual interface, reference relocation and shared
+evaluation/CSV pipeline. [The Adaptive guide](LIBERO_ADAPTIVE.md) describes how
+the owner tunes an isolated YAML and publishes the final bundle; the collaborator
+then pulls the branch and reuses the same machine JSON/runtime. This preparation
+does not assign Adaptive runs or freeze the current candidate controller.
+
 The short admission run is disposable, uses a fresh output directory and is not
 a main-result run. Its bounded configuration must be reviewed jointly before
 execution; the formal launcher deliberately rejects arbitrary budget overrides.
