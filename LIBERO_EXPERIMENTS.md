@@ -110,12 +110,13 @@ teacher targets for the current student. B/LR are not divided by R. Seeds0/1/2
 are repeats; start with0. Existing YAMLs and launch validation encode this recipe.
 
 Adaptive uses the verified teacher calibration, rho1, epsilon0 and squared
-positive suite SR gaps. Retain the20-round warmup/window,10-round decision
-interval, minimum5episodes/task and quota-change cap6/suite/decision. Uniform
-quotas are16/16/16/16. Query counts follow actual projected quotas; extra suite
-loss coefficients are disabled. Learning progress is diagnostic only. First
-adaptive decision is round21. These controller timing settings remain LIBERO's
-tested values rather than adopting RoboTwin's10/10/5-round settings.
+positive suite SR gaps. The current controller uses warmup=window=interval=10
+physical rounds, a one-episode/task validity check and fixed quota-change cap6
+per suite/decision. Uniform quotas are16/16/16/16. Query counts follow actual
+projected quotas; extra suite loss coefficients are disabled. Learning progress
+is diagnostic only. First adaptive decision is round11. At the minimum quota4,
+round-robin scheduling still supplies at least4episodes/task/window; the validity
+check is not a tunable confidence threshold. Base training parameters stay fixed.
 
 All arms collect6400student trajectories; optimizer compute differs by design.
 Use rollout rounds as the main x-axis, and retain trajectories, actual simulation
@@ -216,8 +217,9 @@ the collaborator image remain pending as listed above. Current runs are stopped.
 
 ## Adaptive-query development on2026-11-11
 
-The new method retains the tested T64/B512/micro2/LR3e-5,100-round recipe and
-20/20/10allocator timing. It changes the priority to squared positive SR gaps
+The initial port retained the tested T64/B512/micro2/LR3e-5,100-round recipe and
+20/20/10allocator timing. The later controller revision below supersedes only
+that timing/coverage choice. It changes the priority to squared positive SR gaps
 and replaces synchronized suite loss coefficients with synchronized query counts.
 411CPU regressions passed;21specifically cover the new method. A100-round
 synthetic donor comparison matched every plan/query allocation. GPU acceptance
@@ -231,3 +233,11 @@ query YAMLs and their dedicated launcher now save every10rounds (R1:10updates;
 R2:20updates), retaining100rounds. Historical formal configurations are unchanged.
 See the adaptive-query guide for seed scheduling and proposed, not yet activated,
 microbatch/controller changes. Independent evaluation is a separate queued job.
+
+## Single-timescale controller revision
+
+Warmup/window/interval are now10/10/10physical rounds. Keep max_quota_change6,
+aligned with the RoboTwin implementation, and use min_task_episodes1solely to
+reject an undefined task SR. No rollout/query/loss equation changed. The numerical
+training settings, save/evaluation grid and pending initializer/GPU gates remain
+unchanged. Stability of policy gains still requires real multi-seed experiments.

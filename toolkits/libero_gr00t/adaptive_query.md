@@ -3,7 +3,8 @@
 Implementation branch: `experiment/libero-gr00t-adaptive-query`, based on the
 candidate snapshot `e5b21cc6`. This aligns the method with RoboTwin while keeping
 LIBERO's tested numerical and interaction settings. It does not copy RoboTwin's
-T32, B256,50-round budget or controller window settings.
+T32, B256 or50-round budget. The controller uses the agreed single10-round
+timescale described below.
 
 ## Method
 
@@ -37,7 +38,7 @@ mapping changed after initial supervision. Refresh draws new observations from
 the full current rollout pool, regenerates current-student flow with new noise,
 and queries the matching teacher at the resulting flow state.
 
-## Preserved LIBERO settings
+## LIBERO training and controller settings
 
 | Setting | Value |
 | --- | --- |
@@ -48,16 +49,27 @@ and queries the matching teacher at the resulting flow state.
 | T / B / microbatch | 64 /512 /2per rank |
 | Optimizer | LR3e-5, AdamW(.9,.95), decay0, clip1 |
 | LR warmup / scheduler | Four optimizer updates, then constant |
-| Allocator warmup/window/interval | 20/20/10physical rounds |
-| Coverage / change cap | Five episodes/task/window; six trajectories/suite/decision |
+| Allocator warmup/window/interval | 10/10/10physical rounds |
+| Coverage / change cap | One episode/task validity check; six trajectories/suite/decision |
 | Main budget / saves | 100physical rounds; save every10rounds |
-| W&B | `FORMAL_libero_gr00t`; default group `T64_gap_query_seed0` |
+| W&B | `FORMAL_libero_gr00t`; default group `T64_gap_query_W10_I10_seed0` |
 
-With four workers and one rollout epoch, minimum quota is4/suite. Over a20-round
-window, this supplies at least80episodes/suite, or eight per task under continuous
-round-robin task scheduling. The existing coverage gate5is retained. First
-adaptive decision is for **round21**, then31/41/51/...; inadequate coverage holds
-the current quota. M3 time weighting and LR warmup are separate from this window.
+Use one physical-round timescale: warmup=window=interval=10. First adaptive
+decision is for **round11**, then21/31/41/...; each window uses ten new completed
+rounds. This intentionally replaces the initially inherited20/20/10controller.
+M3 time weighting and the four-optimizer-update LR warmup are unchanged.
+
+With four workers and one rollout epoch, minimum quota is4/suite. A ten-round
+window therefore contains at least40episodes/suite, or four per task under
+continuous round-robin scheduling. Set min_task_episodes=1as a validity check:
+every task must have an SR denominator. It does not truncate the records used,
+reduce the actual number of episodes, or add a tunable statistical confidence gate.
+Unexpected missing-task coverage still holds the quota and records a diagnostic.
+
+Retain max_quota_change=6as the fixed bound used by the RoboTwin runs. It is not
+mathematically required by the gap law, but prevents abrupt jumps in physical and
+query resource shares. It remains a disclosed controller setting rather than a
+separate sweep. No new EMA, mixing coefficient or demand proxy is introduced.
 
 ## Matrix and entrypoint
 
@@ -78,7 +90,7 @@ After [runtime preparation](../../LIBERO_ENVIRONMENT.md), set model/artifact
 paths and create a plan (this command does not start training):
 
 ```bash
-export OPD_WANDB_GROUP=T64_gap_query_seed0
+export OPD_WANDB_GROUP=T64_gap_query_W10_I10_seed0
 export OPD_WANDB_RUN_NAME=M2_Adaptive-R2_T64_B512_seed0
 export OPD_LIBERO_TEACHER_REFERENCE=/absolute/path/to/verified_teacher_reference.json
 export WANDB_MODE=offline
@@ -148,10 +160,6 @@ The following are recommendations, **not active configuration changes**:
   keeping B512. Select one microbatch for all four arms before formal comparison.
   Native token-length buckets and floating-point accumulation mean mathematical
   equivalence does not imply bitwise-identical training or a guaranteed speedup.
-- Consider allocator warmup/window/interval10/10/5, with min_task_episodes3.
-  At minimum quota4 and window10, each suite supplies40episodes, about4/task;
-  retaining the old coverage gate5 can stall allocation. Current defaults remain
-  the tested20/20/10and gate5 until a controller revision is adopted.
 - Keep Method3 noise_level0.3. It defines the reference local-SDE KL weights;
   ODE rollout and refresh remain deterministic conditional on the sampled initial
   noise. Existing T64 run configurations also used0.3.
@@ -175,3 +183,18 @@ initializer acceptance remain pending.
 The measurement-grid revision passed27targeted CPU regressions (the21new-method
 checks and six historical T64 checks), plus Ruff lint/format and doc/shell checks.
 Loss, microbatch and controller timing are unchanged. No GPU job was launched.
+
+## Controller simplification
+
+The user selected window10and interval10to reduce independent tuning choices.
+The active YAML now also ties allocator warmup to10, sets the task-coverage
+validity check to1, and keeps the donor's max-change6bound. Historical formal
+YAMLs and their20/20/10/gate5settings remain untouched. Synthetic checks establish
+quota/coverage/timing correctness; they do not establish stable policy gains.
+Microbatch remains2pending the separate GPU speed/memory check.
+
+The single-timescale revision passed94targeted CPU regressions. Coverage gates
+1/2/3/4produced identical plans on the fixed40-task layout, confirming that the
+active gate1is a validity check rather than an extra allocation preference.
+Uniform and Adaptive plans match over the first ten physical rounds; the first
+adaptive decision is for round11. No GPU job or model experiment was launched.

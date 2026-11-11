@@ -37,10 +37,10 @@ def make_allocator(**overrides):
     config = {
         "mode": "adaptive",
         "seed": 0,
-        "warmup_rounds": 20,
-        "window_rounds": 20,
+        "warmup_rounds": 10,
+        "window_rounds": 10,
         "interval_rounds": 10,
-        "min_task_episodes": 5,
+        "min_task_episodes": 1,
         "rho": 1.0,
         "epsilon": 0.0,
         "priority_power": 2.0,
@@ -65,7 +65,7 @@ def test_squared_gap_replay_preserves_forty_task_coverage_and_round_timing(all_s
         diagnostics = allocator.last_diagnostics
         if diagnostics["decision"]:
             decisions.append(round_)
-            assert min(diagnostics["task_counts"].values()) >= 5
+            assert min(diagnostics["task_counts"].values()) >= 4
             gaps = diagnostics["gap"]
             total = sum(value**2 for value in gaps.values())
             probabilities = [gaps[s] ** 2 / total if total else 0.25 for s in NAMES]
@@ -90,7 +90,7 @@ def test_squared_gap_replay_preserves_forty_task_coverage_and_round_timing(all_s
                 for row in plan
             ]
         )
-    assert decisions == [21, 31, 41, 51]
+    assert decisions == [11, 21, 31, 41, 51]
     assert allocator.trajectories == 60 * 64
     restored = make_allocator()
     restored.load_state_dict(allocator.state_dict())
@@ -324,6 +324,14 @@ def test_new_recipe_changes_only_method_not_tested_training_parameters(
     assert new.algorithm.sync_suite_query_weights == adaptive
     assert new.algorithm.sync_suite_loss_weights is False
     assert new.algorithm.suite_loss_weights is None
+    control = new.runner.rollout_allocation
+    assert (
+        control.warmup_rounds,
+        control.window_rounds,
+        control.interval_rounds,
+        control.min_task_episodes,
+        control.max_quota_change,
+    ) == (10, 10, 10, 1, 6)
     assert new.runner.max_steps // repeats == 100
     assert new.runner.save_interval // repeats == 10
     forwarded = launcher.query_arguments(["--arm", arm, "--dry-run"])
@@ -337,6 +345,9 @@ def test_new_recipe_changes_only_method_not_tested_training_parameters(
         ("runner", "rollout_allocation", "rho"),
         ("runner", "rollout_allocation", "epsilon"),
         ("runner", "rollout_allocation", "priority_power"),
+        ("runner", "rollout_allocation", "warmup_rounds"),
+        ("runner", "rollout_allocation", "window_rounds"),
+        ("runner", "rollout_allocation", "min_task_episodes"),
         ("algorithm", "sync_suite_loss_weights"),
         ("algorithm", "suite_loss_weights"),
         ("algorithm", "sync_suite_query_weights"),
@@ -380,3 +391,39 @@ def test_validation_rejects_double_weighting(field):
     )
     with pytest.raises(ValueError, match="exclusive"):
         validate_suite_distillation_cfg(cfg)
+
+
+@pytest.mark.parametrize("coverage", [1, 2, 3, 4])
+def test_coverage_gate_does_not_change_valid_fixed_layout_plans(coverage):
+    a = make_allocator(min_task_episodes=coverage)
+    reference = make_allocator(min_task_episodes=1)
+    for round_ in range(1, 51):
+        plan = a.plan()
+        assert plan == reference.plan()
+        assert a.last_diagnostics["reason"] != "insufficient_task_coverage"
+        records = [
+            dict(row, success_once=row["suite"] == NAMES[-1], simulation_steps=17)
+            for row in plan
+        ]
+        a.observe(records)
+        reference.observe(records)
+    assert a.quotas[-1] == 4
+
+
+def test_uniform_and_adaptive_share_first_ten_physical_rounds():
+    adaptive = make_allocator()
+    uniform = make_allocator(mode="uniform")
+    for _ in range(10):
+        plan = adaptive.plan()
+        assert plan == uniform.plan()
+        records = [
+            dict(row, success_once=row["suite"] != NAMES[0], simulation_steps=17)
+            for row in plan
+        ]
+        adaptive.observe(records)
+        uniform.observe(records)
+    adaptive.plan()
+    uniform.plan()
+    assert adaptive.last_diagnostics["decision"]
+    assert adaptive.quotas != uniform.quotas
+    assert max(abs(a - b) for a, b in zip(adaptive.quotas, uniform.quotas)) <= 6
