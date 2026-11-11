@@ -29,6 +29,7 @@ from rlinf.utils.distributed import ScopedTimer
 from rlinf.utils.logging import get_logger
 from rlinf.utils.metric_logger import MetricLogger
 from rlinf.utils.metric_utils import compute_evaluate_metrics, print_metrics_table
+from rlinf.utils.rolling_checkpoint import publish_rolling_checkpoint
 from rlinf.utils.rollout_allocation import RolloutAllocator, load_teacher_reference
 from rlinf.utils.runner_utils import check_progress
 from rlinf.utils.timers import Timer
@@ -256,10 +257,20 @@ class EmbodiedRunner:
                     "Inconsistent runner/allocation checkpoint or changed R."
                 )
             resume_mode = self.cfg.runner.get("resume_mode", "adaptive_round_boundary")
+            weights_only_recovery = resume_mode == "weights_only_round_boundary"
+            if weights_only_recovery:
+                from rlinf.utils.weights_only_recovery import (
+                    validate_weights_only_initialization,
+                )
+
+                validate_weights_only_initialization(
+                    resume_dir, self.cfg.actor.model.model_path, state
+                )
             self.rollout_allocator.load_state_dict(
                 allocation_state, allocation_probe=resume_mode == "allocation_probe"
             )
-            self.actor.load_checkpoint(actor_checkpoint_path).wait()
+            if not weights_only_recovery:
+                self.actor.load_checkpoint(actor_checkpoint_path).wait()
             actor_states = self.actor.restore_opd_update_counters(step).wait()
             self.global_step = step
             self.cumulative_env_steps = state["env_steps"]
@@ -278,7 +289,12 @@ class EmbodiedRunner:
                             self.cfg.runner.get("recovery_interactions", {})
                         ),
                         "exact_replay": False,
-                        "note": "Restores optimizer, scheduler, allocation history and task cursors; rollout proposal RNG restarts.",
+                        "optimizer_moments_restored": not weights_only_recovery,
+                        "note": (
+                            "Weights loaded at model construction; Adam moments and RNG reset; constant LR and update counters advanced without repeating warmup; allocation history and task cursors restored."
+                            if weights_only_recovery
+                            else "Restores optimizer, scheduler, allocation history and task cursors; rollout proposal RNG restarts."
+                        ),
                     },
                     stream,
                     indent=2,
@@ -672,16 +688,20 @@ class EmbodiedRunner:
                     env_handle.wait()
                     self._record_allocation_round()
 
-                # compute advantages and returns.
+                training_kwargs = self._actor_training_kwargs()
+                query_kwargs = {
+                    key: training_kwargs[key]
+                    for key in ("suite_query_weights",)
+                    if key in training_kwargs
+                }
                 with self.timer("cal_adv_and_returns"):
-                    actor_rollout_metrics = (
-                        self.actor.compute_advantages_and_returns().wait()
-                    )
+                    actor_rollout_metrics = self.actor.compute_advantages_and_returns(
+                        **query_kwargs
+                    ).wait()
 
-                # actor training.
                 with self.timer("actor_training"):
                     actor_training_handle: Handle = self.actor.run_training(
-                        **self._actor_training_kwargs()
+                        **training_kwargs
                     )
                     env_bootstrap_handle: Handle | None = None
                     if (
@@ -788,13 +808,19 @@ class EmbodiedRunner:
                 stream.write(json.dumps(row) + "\n")
 
     def _actor_training_kwargs(self) -> dict:
-        """Freeze loss shares from this round's actual integer rollout quotas."""
-        if not self.cfg.algorithm.get("sync_suite_loss_weights", False):
+        """Freeze the actor's task allocation for every update in this round."""
+        sync_queries = self.cfg.algorithm.get("sync_suite_query_weights", False)
+        if not sync_queries and not self.cfg.algorithm.get(
+            "sync_suite_loss_weights", False
+        ):
             return {}
         allocator = self.rollout_allocator
+        quotas = dict(zip(allocator.suites, allocator.quotas))
+        if sync_queries:
+            return {"suite_query_weights": quotas}
+
         from rlinf.algorithms.suite_distillation import normalized_suite_loss_weights
 
-        quotas = dict(zip(allocator.suites, allocator.quotas))
         weights = normalized_suite_loss_weights(quotas, allocator.suites)
         return {"suite_loss_weights": dict(zip(allocator.suites, weights))}
 
@@ -805,6 +831,9 @@ class EmbodiedRunner:
             getattr(self, "cfg", {}).get("runner", {}).get("recovery_interactions", {})
         )
         return {
+            "interaction/recovery_cost_complete": int(
+                recovery.get("cost_complete", True)
+            ),
             "interaction/recovery_simulation_steps": recovery.get(
                 "simulation_steps", 0
             ),
@@ -965,7 +994,20 @@ class EmbodiedRunner:
         )
         actor_save_path = os.path.join(base_output_dir, "actor")
         os.makedirs(actor_save_path, exist_ok=True)
-        self.actor.save_checkpoint(actor_save_path, self.global_step).wait()
+        rolling_recovery = self.cfg.runner.get("rolling_full_checkpoint", False)
+        if rolling_recovery and not self.optimizer_update_steps:
+            raise ValueError("Rolling recovery requires optimizer-update checkpoints.")
+        weights_only = (
+            self.cfg.runner.get("intermediate_weights_only", False)
+            and self.global_step < self.max_steps
+            and not rolling_recovery
+        )
+        if weights_only:
+            self.actor.save_checkpoint(
+                actor_save_path, self.global_step, weights_only=True
+            ).wait()
+        else:
+            self.actor.save_checkpoint(actor_save_path, self.global_step).wait()
         if self.optimizer_update_steps:
             with open(
                 os.path.join(base_output_dir, "runner_state.json"), "w"
@@ -976,6 +1018,8 @@ class EmbodiedRunner:
                         "optimizer_updates": self.global_step,
                         "rollout_count": self.global_step // self.updates_per_rollout,
                         "env_steps": self.cumulative_env_steps,
+                        "weights_only": weights_only,
+                        "rolling_recovery_managed": rolling_recovery,
                     },
                     stream,
                     indent=2,
@@ -986,6 +1030,11 @@ class EmbodiedRunner:
                 os.path.join(base_output_dir, "rollout_allocation_state.json"), "w"
             ) as stream:
                 json.dump(self.rollout_allocator.state_dict(), stream, indent=2)
+        if rolling_recovery:
+            publish_rolling_checkpoint(
+                base_output_dir,
+                require_allocation=getattr(self, "rollout_allocator", None) is not None,
+            )
 
     def set_max_steps(self):
         self.num_steps_per_epoch = 1

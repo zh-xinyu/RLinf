@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "initialization": "new4 Joint-SFT400 fixed-budget cold start",
+  "teacher_repository": "niejunnan25/pi05-robotwin",
+  "teacher_revision": "17ef545270cf26ed81169893b60f845f80ce6557",
+  "files": {
+    "teachers/open_laptop/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "9af20935350989b91b8890402fd1ce9bdb8f0310bdaebbc6b58b82c0d81662ad"
+    },
+    "teachers/open_laptop/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/open_laptop/conversion.json": {
+      "bytes": 990,
+      "sha256": "de80db95af38a0f4eb9ab46978da50f4c3fce4909924cb24a19dc226c09450f5"
+    },
+    "teachers/open_laptop/assets/robotwin/norm_stats.json": {
+      "bytes": 3258,
+      "sha256": "5577560f69fdce6bd8d55a8a29466bdfec0c3f42291e82245a423b786ee05bde"
+    },
+    "teachers/handover_mic/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "47fa9822a00da23c6d869c0fec48a4ef9ee217da530a1ec595e314f0c43c1d55"
+    },
+    "teachers/handover_mic/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/handover_mic/conversion.json": {
+      "bytes": 851,
+      "sha256": "ad7222cfd3e9592d4b0cbdeb98d31556daaa538675a58e3066117ae4793e3d7f"
+    },
+    "teachers/handover_mic/assets/robotwin/norm_stats.json": {
+      "bytes": 3276,
+      "sha256": "91b5137d7b0bf5dcdf4587180c169bda14147d7b34f1e2e9cc57a97c7d389be2"
+    },
+    "teachers/dump_bin_bigbin/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "359ec7d1cbcae1ebbe2b306581f861769a19432a0bc3da5dfe5364abf112b6ea"
+    },
+    "teachers/dump_bin_bigbin/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/dump_bin_bigbin/conversion.json": {
+      "bytes": 1030,
+      "sha256": "a367fa6aa94bb1cf5f25c2eb29bd39d043098e1cef73e88e09662029b2227548"
+    },
+    "teachers/dump_bin_bigbin/assets/robotwin/norm_stats.json": {
+      "bytes": 3342,
+      "sha256": "19910cc2a40cbd5dce27a343fdaecf8fa75b2437da97d893c908fdd1532d8373"
+    },
+    "teachers/stack_bowls_two/model.safetensors": {
+      "bytes": 14467165872,
+      "sha256": "15c14afa815f53d2ec7c332464248c2f9ed09c47e14d6205e5dc62264f55dba7"
+    },
+    "teachers/stack_bowls_two/config.json": {
+      "bytes": 220,
+      "sha256": "bafd63be958f91af4fc9baa191003b5abe3d1bd4bc9392e056b333cb7820e1de"
+    },
+    "teachers/stack_bowls_two/conversion.json": {
+      "bytes": 857,
+      "sha256": "11e2bcb959470337e7a427957698d46752300e961ba8734e2c9480adc1517360"
+    },
+    "teachers/stack_bowls_two/assets/robotwin/norm_stats.json": {
+      "bytes": 3382,
+      "sha256": "7ae95e854e317cc1542db8ba8ba15446ade99ea49c76674ee44f4e33b7384dd5"
+    },
+    "student/actor/model_state_dict/full_weights.pt": {
+      "bytes": 16573945133,
+      "sha256": "d2ef819ae9a7706accaa027edf406a1c2bc1c8f007e8bccbe695e63e4f77ce5a"
+    },
+    "student/metadata.json": {
+      "bytes": 4073,
+      "sha256": "a3d33798ecf72efe76141f9e6087875d88af633c9bd238bb33b7e7cac7a09a81"
+    },
+    "student/initialization_manifest.json": {
+      "bytes": 8177,
+      "sha256": "3ee97b16e418d1db1e846a0dd02992bfba895c09c9f47dd8df5c7bfa784e00f2"
+    },
+    "student/assets/open_laptop/norm_stats.json": {
+      "bytes": 3258,
+      "sha256": "5577560f69fdce6bd8d55a8a29466bdfec0c3f42291e82245a423b786ee05bde"
+    },
+    "student/assets/handover_mic/norm_stats.json": {
+      "bytes": 3276,
+      "sha256": "91b5137d7b0bf5dcdf4587180c169bda14147d7b34f1e2e9cc57a97c7d389be2"
+    },
+    "student/assets/dump_bin_bigbin/norm_stats.json": {
+      "bytes": 3342,
+      "sha256": "19910cc2a40cbd5dce27a343fdaecf8fa75b2437da97d893c908fdd1532d8373"
+    },
+    "student/assets/stack_bowls_two/norm_stats.json": {
+      "bytes": 3382,
+      "sha256": "7ae95e854e317cc1542db8ba8ba15446ade99ea49c76674ee44f4e33b7384dd5"
+    },
+    "openpi-data/big_vision/paligemma_tokenizer.model": {
+      "bytes": 4264023,
+      "sha256": "8986bb4f423f07f8c7f70d0dbe3526fb2316056c17bae71b1ea975e77a168fc6"
+    }
+  }
+}

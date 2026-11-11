@@ -19,7 +19,9 @@ from toolkits.robotwin_mopd.formal.experiment import (
     TASKS,
     evaluation_pool_path,
     read_machine,
+    seed_settings,
     train_command,
+    training_seed,
 )
 
 
@@ -35,7 +37,7 @@ def main() -> None:
     if torch.version.cuda != cuda:
         raise ValueError(f"Expected CUDA wheel {cuda}; got {torch.version.cuda}")
     os.environ["OPD_RUN_DIR"] = str(Path(machine["output_root"]) / "preflight")
-    command = train_command(machine, "m2", 0)
+    command = train_command(machine, "m2", training_seed(machine))
     overrides = command[command.index("4") + 1 :]
     # run.py supplies physical placement at launch; no hardware scheduling here.
     with initialize_config_dir(
@@ -58,10 +60,12 @@ def main() -> None:
     # Conservative upper bound: all training episodes assigned to each task,
     # including every possible native reset retry (0..19).
     max_task_episodes = RECIPE["rounds"] * int(cfg.env.train.total_num_envs)
+    base_seed = seed_settings(training_seed(machine))["runner.rollout_allocation.seed"]
     for task_id, task in enumerate(TASKS):
         training_seeds = set(
             range(
-                42 + task_id * 1000003, 42 + task_id * 1000003 + max_task_episodes + 19
+                base_seed + task_id * 1000003,
+                base_seed + task_id * 1000003 + max_task_episodes + 19,
             )
         )
         evaluation_seeds = {row["scene_seed"] for row in pool["tasks"][task]}
@@ -72,6 +76,8 @@ def main() -> None:
         json.dumps(
             {
                 "status": "CPU_PREFLIGHT_PASS",
+                "training_seed": training_seed(machine),
+                "seed_settings": seed_settings(training_seed(machine)),
                 "gpu_validation": "PENDING",
                 "torch": torch.__version__,
                 "cuda": torch.version.cuda,

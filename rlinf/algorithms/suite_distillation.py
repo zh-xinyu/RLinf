@@ -27,6 +27,39 @@ def normalized_suite_loss_weights(configured: Mapping, names: list[str]) -> list
     return [v / mean for v in values]
 
 
+def suite_query_quotas(
+    configured: Mapping | None, names: list[str], total: int
+) -> list[int]:
+    """Allocate a fixed query budget by largest remainder, preserving coverage.
+
+    The default is the existing equal quota with ties resolved in routing order.
+    Explicit proportions affect sampling only; callers must not also apply suite
+    loss coefficients. Reject budgets that would leave a suite without queries.
+    """
+    if not names or total < len(names):
+        raise ValueError("The query budget must cover every routed teacher.")
+    if configured is None:
+        return [
+            total // len(names) + int(i < total % len(names)) for i in range(len(names))
+        ]
+    try:
+        weights = normalized_suite_loss_weights(configured, names)
+    except ValueError as error:
+        raise ValueError(
+            str(error).replace("suite_loss_weights", "suite_query_weights")
+        ) from error
+    targets = [total * weight / sum(weights) for weight in weights]
+    quotas = [math.floor(value) for value in targets]
+    order = sorted(range(len(names)), key=lambda i: (-(targets[i] - quotas[i]), i))
+    for i in order[: total - sum(quotas)]:
+        quotas[i] += 1
+    if min(quotas) < 1:
+        raise ValueError(
+            "suite_query_weights must leave at least one query per suite per rank."
+        )
+    return quotas
+
+
 def sample_weighted_velocity_loss(
     error: torch.Tensor, mask: torch.Tensor | None, sample_weights: torch.Tensor
 ) -> torch.Tensor:
@@ -107,4 +140,14 @@ def finalize_suite_statistics(
             result[f"actor/velocity_mse/{name}"] = error_sum / count
             if weighted:
                 result[f"actor/analytic_kl/{name}"] = weighted_sum / count
+    # A macro metric stays task-equal when query proportions change. Do not
+    # report a partial macro average when any suite has no valid observations.
+    if all(f"actor/velocity_mse/{name}" in result for name in names) and names:
+        result["actor/macro_velocity_mse"] = sum(
+            result[f"actor/velocity_mse/{name}"] for name in names
+        ) / len(names)
+        if weighted:
+            result["actor/macro_analytic_kl"] = sum(
+                result[f"actor/analytic_kl/{name}"] for name in names
+            ) / len(names)
     return result

@@ -20,12 +20,13 @@ from omegaconf import OmegaConf
 
 from toolkits.robocasa_mopd.owned_ray import (
     OWNER_KEY,
-    require_free_ray,
     stop_owned,
     wait_for_gpus,
 )
 
 REPO = Path(__file__).resolve().parents[2]
+RAY_PORT = int(os.environ.get("OPD_CONTROL_RAY_PORT", "6379"))
+DASHBOARD_PORT = int(os.environ.get("OPD_CONTROL_DASHBOARD_PORT", "8265"))
 
 
 def run_command(command, log, env):
@@ -85,7 +86,7 @@ def main():
         EMBODIED_PATH=str(REPO / "examples/embodiment"),
         PYTHONNOUSERSITE="1",
         RLINF_NODE_RANK="0",
-        RAY_ADDRESS="127.0.0.1:6379",
+        RAY_ADDRESS=f"127.0.0.1:{RAY_PORT}",
         RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES="1",
     )
     env.setdefault("USE_TF", "0")
@@ -132,10 +133,15 @@ def main():
     ):
         cfg = compose(config_name="robotwin4_mopd_pi05", overrides=overrides)
     OmegaConf.resolve(cfg)
-    from rlinf.config import validate_flow_refresh_cfg, validate_rollout_allocation_cfg
+    from rlinf.config import (
+        validate_flow_refresh_cfg,
+        validate_rollout_allocation_cfg,
+        validate_suite_distillation_cfg,
+    )
 
     validate_flow_refresh_cfg(cfg)
     validate_rollout_allocation_cfg(cfg)
+    validate_suite_distillation_cfg(cfg)
     command = [
         sys.executable,
         "-u",
@@ -152,9 +158,13 @@ def main():
     runtime_profile = validate_robotwin4_runtime()
     if output.exists():
         raise FileExistsError(output)
-    with open(f"/tmp/opd-single-job-{os.getuid()}.lock", "w") as lock:
+    with open(f"/tmp/opd-robotwin-{os.getuid()}-{RAY_PORT}.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        require_free_ray()
+        for port in (RAY_PORT, DASHBOARD_PORT):
+            with socket.socket() as connection:
+                connection.settimeout(1)
+                if connection.connect_ex(("127.0.0.1", port)) == 0:
+                    raise RuntimeError(f"Requested Ray port {port} is occupied")
         wait_for_gpus(args.num_gpus, env)
         output.mkdir(parents=True)
         (output / "runtime_profile.json").write_text(
@@ -174,7 +184,7 @@ def main():
                 text=True,
             ).splitlines()
             for path in paths:
-                if path.startswith(
+                if path == "toolkits/__init__.py" or path.startswith(
                     (
                         "rlinf/",
                         "toolkits/robotwin",
@@ -206,12 +216,12 @@ def main():
             str(runtime / "venv/bin/ray"),
             "start",
             "--head",
-            "--port=6379",
+            f"--port={RAY_PORT}",
             f"--num-cpus={num_cpus}",
             f"--num-gpus={args.num_gpus}",
             "--include-dashboard=true",
             "--dashboard-host=127.0.0.1",
-            "--dashboard-port=8265",
+            f"--dashboard-port={DASHBOARD_PORT}",
             f"--temp-dir={tempfile.mkdtemp(prefix='robotwin-ray-', dir='/tmp')}",
         ]
 

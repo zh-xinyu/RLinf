@@ -1,0 +1,15 @@
+{
+  "runtime_root": "/absolute/path/robotwin-runtime",
+  "resource_root": "/absolute/path/robotwin-new4-resources",
+  "output_root": "/absolute/path/robotwin-new4-collaborator",
+  "pace_reference_root": "/absolute/path/PACE",
+  "profile": "blackwell-cu128-candidate",
+  "wandb_mode": "online",
+  "wandb_entity": "",
+  "actor_micro_batch_size": 16,
+  "ray_port": 6451,
+  "dashboard_port": 8331,
+  "num_cpus": 32,
+  "node_label": "collaborator",
+  "minimum_gpu_free_mib": 60000
+}

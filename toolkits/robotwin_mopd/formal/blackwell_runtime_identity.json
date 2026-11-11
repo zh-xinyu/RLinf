@@ -1,0 +1,18 @@
+{
+  "profile": "pi05-four-task",
+  "sapien_version": "3.0.0b1",
+  "sapien_distribution_version": "3.0.0b1",
+  "sapien_module_sha256": "f883d253d8d29ee47cc46917c39d2ac4c3832cb8908eb02d1b836ec9cf20fcc4",
+  "robotwin_revision": "dca9ec682688821c42944eacd7f5dd9bfb15396f",
+  "robotwin_source_sha256": {
+    "envs/_base_task.py": "3ec50617672b3658122b0644bbda1afaec4a0c2d47c9a8b6b61b48e0bad303fd",
+    "envs/robot/robot.py": "1f4d0284eaf47fe5de2c0ba98a173b78beb83f2f2cc43409d37072a4774df4c8",
+    "envs/camera/camera.py": "49ff2005d14749caa5fd9698d35f6f937664bde89cfdf0ab93675204c85bbf33",
+    "task_config/demo_clean.yml": "865af205a90c3e7ffe4b4dd3db06955609f1b58c76d997e18894d8195a361566",
+    "task_config/_camera_config.yml": "dc80a40552e0fad25d58cf0141302ceba66d22409b5091bed235ad2f10cbce7f"
+  },
+  "sapien_content_fingerprint": {
+    "scheme": "sapien-installed-payload-sha256-v1",
+    "sha256": "996d35b86af04ca176cb207baab5ea3652611076c5ccd509dc3dabdd3a120cfe"
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "schema_version": 2,
+  "rounds": 50,
+  "save_rounds": [
+    5,
+    10,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50
+  ],
+  "eval_episodes_per_task": 100,
+  "initialization": "Joint-SFT400 new4 fixed-budget cold start",
+  "tasks": [
+    "open_laptop",
+    "handover_mic",
+    "dump_bin_bigbin",
+    "stack_bowls_two"
+  ],
+  "common_overrides": [
+    "actor.fsdp_config.enable_gradient_accumulation=false",
+    "env.train.total_num_envs=32",
+    "actor.optim.lr=1e-5",
+    "actor.optim.value_lr=1e-5",
+    "actor.optim.lr_warmup_steps=4",
+    "actor.optim.lr_scheduler=constant",
+    "+actor.model.openpi.nft_full_horizon=true",
+    "actor.model.openpi.nft_joint_forward=true",
+    "actor.cast_trainable_params_to_fp32=true",
+    "actor.model.require_fp32_trainable_params=true",
+    "actor.fsdp_config.mixed_precision.param_dtype=null",
+    "actor.fsdp_config.mixed_precision.reduce_dtype=null",
+    "actor.fsdp_config.mixed_precision.buffer_dtype=null",
+    "actor.fsdp_config.amp_autocast.enabled=true",
+    "actor.fsdp_config.amp_autocast.precision=bf16",
+    "runner.resume_dir=null",
+    "runner.ckpt_path=null",
+    "algorithm.suite_balanced_sampling=true",
+    "runner.val_check_interval=-1",
+    "+algorithm.log_cuda_memory=true",
+    "actor.fsdp_config.limit_all_gathers=true",
+    "algorithm.sync_suite_loss_weights=false",
+    "runner.rollout_allocation.enabled=true",
+    "runner.rollout_allocation.rho=1.0",
+    "runner.rollout_allocation.epsilon=0.0",
+    "+runner.rollout_allocation.priority_power=2.0",
+    "runner.rollout_allocation.warmup_rounds=10",
+    "runner.rollout_allocation.window_rounds=10",
+    "runner.rollout_allocation.interval_rounds=5",
+    "runner.rollout_allocation.min_task_episodes=40",
+    "runner.rollout_allocation.max_quota_change=6",
+    "+actor.cuda_cache_preallocate_gib=0",
+    "+actor.cuda_cache_retention_gib=0",
+    "+runner.intermediate_weights_only=true",
+    "+runner.rolling_full_checkpoint=true",
+    "runner.logger.project_name=FORMAL_robotwin_pi05_NEW"
+  ],
+  "methods": {
+    "uniform_r1": {
+      "reuse": 1,
+      "adaptive": false
+    },
+    "uniform_r2": {
+      "reuse": 2,
+      "adaptive": false
+    },
+    "adaptive_r2": {
+      "reuse": 2,
+      "adaptive": true
+    },
+    "adaptive_r1": {
+      "reuse": 1,
+      "adaptive": true
+    },
+    "uniform_r4": {
+      "reuse": 4,
+      "adaptive": false
+    },
+    "adaptive_r4": {
+      "reuse": 4,
+      "adaptive": true
+    }
+  },
+  "task_horizons": {
+    "open_laptop": 700,
+    "handover_mic": 600,
+    "dump_bin_bigbin": 600,
+    "stack_bowls_two": 900
+  },
+  "global_batch_size": 256,
+  "default_micro_batch_size": 16,
+  "initialization_id": "new4_sft400",
+  "eval_rounds": [
+    10,
+    20,
+    30,
+    40,
+    50
+  ],
+  "jobs": [
+    {
+      "method": "uniform_r2",
+      "seed": 2
+    },
+    {
+      "method": "adaptive_r2",
+      "seed": 2
+    },
+    {
+      "method": "uniform_r1",
+      "seed": 2
+    },
+    {
+      "method": "adaptive_r1",
+      "seed": 2
+    },
+    {
+      "method": "uniform_r4",
+      "seed": 1
+    },
+    {
+      "method": "adaptive_r4",
+      "seed": 1
+    },
+    {
+      "method": "uniform_r4",
+      "seed": 2
+    },
+    {
+      "method": "adaptive_r4",
+      "seed": 2
+    }
+  ]
+}

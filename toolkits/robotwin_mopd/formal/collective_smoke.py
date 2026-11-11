@@ -88,6 +88,29 @@ def main() -> None:
             optimizer.state_dict(), expected_optimizer, rtol=0, atol=0
         )
         assert scheduler.state_dict() == expected_scheduler
+        # Real restarts construct an optimizer with no moments yet. Exercise
+        # that case too; restoring into an already-used optimizer is weaker.
+        fresh = FSDP(
+            torch.nn.Sequential(
+                torch.nn.Linear(64, 128), torch.nn.GELU(), torch.nn.Linear(128, 64)
+            ).cuda(),
+            device_id=rank,
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+        )
+        fresh_optimizer = torch.optim.AdamW(fresh.parameters(), lr=1e-5)
+        fresh_scheduler = torch.optim.lr_scheduler.StepLR(
+            fresh_optimizer, step_size=1, gamma=0.9
+        )
+        assert not fresh_optimizer.state
+        FSDPStrategy.load_checkpoint(
+            fresh, fresh_optimizer, fresh_scheduler, checkpoint
+        )
+        for actual, expected in zip(fresh.parameters(), expected_parameters):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        torch.testing.assert_close(
+            fresh_optimizer.state_dict(), expected_optimizer, rtol=0, atol=0
+        )
+        assert fresh_scheduler.state_dict() == expected_scheduler
         runtime_nccl = ctypes.c_int()
         assert (
             ctypes.CDLL("libnccl.so.2").ncclGetVersion(ctypes.byref(runtime_nccl)) == 0
@@ -102,6 +125,7 @@ def main() -> None:
             "max_allocated_bytes": torch.cuda.max_memory_allocated(rank),
             "max_reserved_bytes": torch.cuda.max_memory_reserved(rank),
             "status": "PASS",
+            "fresh_optimizer_restore": "PASS",
             "scope": "tiny FSDP, 4MiB scatter, production DCP/full-weight save and exact model/Adam/scheduler reload; not full VLA coverage",
         }
         (args.output / f"rank{rank}.json").write_text(

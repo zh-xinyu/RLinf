@@ -4,7 +4,8 @@
   "output_root": "/absolute/path/robotwin-formal-results",
   "pace_reference_root": "/absolute/path/PACE",
   "profile": "blackwell-cu128-candidate",
-  "wandb_mode": "disabled",
+  "wandb_mode": "online",
   "wandb_entity": "",
-  "actor_micro_batch_size": 16
+  "actor_micro_batch_size": 16,
+  "training_seed": 1
 }

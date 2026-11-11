@@ -399,16 +399,20 @@ class FSDPModelManager:
             self.model, self.optimizer, self.lr_scheduler, load_path
         )
 
-    def save_checkpoint(self, save_path: str, step: int = 0) -> None:
+    def save_checkpoint(
+        self, save_path: str, step: int = 0, weights_only: bool = False
+    ) -> None:
         """
         Save checkpoint to local path.
         Every rank will save its own model and optim shard.
 
         Args:
-            save_path: the directory to save checkpoint.
+            save_path: The directory in which to save the checkpoint.
+            step: Current optimizer step.
+            weights_only: Export model weights for evaluation.
         """
         restore_weight_offload = self.is_weight_offloaded
-        restore_optimizer_offload = self.is_optimizer_offloaded
+        restore_optimizer_offload = self.is_optimizer_offloaded and not weights_only
 
         if restore_weight_offload:
             self.load_param_and_grad(self.device)
@@ -420,9 +424,9 @@ class FSDPModelManager:
             self.optimizer,
             self.lr_scheduler,
             save_path,
-            save_full_model_weights=self._cfg.fsdp_config.get(
-                "save_full_model_weights", True
-            ),
+            save_full_model_weights=weights_only
+            or self._cfg.fsdp_config.get("save_full_model_weights", True),
+            weights_only=weights_only,
         )
 
         if restore_weight_offload:

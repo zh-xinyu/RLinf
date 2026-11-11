@@ -47,9 +47,9 @@ for task in ("adjust_bottle", "handover_mic", "place_container_plate", "stack_bo
     if json.loads((output / f"smoke/teachers/{task}.json").read_text())["completed_episodes"] != 2:
         raise SystemExit("Teacher smoke incomplete")
 PY
-python3 "$entry" --machine "$1" eval teachers
-python3 "$entry" --machine "$1" eval student
-for method in m0 m1 m2 m3; do
+# Shared full teacher/student references are coordinated separately; do not
+# duplicate them for every training seed. Teacher deployment smoke is required.
+for method in m0 m2 m1 m3; do
     python3 "$entry" --machine "$1" train "$method"
     python3 "$entry" --machine "$1" eval "$method"
 done

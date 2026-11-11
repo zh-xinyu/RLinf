@@ -51,6 +51,7 @@ from rlinf.algorithms.suite_distillation import (
     finalize_suite_statistics,
     group_sample_indices,
     normalized_suite_loss_weights,
+    suite_query_quotas,
 )
 from rlinf.algorithms.utils import (
     kl_penalty,
@@ -1373,10 +1374,16 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         return rollout_batch
 
     @Worker.timer("actor/compute_adv")
-    def compute_advantages_and_returns(self) -> dict[str, torch.Tensor]:
+    def compute_advantages_and_returns(
+        self, suite_query_weights: dict[str, int] | None = None
+    ) -> dict[str, torch.Tensor]:
         """
         Compute the advantages and returns.
         """
+        sync_queries = self.cfg.algorithm.get("sync_suite_query_weights", False)
+        if sync_queries != (suite_query_weights is not None):
+            raise ValueError("Synchronized query weights must be supplied every round.")
+        self._round_suite_query_weights = suite_query_weights
         if self.cfg.algorithm.loss_type in VELOCITY_DISTILL_LOSS_TYPES:
             # Velocity distillation (Method 1) and analytic local KL (Method 3 /
             # M3-Hybrid) are supervised: no reward / advantage / GAE. Only the frozen
@@ -1615,14 +1622,17 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
     def _suite_balanced_sample(
         self, flat_batch_size: int, time_dim: int, batch_dim: int
     ) -> Optional[torch.Tensor]:
-        """Draw a suite-balanced subset of the flat rollout, or None to use all of it.
+        """Draw a stratified subset of the flat rollout, or None to use all of it.
 
         Enabled by ``algorithm.suite_balanced_sampling``. Every task suite then contributes
-        the same number of samples to the update, so each routed teacher gets the same share
+        the same number of samples by default, so each routed teacher gets the same share
         of the gradient regardless of how many transitions its tasks happened to produce.
         Without it the share is set by episode length: RoboCasa's composite horizons are
         ~3x the atomic ones, so the atomic teacher would carry ~1/8 of the weight rather
         than 1/3.
+
+        Optional ``suite_query_weights`` replaces equal quotas with explicit
+        proportions while retaining the same total batch and per-rank coverage.
 
         Drawn without replacement where a suite's pool covers its quota, and with
         replacement only for the shortfall. A shortfall on the short-horizon suite is the
@@ -1683,13 +1693,21 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         g = torch.Generator()
         g.manual_seed(self.cfg.actor.seed + self._rank + self._sample_draw_count * 7919)
 
+        query_weights = self.cfg.algorithm.get("suite_query_weights", None)
+        if self.cfg.algorithm.get("sync_suite_query_weights", False):
+            query_weights = self._round_suite_query_weights
+        if query_weights is not None and len(suites) != len(names):
+            raise ValueError(
+                "Query allocation requires every configured teacher in the rollout."
+            )
+        quotas = suite_query_quotas(query_weights, [names[s] for s in suites], target)
         chosen, drawn, distinct = [], {}, {}
         for i, suite in enumerate(suites):
             pool = torch.nonzero(
                 (teacher_ids == suite) & valid, as_tuple=False
             ).reshape(-1)
             # Spread the remainder over the first suites rather than dropping it.
-            quota = target // len(suites) + (1 if i < target % len(suites) else 0)
+            quota = quotas[i]
             assert pool.numel() > 0, (
                 f"suite {self._teacher_names()[suite]!r} produced no valid transitions on "
                 f"rank {self._rank}. The quota is drawn per rank, so every rank's envs must "
@@ -1711,7 +1729,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # Shuffle so a micro-batch is not a single suite.
         idx = idx[torch.randperm(idx.numel(), generator=g)]
         self.log_info(
-            f"Suite-balanced sample: drawn {drawn}, distinct {distinct}, "
+            f"Suite-stratified sample: drawn {drawn}, distinct {distinct}, "
             f"total {idx.numel()} of {int(valid.sum())} valid."
         )
         return idx
@@ -2290,12 +2308,18 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
 
     @Worker.timer("run_training")
     def run_training(
-        self, suite_loss_weights: dict[str, float] | None = None
+        self,
+        suite_loss_weights: dict[str, float] | None = None,
+        suite_query_weights: dict[str, int] | None = None,
     ) -> dict[str, float]:
         """Train once, or refresh flow between updates on the latest observation pool."""
         sync_weights = self.cfg.algorithm.get("sync_suite_loss_weights", False)
         if sync_weights != (suite_loss_weights is not None):
             raise ValueError("Synchronized suite weights must be supplied every round.")
+        sync_queries = self.cfg.algorithm.get("sync_suite_query_weights", False)
+        if sync_queries != (suite_query_weights is not None):
+            raise ValueError("Synchronized query weights must be supplied every round.")
+        self._round_suite_query_weights = suite_query_weights
         self._round_suite_loss_weights = None
         if suite_loss_weights is not None:
             names = self._teacher_names()
@@ -2814,13 +2838,32 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         append_to_dict(metrics, metrics_data)
 
     def restore_opd_update_counters(self, expected_updates: int) -> dict:
-        """Reconcile actor counters with a loaded adaptive-round DCP checkpoint."""
+        """Reconcile actor counters with an explicitly selected recovery mode."""
         if self.cfg.runner.get("resume_mode") not in {
             "adaptive_round_boundary",
             "allocation_probe",
+            "weights_only_round_boundary",
         }:
             raise ValueError("Explicit round-boundary resume mode required.")
-        if self.lr_scheduler.last_epoch != expected_updates or not self.optimizer.state:
+        weights_only = (
+            self.cfg.runner.get("resume_mode") == "weights_only_round_boundary"
+        )
+        if weights_only:
+            from rlinf.utils.weights_only_recovery import (
+                restore_fresh_optimizer_schedule,
+            )
+
+            if self.cfg.actor.optim.get("lr_scheduler", "constant") != "constant":
+                raise ValueError("Weights-only recovery requires constant LR.")
+            restore_fresh_optimizer_schedule(
+                self.optimizer,
+                self.lr_scheduler,
+                expected_updates,
+                int(self.cfg.actor.optim.lr_warmup_steps),
+            )
+        elif (
+            self.lr_scheduler.last_epoch != expected_updates or not self.optimizer.state
+        ):
             raise ValueError(
                 "Checkpoint optimizer/scheduler state is missing or mismatched."
             )
@@ -2834,6 +2877,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             "sample_draw_count": self._sample_draw_count,
             "lr": self.optimizer.param_groups[0]["lr"],
             "optimizer_state_entries": len(self.optimizer.state),
+            "optimizer_moments_restored": not weights_only,
         }
         self.log_info(f"Restored OPD training state: {result}")
         if self.enable_offload:

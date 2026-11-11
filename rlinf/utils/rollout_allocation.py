@@ -98,14 +98,18 @@ class RolloutAllocator:
             )
             if not isinstance(value, int) or isinstance(value, bool) or value < 1:
                 raise ValueError(f"{key} must be a positive integer.")
-        if int(self.config.get("warmup_rounds", 20)) < int(
-            self.config.get("window_rounds", 20)
-        ):
+        warmup = self.config.get("warmup_rounds", 20)
+        if isinstance(warmup, bool) or not isinstance(warmup, int) or warmup < 0:
+            raise ValueError("Allocation warmup must be a nonnegative integer.")
+        if self.mode == "adaptive" and warmup < self.window_rounds:
             raise ValueError("Allocation warmup must cover the success window.")
         rho = float(self.config.get("rho", 0.5))
         epsilon = float(self.config.get("epsilon", 0.01))
-        if not 0 <= rho <= 1 or not math.isfinite(epsilon) or epsilon <= 0:
+        self.priority_power = float(self.config.get("priority_power", 1.0))
+        if not 0 <= rho <= 1 or not math.isfinite(epsilon) or epsilon < 0:
             raise ValueError("Invalid allocation rho/epsilon.")
+        if not math.isfinite(self.priority_power) or self.priority_power <= 0:
+            raise ValueError("Allocation priority_power must be finite and positive.")
         if self.mode == "adaptive" and self.demand_signal == "sr_gap":
             if reference is None or set(reference) != set(self.suites):
                 raise ValueError(
@@ -197,11 +201,17 @@ class RolloutAllocator:
             float(self.config.get("rho", 0.5)),
             float(self.config.get("epsilon", 0.01)),
         )
-        normalizer = sum(gap.values()) + len(self.suites) * eps
-        probabilities = [
-            (1 - rho) / len(self.suites) + rho * (gap[s] + eps) / normalizer
-            for s in self.suites
-        ]
+        priorities = [(gap[s] + eps) ** self.priority_power for s in self.suites]
+        normalizer = sum(priorities)
+        uniform = 1.0 / len(self.suites)
+        probabilities = (
+            [
+                (1 - rho) * uniform + rho * priority / normalizer
+                for priority in priorities
+            ]
+            if normalizer
+            else [uniform] * len(self.suites)
+        )
         previous_quotas = self.quotas.copy()
         self.quotas = bounded_quotas(
             probabilities,
