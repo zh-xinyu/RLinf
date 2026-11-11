@@ -9,6 +9,10 @@ adaptive rollout allocation with synchronized query counts and decoupled
 flow refresh, which reuses physical observations while refreshing the current
 student's flow trajectories and teacher supervision.
 
+For collaborators, start with **[LIBERO_HANDOFF.md](LIBERO_HANDOFF.md)**. It contains
+the assigned matrix, machine configuration, launch commands and required results.
+The installation guide is needed once; the other pages below are references.
+
 | Purpose | Entry |
 | --- | --- |
 | Prepare the collaborator queue, starting with Uniform | [Experiment handoff](LIBERO_HANDOFF.md) |
