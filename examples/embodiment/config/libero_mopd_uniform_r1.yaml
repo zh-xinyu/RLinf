@@ -8,3 +8,6 @@ runner:
     experiment_name: libero_uniform
     wandb_group: ${oc.env:OPD_WANDB_GROUP,T64_uniform}
     wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,Uniform-R1_T64_B512}
+
+actor:
+  micro_batch_size: 4

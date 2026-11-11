@@ -20,6 +20,12 @@ def uniform_arguments(argv: list[str]) -> list[str]:
     parser.add_argument(
         "--reuse-updates", type=int, choices=REUSE_UPDATES, required=True
     )
+    parser.add_argument(
+        "--microbatch-size",
+        type=int,
+        choices=(2, 4, 8),
+        help="Per-rank training microbatch; omit for YAML default4, freeze after node acceptance",
+    )
     selected, remaining = parser.parse_known_args(argv)
     # Prevent a forwarded arm from replacing the uniform control selection.
     if "--arm" in options:
@@ -31,6 +37,8 @@ def uniform_arguments(argv: list[str]) -> list[str]:
     forwarded[forwarded.index("--config-name") + 1] = f"libero_mopd_uniform_r{repeats}"
     forwarded[forwarded.index("--updates") + 1] = str(100 * repeats)
     forwarded[forwarded.index("--save-every-updates") + 1] = str(10 * repeats)
+    if selected.microbatch_size is not None:
+        forwarded += ["--native-microbatch-size", str(selected.microbatch_size)]
     return forwarded
 
 

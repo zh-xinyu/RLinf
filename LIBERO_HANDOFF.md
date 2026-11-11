@@ -11,6 +11,15 @@ queue, not a claim that the target cluster has already been validated.
 Use branch `release/libero-gr00t` and record its agreed commit.
 Do not use the RoboCasa release or the historical LIBERO formal launcher.
 
+| Branch | Purpose |
+| --- | --- |
+| `release/libero-gr00t` | Current collaborator source: Uniform-R1/R2/R4 x three seeds; retained Adaptive implementation |
+| `release/libero-gr00t-candidate` at `e5b21cc6` | Older locally retained source/environment snapshot, before the query-method port and Uniform-R4 release; not this handoff |
+
+The current release descends from that candidate; it does not overwrite it. Only
+`release/libero-gr00t` is the current published collaborator branch. Pin the
+commit in `source_receipt.json`, rather than selecting a branch by a similar name.
+
 ```bash
 git clone --branch release/libero-gr00t \
   https://github.com/zh-xinyu/RLinf.git libero-mopd
@@ -103,7 +112,7 @@ formal queue and agree on one replacement initialization for every arm.
 | Execution length / horizon | K=5/5/5/10; horizons 240/240/320/480 |
 | Flow / loss | Four ODE steps, full 16x32 latent; M3 `analytic_local_kl`, noise level 0.3 |
 | Layout / collection | One node, four ranks, 16 env slots/rank; T64 trajectories/round |
-| Training batch | Global B512, microbatch 2 per rank |
+| Training batch | Global B512, microbatch 4 per rank by default; test 8 at admission |
 | Optimizer | LR 3e-5, AdamW (.9,.95), decay 0, clip 1 |
 | LR schedule | Warmup 4 optimizer updates, then constant |
 | Save / independent evaluation | Every 10 physical rollout rounds through 100 |
@@ -115,8 +124,9 @@ B or LR by R. Warmup remains four optimizer updates for every run.
 The formal config files are tracked under
 `examples/embodiment/config/libero_mopd_uniform_r{1,2,4}.yaml`.
 No learning-parameter sweep is part of the first queue. Keep native B1 inference;
-microbatch increases need a separate acceptance check and must be consistent
-across compared runs.
+microbatch selection is an admission step and must be consistent across all nine
+runs. The common Adaptive runtime supports it, but Adaptive numerical configs
+remain internal until the owner supplies the later recipe.
 
 ## 4. Create a Uniform plan, then launch
 
@@ -138,10 +148,11 @@ source "$LIBERO_RUNTIME/libero_env.sh"
 export WANDB_MODE=offline
 export LIBERO_TRAIN_SEED=0
 export LIBERO_REUSE=1
+export LIBERO_MICROBATCH=4
 export OPD_WANDB_GROUP=T64_uniform_seed${LIBERO_TRAIN_SEED}
 export OPD_WANDB_RUN_NAME=Uniform-R${LIBERO_REUSE}_T64_B512_seed${LIBERO_TRAIN_SEED}
 
-LIBERO_COMMON=(--python "$LIBERO_PYTHON"
+LIBERO_COMMON=(--microbatch-size "$LIBERO_MICROBATCH" --python "$LIBERO_PYTHON"
   --models "$LIBERO_MODELS" --student "$LIBERO_STUDENT"
   --spatial-teacher "$LIBERO_SPATIAL" --gpus 0 1 2 3 --cpus 32
   --timeout-seconds 604800
@@ -176,9 +187,25 @@ for example, the labels are `T64_uniform_seed0` and
 `Uniform-R2_T64_B512_seed0`. The complete grid is in `experiment_list.csv`.
 
 
-These cache settings carry the existing shared-node operational choice. Validate
-them against target memory during admission; any operational change must be
-recorded and shared across arms. W&B project is `FORMAL_libero_gr00t`; online
+For the exclusive collaborator allocation, start node acceptance at **microbatch
+4/card**, then test **8/card**. Use the same global B512, chosen samples, M3 loss,
+learning rate and optimizer cadence. The launcher accepts `--microbatch-size
+2/4/8`; the default YAML is 4. Select one value before all nine formal runs, record
+it in the result/config receipts and use that value for every R and seed. Changing
+microbatch during a resumed run is not the prescribed protocol.
+
+Measure complete first-teacher query, R4 flow-refresh supervision and student
+forward/backward peaks, plus checkpoint save/resume, on all four GPUs. Warm-up
+alone is insufficient. Choose 8 only if the full sequence fits with operating
+headroom and improves update wall time. At B512/four ranks the nominal gradient
+accumulation is 32 slots/rank for micro4, 16 for micro8; actual native text buckets
+can need extra masked slots, so speedup is measured, not assumed. The mathematical
+per-query objective is preserved; BF16 accumulation is not bitwise identical.
+Rollout inference stays native B1 and independent evaluation stays unchanged.
+
+These allocator-cache settings retain the existing operational choice and need
+admission on the actual GPU. Keep the admitted settings identical across runs.
+W&B project is `FORMAL_libero_gr00t`; online
 logging is optional. Use your own account/team or retain offline/local logs.
 Set both run name and group explicitly when later changing the training seed.
 

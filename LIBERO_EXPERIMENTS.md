@@ -12,7 +12,11 @@ candidate snapshot `e5b21cc6`. The source-freeze candidate remains available as
 `release/libero-gr00t-candidate`. Use the [current method/commands](toolkits/libero_gr00t/adaptive_query.md)
 for squared-gap rollout/query allocation. Historical formal YAMLs/launchers are
 retained separately. Share a committed snapshot with its explicit commit ID.
-The root RoboCasa workspace is separate.
+The root RoboCasa workspace is separate. The older local
+`release/libero-gr00t-candidate` branch at `e5b21cc6` preserves the pre-query
+snapshot; it is not the collaborator branch. These are distinct refs with the
+candidate as an ancestor, not conflicting releases of the same commit.
+
 
 | Component | Evidence / remaining gate |
 | --- | --- |
@@ -107,7 +111,8 @@ fresh optimizers. Adaptive source remains available, but its experiments are
 later pinned handoff. The retained M2/M3 configs are internal candidates.
 
 Shared: one node/four ranks; T64 trajectories/round, 16 env slots/rank, B512,
-micro2/rank, LR3e-5, four optimizer-update warmup steps then constant,
+micro4/rank by default (test micro8 during node admission), LR3e-5, four
+optimizer-update warmup steps then constant,
 AdamW(.9,.95), decay0, clip1. Every update uses 128 examples/suite, with the
 unchanged M3 time weights and execution prefixes. Refresh draws observations
 from the full current rollout pool, regenerates current-student flow with fresh
@@ -224,3 +229,14 @@ earlier four-arm seed-0-first allocation handoff. Historical development and
 measurement-grid notes above describe their then-current internal candidate
 matrix. Adaptive implementation remains on this release branch for later owner
 tuning; those experiments are not part of the current collaborator assignment.
+
+## Exclusive-node microbatch admission
+
+Uniform release YAMLs now default to microbatch 4/card; the earlier tested
+microbatch 2 remains part of historical evidence. The Uniform launcher permits
+an explicit `--microbatch-size 2/4/8` admission choice. Test 8 on the actual
+exclusive node through first supervision, R4 refresh/backward and save/resume;
+freeze one admitted value for all nine runs. Keep B512/LR/optimizer/evaluation
+unchanged. No micro4/8 target-cluster GPU evidence is claimed by the CPU checks.
+The retained Adaptive YAMLs are still owner-tuning candidates; align their final
+microbatch with the Uniform controls when preparing the later handoff.
