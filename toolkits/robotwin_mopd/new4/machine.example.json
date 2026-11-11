@@ -11,5 +11,8 @@
   "dashboard_port": 8331,
   "num_cpus": 32,
   "node_label": "collaborator",
-  "minimum_gpu_free_mib": 60000
+  "minimum_gpu_free_mib": 60000,
+  "evaluation_cpus_per_task": 8,
+  "evaluation_gpu_memory_fraction": 0.32,
+  "evaluation_minimum_gpu_free_mib": 30000
 }

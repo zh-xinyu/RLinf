@@ -95,10 +95,15 @@
   "default_micro_batch_size": 16,
   "initialization_id": "new4_sft400",
   "eval_rounds": [
+    5,
     10,
+    15,
     20,
+    25,
     30,
+    35,
     40,
+    45,
     50
   ],
   "jobs": [
@@ -134,5 +139,6 @@
       "method": "adaptive_r4",
       "seed": 2
     }
-  ]
+  ],
+  "evaluation_mode": "after_each_training"
 }

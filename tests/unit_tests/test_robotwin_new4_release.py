@@ -139,17 +139,24 @@ def test_existing_incomplete_run_is_not_silently_overwritten(machine, monkeypatc
     assert calls == []
 
 
-def test_no_formal_eval_action_is_exposed(machine, monkeypatch):
+def test_queue_trains_then_evaluates_before_next_training(machine, monkeypatch):
+    calls = []
+    monkeypatch.setattr(e, "require_deployment", lambda _: None)
+    monkeypatch.setattr(e, "summarize", lambda _: None)
     monkeypatch.setattr(
-        sys, "argv", ["experiment", "--machine", "/unused.json", "eval"]
+        e, "execute_job", lambda m, j, env: calls.append(("train", c.job_id(j)))
     )
-    with pytest.raises(SystemExit) as error:
-        e.main()
-    assert error.value.code == 2
-    for job in c.jobs():
-        command = c.train_command(machine, job)
-        assert "toolkits.robotwin_mopd.evaluate" not in command
-        assert "toolkits.robotwin_mopd.worker_evaluate" not in command
+    monkeypatch.setattr(
+        e, "evaluate_job", lambda m, p, j: calls.append(("evaluate", c.job_id(j)))
+    )
+    chosen = c.jobs()[:2]
+    e.run_queue(machine, Path("/machine.json"), chosen, {})
+    assert calls == [
+        (stage, c.job_id(job)) for job in chosen for stage in ("train", "evaluate")
+    ]
+    calls.clear()
+    e.run_queue(machine, Path("/machine.json"), chosen, {}, evaluation_only=True)
+    assert calls == [("evaluate", c.job_id(job)) for job in chosen]
 
 
 def test_reference_relocation_requires_content_identity_and_preserves_counts(
@@ -172,6 +179,8 @@ def test_reference_relocation_requires_content_identity_and_preserves_counts(
     reference = json.loads((c.HERE / "teacher_reference_source.json").read_text())
     expected_tasks = copy.deepcopy(reference["tasks"])
     (package / "teacher_reference_source.json").write_text(json.dumps(reference))
+    for name in ("formal100.json", "dev2.json"):
+        (package / name).write_bytes((c.HERE / name).read_bytes())
     monkeypatch.setattr(c, "HERE", package)
     c.prepare(machine)
     result = json.loads(
@@ -191,7 +200,7 @@ def test_reference_relocation_requires_content_identity_and_preserves_counts(
         c.prepare(machine)
 
 
-def test_pending_inventory_has_all80saves_but_only40planned_formal_points(machine):
+def test_pending_inventory_plans_all80saved_policy_points(machine):
     e.summarize(machine)
     import csv
 
@@ -203,7 +212,7 @@ def test_pending_inventory_has_all80saves_but_only40planned_formal_points(machin
         )
     )
     assert len(rows) == 80
-    assert sum(row["formal_evaluation_planned"] == "True" for row in rows) == 40
+    assert sum(row["formal_evaluation_planned"] == "True" for row in rows) == 80
     assert {row["evaluation_state"] for row in rows} == {"PENDING"}
     assert {row["checkpoint_ready"] for row in rows} == {"False"}
     assert {row["training_seed"] for row in rows} == {"1", "2"}
@@ -231,7 +240,9 @@ def test_plan_bootstraps_without_any_site_packages(machine, tmp_path):
     )
     plan = json.loads(result.stdout)
     assert len(plan["jobs"]) == 8
-    assert plan["evaluation"] == "DEFERRED"
+    assert plan["evaluation"] == "AFTER_EACH_TRAINING"
+    assert plan["evaluation_rounds"] == list(range(5, 51, 5))
+    assert plan["formal_episodes"] == 32000
     assert plan["optimizer_updates"] == 1100
 
 
@@ -247,6 +258,10 @@ def test_training_gate_rejects_unvalidated_or_changed_resources(machine, monkeyp
         "source_identity": {"source": "same"},
         "runtime": {"runtime": "same"},
         "microbatch": 16,
+        "evaluation_smoke": {"state": "COMPLETE"},
+        "formal_pool_sha256": json.loads((c.HERE / "formal100.json").read_text())[
+            "pool_content_sha256"
+        ],
     }
     (output / "gpu_validation.json").write_text(json.dumps(proof))
     path = Path(machine["resource_root"]) / "small.bin"

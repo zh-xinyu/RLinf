@@ -1,12 +1,12 @@
 # RoboTwin 2.0 / π0.5：新四任务、三 seeds 交接
 
-2026-11-11。本交接替代旧四任务 SFT500/SFT2000 配方。**本批只训练，正式独立测评暂不运行。** 交付附件为本文与 `checkpoint_results.csv`；脚本及完整资源 manifest 在仓库。
+2026-11-11。本交接替代旧四任务 SFT500/SFT2000 配方。**每组训练完成后，立即测评round5/10/…/50的全部10个checkpoints，100 episodes/task；结果写入CSV后再启动下一组。** 交付附件为本文与 `checkpoint_results.csv`；脚本及完整资源 manifest 在仓库。
 
-- 分支：`release/robotwin2-new4`；固定 tag：`robotwin2-new4-three-seeds-20261111`。记录实际 `git rev-parse HEAD`。
+- 分支：`release/robotwin2-new4`；固定 tag：`robotwin2-new4-train-eval-20261111`。记录实际 `git rev-parse HEAD`。
 - 初始化：新四任务 **Joint-SFT400**，固定预算冷启动；四任务各45条训练示范，所有8组从同一权重新建 optimizer。不是旧SFT500，也不从上一组终点续训。
 - 任务顺序：`open_laptop` / `handover_mic` / `dump_bin_bigbin` / `stack_bowls_two`，逐任务硬路由至对应固定PACE专家。
 - 目标：4×RTX PRO6000 Blackwell 96GB，32 CPUs、建议384GB RAM；同一时间一个四卡训练进程组。输出盘建议至少2.5TiB可用，输入约75GB，runtime/assets另留余量。
-- 目标机必须先完成 `validate`。本机已做资源内容校验、八组配置预检查、227项CPU测试及四卡Blackwell小模型FSDP/Adam完整保存与恢复（含全新optimizer；单rank峰值reserved小于70MiB）；**完整VLA的目标机训练/恢复smoke仍须执行，不得跳过。**
+- 目标机必须先完成 `validate`。本机已做资源内容校验、八组配置预检查、训练/刷新/恢复与测评协议的CPU测试及四卡Blackwell小模型FSDP/Adam完整保存与恢复（含全新optimizer；单rank峰值reserved小于70MiB）；**完整VLA的目标机训练/恢复smoke仍须执行，不得跳过。**
 
 ## 1. 固定实验清单
 
@@ -48,7 +48,7 @@ Seed映射与本机一致，不能沿用旧handoff的大stride：
 ```bash
 git clone --branch release/robotwin2-new4 --single-branch https://github.com/zh-xinyu/RLinf.git
 cd RLinf
-git checkout --detach robotwin2-new4-three-seeds-20261111
+git checkout --detach robotwin2-new4-train-eval-20261111
 
 # 所有/data路径替换为自己的绝对路径；用专用持久磁盘。
 bash toolkits/robotwin_mopd/formal/install.sh /data/robotwin-new4-runtime blackwell-cu128-candidate
@@ -108,7 +108,10 @@ cp toolkits/robotwin_mopd/new4/machine.example.json /data/opd-config/robotwin-ne
   "dashboard_port": 8331,
   "num_cpus": 32,
   "node_label": "collab",
-  "minimum_gpu_free_mib": 60000
+  "minimum_gpu_free_mib": 60000,
+  "evaluation_cpus_per_task": 8,
+  "evaluation_gpu_memory_fraction": 0.32,
+  "evaluation_minimum_gpu_free_mib": 30000
 }
 ```
 
@@ -122,9 +125,9 @@ python -m toolkits.robotwin_mopd.new4.experiment --machine /data/opd-config/robo
 python -m toolkits.robotwin_mopd.new4.experiment --machine /data/opd-config/robotwin-new4.json validate > /data/robotwin-new4-validation.log 2>&1
 ```
 
-Validate依次进行：24文件hash校验与路径绑定、8组CPU/config/reference核对、四卡小模型NCCL/FSDP/Adam保存与全新optimizer精确恢复、teacher走实际训练 `generate/interact` 链路的一轮T32闭环（8 episodes/task）、完整π0.5的R2训练两轮/4updates与完整保存、然后用新进程加载完整状态再训练一轮至update6。
+Validate依次进行：24文件hash校验与路径绑定、8组CPU/config/reference核对、四卡小模型NCCL/FSDP/Adam保存与全新optimizer精确恢复、teacher走实际训练 `generate/interact` 链路的一轮T32闭环（8 episodes/task）、完整π0.5的R2训练两轮/4updates与完整保存、然后用新进程加载完整状态再训练一轮至update6，最后用此checkpoint在独立的dev2场景池上完成2 episodes/task的四任务测评。
 
-历史20场/task校准是共享setup，不重复执行。本次部署验证另产生32条teacher与96条student轨迹，记录为smoke/setup成本，不混入八组各1600条正式训练轨迹。
+历史20场/task校准是共享setup，不重复执行。本次部署验证另产生32条teacher、96条student训练轨迹及8条dev2测评轨迹，记录为smoke/setup成本，不混入八组各1600条正式训练轨迹。
 
 部署smoke不是正式成绩，不加入正式曲线；任一阶段失败即停，保留日志，不能手工伪造PASS或绕过gate。失败重试用新output_root；已有输出不覆盖。Teacher若0/8即停止排查。模型/Adam/scheduler恢复计数、有限loss/gradient和实际query配额均需通过核验。
 
@@ -138,11 +141,19 @@ Validate依次进行：24文件hash校验与路径绑定、8组CPU/config/refere
 python -m toolkits.robotwin_mopd.new4.experiment --machine /data/opd-config/robotwin-new4.json run > /data/robotwin-new4-training.log 2>&1
 ```
 
-按第1节顺序串行训练八组，**不自动评测**。可指定 `run --job uniform_r2_s2` 只跑一组。队列重启仅跳过已完成且产物核验通过的组；遇到失败/部分输出即停，不覆盖、不静默重跑。每组完成后刷新 `deliverables/checkpoint_results.csv` 和 `training_summary.json`。需要手动汇总时：
+按第1节顺序执行 **训练 → 校验 → 10个checkpoints独立测评 → 下一组训练**。同一checkpoint的四个任务各占一张卡并行测评，每卡一个常驻仿真环境、串行100场，使用训练的EnvWorker/MultiStepRolloutWorker推理链路，不加载teacher/actor/optimizer。可指定 `run --job uniform_r2_s2` 只跑一组。队列重启仅跳过已完成且产物核验通过的组；遇到失败/部分输出即停，不覆盖、不静默重跑。每完成一个checkpoint的四任务测评，立即原子更新 `deliverables/checkpoint_results.csv` 的对应行；同时更新 `experiment_results.csv` 与 `training_summary.json`。前者记录全部80个点，后者每组一行、固定报告round50成绩与已测点数，**不自动挑最好checkpoint**。缺失结果为空，部分任务完成时不计算macro SR。需要手动汇总时：
 
 ```bash
 python -m toolkits.robotwin_mopd.new4.experiment --machine /data/opd-config/robotwin-new4.json summarize
 ```
+
+如训练已完整结束，只需恢复/单独补测，不重新训练：
+
+```bash
+python -m toolkits.robotwin_mopd.new4.experiment --machine /data/opd-config/robotwin-new4.json evaluate --job uniform_r2_s2
+```
+
+重启 `run` 也会跳过已核验的完整训练，复用已经通过场景/配置/计数核验的任务测评；失败/部分测评输出及日志不覆盖，须先归档失败任务再重试。每个结果必须匹配checkpoint路径、场景ID、instruction、runtime、norm与ODE10/H25。训练和测评使用不同的私有Ray端口，测评GCS为ray_port+10…13、dashboard为dashboard_port+10…13，各任务worker端口范围从ray_port+20000起每任务128个；这些端口须空闲；不要在同一output_root并发启动两个队列。
 
 有Slurm时，从仓库根目录提交，仍只启动一个四卡launcher：
 
@@ -158,18 +169,22 @@ partition/时长按集群修改；Slurm必须提供四卡CUDA mask，CPU/RAM与J
 
 请返回：
 
-- `deliverables/checkpoint_results.csv`、`training_summary.json` 和所有W&B链接；模板80行覆盖全部保存点，只有40行标为后续formal evaluation planned。
-- `prepared/`、全部smoke结果、validation/Slurm日志。
+- `deliverables/checkpoint_results.csv`、`experiment_results.csv`、`training_summary.json` 和所有W&B链接；模板80行全部标为正式测评计划，每行包含四任务SR、等权macro SR、pool SHA、原始结果目录与完成状态。
+- `prepared/`、全部smoke结果、validation/Slurm日志，以及全部 `eval/<job>/round<N>/<task>/` 的summary/config/episodes和日志。
 - 每个 `train/<run>/` 的resolved config、launch/runtime、代码快照、JSONL、driver/Ray日志；包括实际rollout trajectories、simulation steps、update/round计数、时间和显存。
 - 八组的全部10个policy保存点及最新完整恢复状态；至少保留至正式测评与负责人确认归档。
 - 实际机器/GPU/driver、代码commit、HF revision及所有失败/恢复说明。不要只交最好checkpoint。
 
 训练rollout的总success_once受访问配额影响，只作在线诊断，不代替等任务权重的独立测评。
 
-正式独立测评稍后统一安排：round10/20/30/40/50、100 episodes/task。本批40个policy点、16000 episodes；与本机合并为91个student policy点（含共同初始化round0）、36400 episodes。Teacher正式参考另行统筹。新四任务formal场景池还需统一冻结，不能直接套用旧四任务formal100池。
+正式独立测评固定为 **round5/10/15/20/25/30/35/40/45/50 × 100 episodes/task**。本批80个policy点、32000 episodes；与本机10组训练合并后180个训练policy点，加共同初始化round0为181点、72400 episodes。Teacher正式参考另行统筹。
+
+场景池随代码冻结在 `new4/formal100.json`：新四任务、PACE作者cache的cohort2、按原顺序取全部100场/任务、unseen instructions；pool SHA为 `4c0fe3c18b68d747d6045a8e830f20b6d6f6a082af3da6273c7beb5e2e6f43ba`。与初始化调试用cohort0及本批训练seed范围分离。所有方法/训练seeds/保存点使用同一池与相同的逐episode推理noise规则；不重新筛选成功场景，不允许不稳定场景静默换seed。`PACE_REFERENCE_ROOT`可改变本地路径，但不得重写场景、protocol或pool SHA。`dev2.json`只用于部署smoke，不入正式CSV/论文曲线。
+
+本机训练管理goal仍暂停；本机原51点清单稍后恢复管理时迁移到101点，不能据此宣称这些新增测评已经完成。
 
 ## 给接收 coding agent 的 prompt
 
 ```text
-请使用release/robotwin2-new4分支及robotwin2-new4-three-seeds-20261111固定tag，阅读本handoff。不要沿用旧SFT500四任务或旧formal.run入口。新任务为open_laptop/handover_mic/dump_bin_bigbin/stack_bowls_two，统一SFT400，T32/B256/micro16、LR1e-5 constant、warmup4 updates，50物理rounds、每5轮保存。先跑new4.experiment validate，通过后按recipe中的8组队列：seed2 U2→A2→U1→A1，之后seed1 U4→A4、seed2 U4→A4；每组独立从SFT400开始。Adaptive同步rollout/query数，suite loss coefficients为1，10/10/5窗口与gap平方law；不是同步loss weighting。W&B project用FORMAL_robotwin_pi05_NEW，使用自己有权限的entity，group和name由入口生成。只训练，正式测评暂不启动。先检查machine JSON绝对路径和四卡分配、环境fingerprint与资源SHA，保留所有smoke/失败记录；不要跳过验证、覆盖部分run、改变T/B/LR或自动挑结果。完成后交回CSV、prepared、完整日志/W&B及checkpoints。
+请使用release/robotwin2-new4分支及robotwin2-new4-train-eval-20261111固定tag，阅读本handoff。不要沿用旧SFT500四任务或旧formal.run入口。新任务为open_laptop/handover_mic/dump_bin_bigbin/stack_bowls_two，统一SFT400，T32/B256/micro16、LR1e-5 constant、warmup4 updates，50物理rounds、每5轮保存。先跑new4.experiment validate，通过后按recipe中的8组队列：seed2 U2→A2→U1→A1，之后seed1 U4→A4、seed2 U4→A4；每组独立从SFT400开始。Adaptive同步rollout/query数，suite loss coefficients为1，10/10/5窗口与gap平方law；不是同步loss weighting。W&B project用FORMAL_robotwin_pi05_NEW，使用自己有权限的entity，group和name由入口生成。每组训练完立即按round5/10/…/50、每任务100场测评，再跑下一组；四任务四卡并行，用new4/evaluation.py调用worker_evaluate训练链路，固定cohort2 formal100池，不得重筛选或改seed。每个checkpoint四任务完成即原子更新checkpoint_results.csv的一行；experiment_results.csv每组一行、固定round50，不挑最好结果。已完成训练/测评可核验后复用，部分输出保留且停止，不覆盖。先检查machine JSON绝对路径和四卡分配、环境fingerprint与资源SHA，保留所有smoke/失败记录；不要跳过验证、覆盖部分run、改变T/B/LR或自动挑结果。完成后交回两份CSV、prepared、全部eval原始结果、完整日志/W&B及checkpoints。
 ```

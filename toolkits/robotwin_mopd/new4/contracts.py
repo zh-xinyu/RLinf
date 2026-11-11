@@ -70,6 +70,30 @@ def read_machine(path: Path) -> dict:
             raise ValueError(f"Invalid {key}")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,16}", machine.get("node_label", "collab")):
         raise ValueError("node_label must be a short filename-safe label")
+    cpus = machine.setdefault(
+        "evaluation_cpus_per_task", max(2, machine["num_cpus"] // 4)
+    )
+    if type(cpus) is not int or cpus < 2 or cpus * 4 > machine["num_cpus"]:
+        raise ValueError("Four evaluation tasks must fit the allocated CPU budget")
+    fraction = machine.setdefault("evaluation_gpu_memory_fraction", 0.32)
+    if isinstance(fraction, bool) or not 0 < float(fraction) <= 0.5:
+        raise ValueError("Invalid evaluation_gpu_memory_fraction")
+    minimum = machine.setdefault("evaluation_minimum_gpu_free_mib", 30000)
+    if type(minimum) is not int or minimum < 0:
+        raise ValueError("Invalid evaluation_minimum_gpu_free_mib")
+    ports = [
+        machine[key] + offset
+        for key in ("ray_port", "dashboard_port")
+        for offset in (0, 10, 11, 12, 13)
+    ]
+    workers = set(range(machine["ray_port"] + 20000, machine["ray_port"] + 20512))
+    if (
+        max(ports) > 65535
+        or max(workers) > 65535
+        or workers.intersection(ports)
+        or len(set(ports)) != len(ports)
+    ):
+        raise ValueError("Training and evaluation Ray/dashboard ports must be distinct")
     return machine
 
 
@@ -314,6 +338,10 @@ def prepare(machine: dict) -> None:
             "files": snapshots,
         },
     )
+    for name in ("formal100.json", "dev2.json"):
+        write_immutable(
+            output / "evaluation" / name, json.loads((HERE / name).read_text())
+        )
 
 
 def freeze(machine: dict) -> None:
@@ -325,6 +353,12 @@ def freeze(machine: dict) -> None:
             "resources_sha256": digest(HERE / "resources.json"),
             "machine": machine,
             "seed_settings": {str(seed): seed_settings(seed) for seed in (1, 2)},
-            "evaluation": "DEFERRED; formal scene pool must be frozen separately",
+            "evaluation": {
+                "pool_content_sha256": json.loads(
+                    (HERE / "formal100.json").read_text()
+                )["pool_content_sha256"],
+                "rounds": RECIPE["eval_rounds"],
+                "episodes_per_task": 100,
+            },
         },
     )

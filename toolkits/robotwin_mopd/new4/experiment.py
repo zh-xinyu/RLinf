@@ -1,6 +1,6 @@
 # Copyright 2026 The RLinf Authors.
 # SPDX-License-Identifier: Apache-2.0
-"""Portable, train-only collaborator queue: eight new4 SFT400 experiments."""
+"""Portable train/evaluate queue: eight new4 SFT400 experiments."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def source_identity() -> dict:
     return {str(path.relative_to(c.REPO)): c.digest(path) for path in sorted(files)}
 
 
-def validate_deployment(machine: dict, env: dict) -> dict:
+def validate_deployment(machine: dict, env: dict, machine_path: Path) -> dict:
     """Require a real teacher round and full-model FSDP save/load/update cycle."""
     from toolkits.robotwin_mopd.new4.teacher_smoke import run as teacher_smoke
 
@@ -115,7 +115,21 @@ def validate_deployment(machine: dict, env: dict) -> dict:
         )
     ):
         raise ValueError("Full-model optimizer/scheduler recovery was not demonstrated")
+    from toolkits.robotwin_mopd.new4.evaluation import evaluate_checkpoint
+
+    evaluation = evaluate_checkpoint(
+        machine,
+        machine_path,
+        job,
+        0,
+        Path(continuation["final_checkpoint"]),
+        smoke=True,
+    )
     result = {
+        "evaluation_smoke": evaluation,
+        "formal_pool_sha256": json.loads((c.HERE / "formal100.json").read_text())[
+            "pool_content_sha256"
+        ],
         "status": "TARGET_GPU_VALIDATION_PASS",
         "teacher_episodes_per_task": 8,
         "first_training": initial,
@@ -146,6 +160,9 @@ def require_deployment(machine: dict) -> None:
     )
     if (
         proof["status"] != "TARGET_GPU_VALIDATION_PASS"
+        or proof.get("evaluation_smoke", {}).get("state") != "COMPLETE"
+        or proof.get("formal_pool_sha256")
+        != json.loads((c.HERE / "formal100.json").read_text())["pool_content_sha256"]
         or proof["source_identity"] != source_identity()
         or proof["microbatch"] != machine.get("actor_micro_batch_size", 16)
         or proof["runtime"] != c.check_runtime(machine)
@@ -190,9 +207,34 @@ def execute_job(machine: dict, job: dict, env: dict) -> dict:
     return audit_run(directory, reuse)
 
 
+def atomic_csv(path: Path, rows: list[dict]) -> None:
+    """Publish a complete table atomically; never expose a half-written CSV."""
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
+    try:
+        with os.fdopen(descriptor, "w", newline="") as stream:
+            writer = csv.DictWriter(
+                stream, fieldnames=list(rows[0]), lineterminator="\n"
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def summarize(machine: dict) -> dict:
-    """Keep all saves and raw run identities; defer every formal SR measurement."""
-    rows, completed = [], []
+    """Rebuild checkpoint and final-round tables from validated raw evidence."""
+    from toolkits.robotwin_mopd.new4 import evaluation
+
+    rows, experiments, completed = [], [], []
+    pool_hash = json.loads(evaluation.pool_path(machine).read_text())[
+        "pool_content_sha256"
+    ]
     for job in c.jobs():
         directory = job_directory(machine, job)
         reuse = c.RECIPE["methods"][job["method"]]["reuse"]
@@ -202,6 +244,7 @@ def summarize(machine: dict) -> dict:
             completed.append(c.job_id(job))
         except (FileNotFoundError, ValueError, KeyError, json.JSONDecodeError):
             pass
+        job_rows = []
         for round_ in c.RECIPE["save_rounds"]:
             path = checkpoint_path(machine, job, round_)
             ready = False
@@ -210,55 +253,138 @@ def summarize(machine: dict) -> dict:
                 ready = True
             except (FileNotFoundError, ValueError, KeyError, json.JSONDecodeError):
                 pass
-            rows.append(
-                {
-                    "job": c.job_id(job),
-                    "method": job["method"],
-                    "training_seed": job["seed"],
-                    "R": reuse,
-                    "rollout_round": round_,
-                    "optimizer_update": round_ * reuse,
-                    "checkpoint_directory": str(path),
-                    "checkpoint_ready": ready,
-                    "wandb_run_id": evidence.get("wandb_run_id", "")
-                    if evidence
-                    else "",
-                    "training_state": "COMPLETE"
-                    if evidence
-                    else "PENDING_OR_INCOMPLETE",
-                    "formal_evaluation_planned": round_ in c.RECIPE["eval_rounds"],
-                    "episodes_per_task": 100,
-                    **dict.fromkeys(c.TASKS, ""),
-                    "task_macro_sr": "",
-                    "evaluation_state": "PENDING",
-                }
-            )
+            result = evaluation.checkpoint_results(machine, job, round_, path)
+            row = {
+                "job": c.job_id(job),
+                "method": job["method"],
+                "training_seed": job["seed"],
+                "R": reuse,
+                "rollout_round": round_,
+                "optimizer_update": round_ * reuse,
+                "checkpoint_directory": str(path),
+                "checkpoint_ready": ready,
+                "wandb_run_id": (evidence or {}).get("wandb_run_id", ""),
+                "training_state": "COMPLETE" if evidence else "PENDING_OR_INCOMPLETE",
+                "formal_evaluation_planned": True,
+                "episodes_per_task": 100,
+                **{
+                    task: result["tasks"][task]["success_rate"]
+                    if result["tasks"][task]
+                    else ""
+                    for task in c.TASKS
+                },
+                "task_macro_sr": result["macro_sr"]
+                if result["macro_sr"] is not None
+                else "",
+                "evaluation_state": result["state"],
+                "completed_tasks": result["completed_tasks"],
+                "pool_content_sha256": pool_hash,
+                "evaluation_directory": str(
+                    evaluation.task_directory(machine, job, round_, c.TASKS[0]).parent
+                ),
+            }
+            rows.append(row)
+            job_rows.append(row)
+        final = job_rows[-1]
+        evaluated = sum(row["evaluation_state"] == "COMPLETE" for row in job_rows)
+        experiments.append(
+            {
+                "job": c.job_id(job),
+                "method": job["method"],
+                "training_seed": job["seed"],
+                "R": reuse,
+                "reported_round": 50,
+                "evaluated_checkpoints": evaluated,
+                "expected_checkpoints": 10,
+                "training_state": final["training_state"],
+                **{task: final[task] for task in c.TASKS},
+                "task_macro_sr": final["task_macro_sr"],
+                "state": "COMPLETE"
+                if evidence and evaluated == 10
+                else "PENDING_OR_INCOMPLETE",
+                "wandb_run_id": final["wandb_run_id"],
+                "pool_content_sha256": pool_hash,
+            }
+        )
     output = Path(machine["output_root"]) / "deliverables"
-    output.mkdir(parents=True, exist_ok=True)
-    with (output / "checkpoint_results.csv").open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]), lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
+    atomic_csv(output / "checkpoint_results.csv", rows)
+    atomic_csv(output / "experiment_results.csv", experiments)
     record = {
         "completed_jobs": completed,
+        "evaluated_jobs": [
+            row["job"] for row in experiments if row["state"] == "COMPLETE"
+        ],
         "target_jobs": 8,
         "all_saved_policy_points": 80,
-        "formal_policy_points": 40,
-        "formal_episodes_deferred": 16000,
-        "formal_scene_pool": "NOT_FROZEN; coordinate before evaluation",
+        "formal_policy_points": 80,
+        "evaluated_policy_points": sum(
+            row["evaluation_state"] == "COMPLETE" for row in rows
+        ),
+        "formal_episodes": 32000,
+        "formal_scene_pool_sha256": pool_hash,
+        "evaluation_rounds": c.RECIPE["eval_rounds"],
         "updated_unix": time.time(),
     }
-    (output / "training_summary.json").write_text(json.dumps(record, indent=2) + "\n")
+    # A checkpoint macro is published only after all four tasks are validated.
+    temporary = output / "training_summary.json.tmp"
+    temporary.write_text(json.dumps(record, indent=2) + "\n")
+    os.replace(temporary, output / "training_summary.json")
     return record
 
 
+def evaluate_job(machine: dict, machine_path: Path, job: dict) -> None:
+    """Finish all ten fixed checkpoints before advancing to another training job."""
+    from toolkits.robotwin_mopd.new4.evaluation import evaluate_checkpoint
+
+    reuse = c.RECIPE["methods"][job["method"]]["reuse"]
+    audit_run(job_directory(machine, job), reuse)
+    for round_ in c.RECIPE["eval_rounds"]:
+        checkpoint = checkpoint_path(machine, job, round_)
+        checkpoint_audit(checkpoint, round_ * reuse, reuse, full=round_ == 50)
+        evaluate_checkpoint(
+            machine,
+            machine_path,
+            job,
+            round_,
+            checkpoint,
+            on_complete=lambda: summarize(machine),
+        )
+
+
+def run_queue(
+    machine: dict,
+    machine_path: Path,
+    chosen: list[dict],
+    env: dict,
+    *,
+    evaluation_only: bool = False,
+) -> None:
+    """Train, audit and evaluate each job in order; stop on any failed stage."""
+    for job in chosen:
+        require_deployment(machine)
+        print(json.dumps({"starting": c.job_id(job)}), flush=True)
+        if not evaluation_only:
+            execute_job(machine, job, env)
+        summarize(machine)
+        evaluate_job(machine, machine_path, job)
+        summarize(machine)
+
+
 def main() -> None:
-    """Plan, validate or run the fixed train-only collaborator queue."""
+    """Plan, validate or run the fixed train/evaluate collaborator queue."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--machine", type=Path, required=True)
     parser.add_argument(
         "action",
-        choices=["plan", "prepare", "preflight", "validate", "run", "summarize"],
+        choices=[
+            "plan",
+            "prepare",
+            "preflight",
+            "validate",
+            "run",
+            "evaluate",
+            "summarize",
+        ],
     )
     parser.add_argument("--job", help="Optional one of the eight declared job IDs")
     args = parser.parse_args()
@@ -275,7 +401,11 @@ def main() -> None:
                         }
                         for job in c.jobs()
                     ],
-                    "evaluation": "DEFERRED",
+                    "evaluation": "AFTER_EACH_TRAINING",
+                    "evaluation_rounds": c.RECIPE["eval_rounds"],
+                    "episodes_per_task": 100,
+                    "formal_policy_points": 80,
+                    "formal_episodes": 32000,
                     "rollout_rounds": 400,
                     "optimizer_updates": 1100,
                 },
@@ -314,16 +444,22 @@ def main() -> None:
     if args.action == "validate":
         c.prepare(machine)
         preflight(machine)
-        print(json.dumps(validate_deployment(machine, env), indent=2))
+        print(
+            json.dumps(
+                validate_deployment(machine, env, args.machine.resolve()), indent=2
+            )
+        )
         return
     require_deployment(machine)
     c.freeze(machine)
     chosen = [c.select_job(args.job)] if args.job else c.jobs()
-    for job in chosen:
-        require_deployment(machine)
-        print(json.dumps({"starting": c.job_id(job)}), flush=True)
-        execute_job(machine, job, env)
-        summarize(machine)
+    run_queue(
+        machine,
+        args.machine.resolve(),
+        chosen,
+        env,
+        evaluation_only=args.action == "evaluate",
+    )
     print(json.dumps(summarize(machine), indent=2))
 
 

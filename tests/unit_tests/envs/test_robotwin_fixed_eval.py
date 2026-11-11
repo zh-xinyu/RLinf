@@ -17,6 +17,8 @@ from toolkits.robotwin_mopd.worker_evaluate import checked_metrics
 
 @pytest.fixture
 def fixed_env(monkeypatch, tmp_path):
+    # The fake CPU environment has no installed simulator; do not inherit a live runtime.
+    monkeypatch.delenv("OPD_ROBOTWIN_PROFILE", raising=False)
     entries = [
         {
             "scene_seed": seed,

@@ -164,7 +164,9 @@ def run(args):
 
     class FixedNoiseRolloutWorker(MultiStepRolloutWorker):
         def init_worker(self):
-            torch.cuda.set_per_process_memory_fraction(0.32)
+            torch.cuda.set_per_process_memory_fraction(
+                getattr(args, "gpu_memory_fraction", 0.32)
+            )
             self._fixed_query = 0
             return super().init_worker()
 
@@ -246,6 +248,7 @@ def run(args):
         "verified_runtime": runtime,
         "started_unix": started,
         "finished_unix": time.time(),
+        "gpu_memory_fraction": getattr(args, "gpu_memory_fraction", 0.32),
         "source_sha256": {
             name: hashlib.sha256((REPO / name).read_bytes()).hexdigest()
             for name in source_files
@@ -272,7 +275,10 @@ def main():
     )
     parser.add_argument("--override", action="append", default=[])
     parser.add_argument("--trace-actions", action="store_true")
+    parser.add_argument("--gpu-memory-fraction", type=float, default=0.32)
     args = parser.parse_args()
+    if not 0 < args.gpu_memory_fraction <= 0.5:
+        parser.error("Evaluation requires 0 < gpu-memory-fraction <=0.5")
     pairs = [value.split("=", 1) for value in args.norm_stats]
     if any(len(pair) != 2 for pair in pairs) or len({p[0] for p in pairs}) != len(
         pairs

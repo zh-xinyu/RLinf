@@ -36,6 +36,51 @@ def compose_config(machine: dict, job: dict) -> DictConfig:
     return cfg
 
 
+def validate_evaluation_pools(machine: dict, cfg) -> dict:
+    """Verify held-out scenes, inference settings and disjoint train seed ranges."""
+    from omegaconf import OmegaConf
+
+    from toolkits.robotwin_mopd.author_pool import load_pool, validate_pool_protocol
+    from toolkits.robotwin_mopd.new4.evaluation import pool_path
+
+    report = {}
+    for smoke, cohort, episodes, purpose in (
+        (True, 0, 2, "development"),
+        (False, 2, 100, "formal_heldout"),
+    ):
+        path = pool_path(machine, smoke=smoke)
+        pool = load_pool(path, task_names=c.TASKS)
+        protocol = pool["protocol"]
+        if (
+            protocol["author_cohort"] != cohort
+            or protocol["episodes_per_task"] != episodes
+            or protocol["selection_start"] != 0
+            or protocol["purpose"] != purpose
+        ):
+            raise ValueError("Unexpected evaluation cohort/selection/purpose")
+        validate_pool_protocol(
+            pool,
+            task_names=c.TASKS,
+            task_config=OmegaConf.to_container(cfg.env.eval.task_config, resolve=True),
+            task_horizons=dict(cfg.env.eval.task_horizons),
+            robotwin_root=Path(os.environ["ROBOTWIN_PATH"]),
+        )
+        if not smoke:
+            for task_id, task in enumerate(c.TASKS):
+                for seed in (0, 1, 2):
+                    first = c.seed_settings(seed)["env.train.seed"] + task_id * 1000003
+                    # At most all1600 training slots assigned to this task, plus19 reset retries.
+                    if any(
+                        first <= row["scene_seed"] <= first + 50 * 32 + 19
+                        for row in pool["tasks"][task]
+                    ):
+                        raise ValueError(
+                            "Formal evaluation scenes overlap training seed range"
+                        )
+        report["dev2" if smoke else "formal100"] = pool["pool_content_sha256"]
+    return report
+
+
 def preflight(machine: dict) -> dict:
     """Check every declared job and the rebased calibration without running Ray."""
     from omegaconf import OmegaConf
@@ -99,7 +144,9 @@ def preflight(machine: dict) -> dict:
                 "config": str(path),
             }
         )
+    evaluation = validate_evaluation_pools(machine, cfg)
     record = {
+        "evaluation_pools": evaluation,
         "status": "CPU_PREFLIGHT_PASS",
         "gpu_validation": "PENDING",
         "runtime": runtime,
