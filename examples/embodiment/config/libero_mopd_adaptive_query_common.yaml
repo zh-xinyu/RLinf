@@ -1,0 +1,20 @@
+# Same tested T64/B512/micro2/LR3e-5 and 100-round recipe.
+# Change only the gap law and synchronized query allocation; keep old YAMLs intact.
+defaults:
+  - libero_mopd_formal_t64_common
+  - _self_
+
+runner:
+  logger:
+    experiment_name: libero_gap_query
+    wandb_group: ${oc.env:OPD_WANDB_GROUP,T64_gap_query_seed0}
+  rollout_allocation:
+    rho: 1.0
+    epsilon: 0.0
+    priority_power: 2.0
+
+algorithm:
+  suite_query_weights: null
+  sync_suite_query_weights: false
+  suite_loss_weights: null
+  sync_suite_loss_weights: false

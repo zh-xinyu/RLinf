@@ -57,6 +57,7 @@ from rlinf.algorithms.suite_distillation import (
     finalize_suite_statistics,
     group_sample_indices,
     normalized_suite_loss_weights,
+    suite_query_quotas,
 )
 from rlinf.algorithms.utils import (
     kl_penalty,
@@ -1384,10 +1385,16 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         return rollout_batch
 
     @Worker.timer("actor/compute_adv")
-    def compute_advantages_and_returns(self) -> dict[str, torch.Tensor]:
-        """
-        Compute the advantages and returns.
-        """
+    def compute_advantages_and_returns(
+        self, suite_query_weights: dict[str, int] | None = None
+    ) -> dict[str, torch.Tensor]:
+        """Prepare supervision with the round's query shares before sampling."""
+        sync_queries = self.cfg.algorithm.get("sync_suite_query_weights", False)
+        if sync_queries != (suite_query_weights is not None):
+            raise ValueError("Synchronized query weights must be supplied every round.")
+        self._round_suite_query_weights = (
+            dict(suite_query_weights) if suite_query_weights is not None else None
+        )
         if self.cfg.algorithm.loss_type in VELOCITY_DISTILL_LOSS_TYPES:
             # Velocity distillation (Method 1) and analytic local KL (Method 3 /
             # M3-Hybrid) are supervised: no reward / advantage / GAE. Only the frozen
@@ -1626,9 +1633,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
     def _suite_balanced_sample(
         self, flat_batch_size: int, time_dim: int, batch_dim: int
     ) -> Optional[torch.Tensor]:
-        """Draw a suite-balanced subset of the flat rollout, or None to use all of it.
+        """Draw stratified queries, with equal or explicitly allocated suite counts.
 
-        Enabled by ``algorithm.suite_balanced_sampling``. Every task suite then contributes
+        Enabled by ``algorithm.suite_balanced_sampling``. By default every suite contributes
         the same number of samples to the update, so each routed teacher gets the same share
         of the gradient regardless of how many transitions its tasks happened to produce.
         Without it the share is set by episode length: RoboCasa's composite horizons are
@@ -1694,6 +1701,14 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         g = torch.Generator()
         g.manual_seed(self.cfg.actor.seed + self._rank + self._sample_draw_count * 7919)
 
+        query_weights = self.cfg.algorithm.get("suite_query_weights", None)
+        if self.cfg.algorithm.get("sync_suite_query_weights", False):
+            query_weights = getattr(self, "_round_suite_query_weights", None)
+            if query_weights is None:
+                raise ValueError("Missing current-round synchronized query weights.")
+        if query_weights is not None and len(suites) != len(names):
+            raise ValueError("Query allocation requires every configured teacher.")
+        quotas = suite_query_quotas(query_weights, [names[s] for s in suites], target)
         chosen, drawn, distinct = [], {}, {}
         pool_diagnostics = {}
         for i, suite in enumerate(suites):
@@ -1701,7 +1716,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                 (teacher_ids == suite) & valid, as_tuple=False
             ).reshape(-1)
             # Spread the remainder over the first suites rather than dropping it.
-            quota = target // len(suites) + (1 if i < target % len(suites) else 0)
+            quota = quotas[i]
             assert pool.numel() > 0, (
                 f"suite {self._teacher_names()[suite]!r} produced no valid transitions on "
                 f"rank {self._rank}. The quota is drawn per rank, so every rank's envs must "
@@ -1718,6 +1733,11 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
             chosen.append(take)
             drawn[self._teacher_names()[suite]] = int(take.numel())
             distinct[self._teacher_names()[suite]] = int(min(pool.numel(), quota))
+            name = names[suite]
+            pool_diagnostics[f"actor/query_draws/{name}"] = float(take.numel())
+            pool_diagnostics[f"actor/query_distinct_source_rows/{name}"] = float(
+                take.unique().numel()
+            )
             if self.cfg.algorithm.get("log_observation_pool_metrics", False):
                 name = self._teacher_names()[suite]
                 pool_diagnostics[f"actor/observation_pool_size_per_rank/{name}"] = (
@@ -1735,7 +1755,7 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         # Shuffle so a micro-batch is not a single suite.
         idx = idx[torch.randperm(idx.numel(), generator=g)]
         self.log_info(
-            f"Suite-balanced sample: drawn {drawn}, distinct {distinct}, "
+            f"Suite-stratified sample: drawn {drawn}, distinct {distinct}, "
             f"total {idx.numel()} of {int(valid.sum())} valid."
         )
         return idx
@@ -2343,12 +2363,21 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
 
     @Worker.timer("run_training")
     def run_training(
-        self, suite_loss_weights: dict[str, float] | None = None
+        self,
+        suite_loss_weights: dict[str, float] | None = None,
+        suite_query_weights: dict[str, int] | None = None,
     ) -> dict[str, float]:
         """Train once, or refresh flow between updates on the latest observation pool."""
         sync_weights = self.cfg.algorithm.get("sync_suite_loss_weights", False)
         if sync_weights != (suite_loss_weights is not None):
             raise ValueError("Synchronized suite weights must be supplied every round.")
+        sync_queries = self.cfg.algorithm.get("sync_suite_query_weights", False)
+        if sync_queries != (suite_query_weights is not None):
+            raise ValueError("Synchronized query weights must be supplied every round.")
+        if sync_queries and suite_query_weights != getattr(
+            self, "_round_suite_query_weights", None
+        ):
+            raise ValueError("Query weights changed after the first teacher query.")
         self._round_suite_loss_weights = None
         if suite_loss_weights is not None:
             names = self._teacher_names()
@@ -2751,6 +2780,13 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         mean_metric_dict = all_reduce_dict(
             mean_metric_dict, op=torch.distributed.ReduceOp.AVG
         )
+        # AVG is already required for other metrics; recover global sample sums
+        # without another collective. Distinct rows are counted per source rank.
+        for key in mean_metric_dict:
+            if key.startswith(
+                ("actor/query_draws/", "actor/query_distinct_source_rows/")
+            ):
+                mean_metric_dict[key] *= self._world_size
         if explained_variance_stats:
             reduced_stats = all_reduce_dict(
                 explained_variance_stats, op=torch.distributed.ReduceOp.SUM

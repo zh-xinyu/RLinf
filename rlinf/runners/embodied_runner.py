@@ -682,16 +682,20 @@ class EmbodiedRunner:
                     env_handle.wait()
                     self._record_allocation_round()
 
-                # compute advantages and returns.
+                training_kwargs = self._actor_training_kwargs()
+                query_kwargs = {
+                    key: training_kwargs[key]
+                    for key in ("suite_query_weights",)
+                    if key in training_kwargs
+                }
                 with self.timer("cal_adv_and_returns"):
-                    actor_rollout_metrics = (
-                        self.actor.compute_advantages_and_returns().wait()
-                    )
+                    actor_rollout_metrics = self.actor.compute_advantages_and_returns(
+                        **query_kwargs
+                    ).wait()
 
-                # actor training.
                 with self.timer("actor_training"):
                     actor_training_handle: Handle = self.actor.run_training(
-                        **self._actor_training_kwargs()
+                        **training_kwargs
                     )
                     env_bootstrap_handle: Handle | None = None
                     if (
@@ -773,6 +777,10 @@ class EmbodiedRunner:
                 if inner == repeats:
                     row.update(self._last_allocation_metrics)
             if inner == 1:
+                if "train/actor/macro_velocity_mse" in row:
+                    row["train/new_rollout_macro_velocity_mse"] = row[
+                        "train/actor/macro_velocity_mse"
+                    ]
                 row["train/new_rollout_velocity_mse"] = row["train/actor/velocity_mse"]
                 for key, value in list(row.items()):
                     if key.startswith("train/actor/velocity_mse/"):
@@ -789,13 +797,18 @@ class EmbodiedRunner:
                 stream.write(json.dumps(row) + "\n")
 
     def _actor_training_kwargs(self) -> dict:
-        """Freeze loss shares from this round's actual integer rollout quotas."""
-        if not self.cfg.algorithm.get("sync_suite_loss_weights", False):
+        """Freeze actual rollout shares for all queries in this physical round."""
+        sync_queries = self.cfg.algorithm.get("sync_suite_query_weights", False)
+        if not sync_queries and not self.cfg.algorithm.get(
+            "sync_suite_loss_weights", False
+        ):
             return {}
         allocator = self.rollout_allocator
+        quotas = dict(zip(allocator.suites, allocator.quotas))
+        if sync_queries:
+            return {"suite_query_weights": quotas}
         from rlinf.algorithms.suite_distillation import normalized_suite_loss_weights
 
-        quotas = dict(zip(allocator.suites, allocator.quotas))
         weights = normalized_suite_loss_weights(quotas, allocator.suites)
         return {"suite_loss_weights": dict(zip(allocator.suites, weights))}
 

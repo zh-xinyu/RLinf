@@ -296,6 +296,7 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             for prefix in ("", "t64_")
             for i in range(4)
         }
+        | {f"libero_mopd_adaptive_query_m{i}" for i in range(4)}
         or not mixed_execution
         or allocation_smoke
     ):
@@ -444,7 +445,13 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
                 cfg.rollout.expert_models[suite].model_path = str(path)
         cfg.runner.logger.log_path = str(args.output)
         cfg.runner.logger.experiment_name = (
-            "libero_formal" if formal else "libero_production_smoke"
+            (
+                "libero_gap_query"
+                if config_name.startswith("libero_mopd_adaptive_query_")
+                else "libero_formal"
+            )
+            if formal
+            else "libero_production_smoke"
         )
         cfg.runner.max_steps = args.updates
         cfg.runner.save_interval = save_interval

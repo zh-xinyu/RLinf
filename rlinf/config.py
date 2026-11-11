@@ -893,6 +893,39 @@ def validate_suite_distillation_cfg(cfg: DictConfig) -> None:
     metrics = cfg.algorithm.get("log_suite_velocity_metrics", False)
     weights = cfg.algorithm.get("suite_loss_weights", None)
     sync_weights = cfg.algorithm.get("sync_suite_loss_weights", False)
+    query_weights = cfg.algorithm.get("suite_query_weights", None)
+    sync_queries = cfg.algorithm.get("sync_suite_query_weights", False)
+    if not isinstance(sync_queries, bool):
+        raise ValueError("sync_suite_query_weights must be a boolean.")
+    if sync_queries:
+        allocation = cfg.runner.get("rollout_allocation", {})
+        if not allocation.get("enabled", False) or cfg.runner.get(
+            "use_training_pipeline", False
+        ):
+            raise ValueError("Synchronized queries require synchronous allocation.")
+        if query_weights is not None:
+            raise ValueError("Static and synchronized query weights are exclusive.")
+    if query_weights is not None or sync_queries:
+        if weights is not None or sync_weights:
+            raise ValueError("Suite query allocation and loss weighting are exclusive.")
+        if not metrics:
+            raise ValueError(
+                "Suite query allocation requires raw suite velocity metrics."
+            )
+        if cfg.algorithm.get("reward_type") != "chunk_level" or cfg.algorithm.get(
+            "filter_rewards", False
+        ):
+            raise ValueError(
+                "Suite query allocation requires unfiltered chunk_level masks."
+            )
+        if query_weights is not None:
+            from rlinf.algorithms.suite_distillation import suite_query_quotas
+
+            suite_query_quotas(
+                query_weights,
+                list(cfg.rollout.get("expert_models", {}).keys()),
+                int(cfg.actor.global_batch_size),
+            )
     if not isinstance(sync_weights, bool):
         raise ValueError("sync_suite_loss_weights must be a boolean.")
     if sync_weights:

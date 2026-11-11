@@ -1,0 +1,17 @@
+# M2: Adaptive-R2; 100 physical rounds, save every 25 rounds.
+defaults:
+  - libero_mopd_adaptive_query_common
+  - _self_
+
+runner:
+  max_steps: 200
+  save_interval: 50
+  logger:
+    wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,M2_Adaptive-R2_T64_B512_seed0}
+  rollout_allocation:
+    mode: adaptive
+    teacher_reference_file: ${oc.env:OPD_LIBERO_TEACHER_REFERENCE}
+
+algorithm:
+  flow_refresh_updates: 2
+  sync_suite_query_weights: true

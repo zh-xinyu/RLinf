@@ -5,12 +5,13 @@ Built on [RLinf](https://github.com/RLinf/RLinf) at upstream commit
 
 This LIBERO experiment branch consolidates four task-specialist GR00T N1.5
 policies into one student across Spatial, Object, Goal and Long. We study
-adaptive rollout allocation with synchronized suite loss weights and decoupled
+adaptive rollout allocation with synchronized query counts and decoupled
 flow refresh, which reuses physical observations while refreshing the current
 student's flow trajectories and teacher supervision.
 
 | Purpose | Entry |
 | --- | --- |
+| Inspect the current adaptive method and four-arm commands | [Adaptive query protocol](toolkits/libero_gr00t/adaptive_query.md) |
 | Check current setting and acceptance status | [Experiment contract](LIBERO_EXPERIMENTS.md) |
 | Install on the collaborator's approved platform image | [Cluster setup plan](LIBERO_CLUSTER_SETUP.md) |
 | Inspect reference profiles and installation acceptance | [Environment guide](LIBERO_ENVIRONMENT.md) |
@@ -18,7 +19,8 @@ student's flow trajectories and teacher supervision.
 | Inspect implementation and historical pilots | [Toolkit notes](toolkits/libero_gr00t/README.md) |
 | Reproduce the separate RoboCasa environment | [RoboCasa profile](OPD_ENVIRONMENT.md) |
 
-The current LIBERO source is a freeze candidate. The new teacher-rollout SFT
+This development branch aligns squared-gap rollout/query allocation with RoboTwin.
+It retains the tested LIBERO T64 recipe and the previous candidate snapshot. The new teacher-rollout SFT
 initializer still requires complete screening, confirmation and a short MOPD
 transition check. New cluster hardware also requires admission tests. The
 experiment contract lists these gates explicitly; do not treat historical

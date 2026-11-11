@@ -3,15 +3,16 @@
 ## Scope and readiness
 
 This branch contains four-suite GR00T N1.5 MOPD, decoupled flow refresh, adaptive
-rollout allocation with synchronized suite loss weights, teacher-rollout SFT,
+rollout allocation with synchronized query counts, teacher-rollout SFT,
 and independent evaluation through the training rollout implementation.
 
-**Status: source-freeze candidate, not a launch-ready final experiment release.**
-The candidate snapshot branch is `release/libero-gr00t-candidate`, prepared from
-`experiment/libero-gr00t-teacher-sft`. The original worktree's base commit
-`05b7c16d5793168bcd2a6eb12eeed0424c7f7fd1` alone does not include subsequent
-uncommitted development. Share only a committed source snapshot, with a clean
-status and explicit commit ID. The root RoboCasa workspace is separate.
+**Status: new-method development, not a launch-ready final experiment release.**
+The current branch is `experiment/libero-gr00t-adaptive-query`, based on the
+candidate snapshot `e5b21cc6`. The source-freeze candidate remains available as
+`release/libero-gr00t-candidate`. Use the [current method/commands](toolkits/libero_gr00t/adaptive_query.md)
+for squared-gap rollout/query allocation. Historical formal YAMLs/launchers are
+retained separately. Share a committed snapshot with its explicit commit ID.
+The root RoboCasa workspace is separate.
 
 | Component | Evidence / remaining gate |
 | --- | --- |
@@ -93,7 +94,7 @@ public upload location for this new artifact is still pending.
 
 ## Main matrix once initialization is accepted
 
-| Arm | Rollout allocation / suite loss | R | Rounds | Optimizer updates | Save at updates |
+| Arm | Rollout allocation / query allocation | R | Rounds | Optimizer updates | Save at updates |
 | --- | --- | ---: | ---: | ---: | --- |
 | M0 | Uniform / equal | 1 | 100 | 100 | 25/50/75/100 |
 | M1 | Uniform / equal | 2 | 100 | 200 | 50/100/150/200 |
@@ -103,16 +104,18 @@ public upload location for this new artifact is still pending.
 Shared: one node/four ranks; T64trajectories/round,16environment slots/rank,
 B512, micro2/rank, LR3e-5, four **optimizer-update** warmup steps then constant,
 AdamW(.9,.95), decay0, clip1. Each update samples the full rollout observation
-pool with128examples/suite. Refresh regenerates flow noise/trajectories and
+pool with128examples/suite in Uniform arms; Adaptive uses global counts8*q_s.
+Refresh regenerates flow noise/trajectories and
 teacher targets for the current student. B/LR are not divided by R. Seeds0/1/2
 are repeats; start with0. Existing YAMLs and launch validation encode this recipe.
 
-Adaptive uses the verified teacher calibration, rho0.5, epsilon0.01,20-round
-warmup and window,10-round decision interval, minimum5episodes/task, quota-change
-cap6/suite/decision. Uniform quotas are16/16/16/16. Synchronized coefficients
-are quota/16; batches remain suite balanced. Learning progress is diagnostic.
-These are the implemented historical settings; a shorter window has not been
-accepted and must be a separate protocol revision if chosen.
+Adaptive uses the verified teacher calibration, rho1, epsilon0 and squared
+positive suite SR gaps. Retain the20-round warmup/window,10-round decision
+interval, minimum5episodes/task and quota-change cap6/suite/decision. Uniform
+quotas are16/16/16/16. Query counts follow actual projected quotas; extra suite
+loss coefficients are disabled. Learning progress is diagnostic only. First
+adaptive decision is round21. These controller timing settings remain LIBERO's
+tested values rather than adopting RoboTwin's10/10/5-round settings.
 
 All arms collect6400student trajectories; optimizer compute differs by design.
 Use rollout rounds as the main x-axis, and retain trajectories, actual simulation
@@ -134,11 +137,11 @@ and an older strong student; it is not the current portable acquisition entry.
 Example **plan only** for M1, using paths populated after initialization acceptance:
 
 ```bash
-export OPD_WANDB_GROUP=T64_teacher_sft_seed0
+export OPD_WANDB_GROUP=T64_gap_query_seed0
 export OPD_WANDB_RUN_NAME=M1_Uniform-R2_T64_B512_seed0
 export WANDB_MODE=offline
-"$LIBERO_PYTHON" -m toolkits.libero_gr00t.launch_formal \
-  --arm m1 --trajectory-budget 64 --seed 0 --python "$LIBERO_PYTHON" \
+"$LIBERO_PYTHON" -m toolkits.libero_gr00t.launch_adaptive_query \
+  --arm m1 --seed 0 --python "$LIBERO_PYTHON" \
   --models "$LIBERO_MODELS" --student "$LIBERO_STUDENT" \
   --spatial-teacher "$LIBERO_SPATIAL" --gpus 0 1 2 3 --cpus 32 \
   --actor-cache-retention-gib 20 --actor-cache-preallocate-gib 12 \
@@ -210,3 +213,13 @@ and license notices; their selection logic has an isolated CPU test.
 This is code/regression acceptance, not a new installation or new hardware
 acceptance. Historical GPU evidence uses the old initializer; SFT100→MOPD and
 the collaborator image remain pending as listed above. Current runs are stopped.
+
+## Adaptive-query development on2026-11-11
+
+The new method retains the tested T64/B512/micro2/LR3e-5,100-round recipe and
+20/20/10allocator timing. It changes the priority to squared positive SR gaps
+and replaces synchronized suite loss coefficients with synchronized query counts.
+411CPU regressions passed;21specifically cover the new method. A100-round
+synthetic donor comparison matched every plan/query allocation. GPU acceptance
+and initialization confirmation remain separate. See the
+[current implementation guide](toolkits/libero_gr00t/adaptive_query.md).

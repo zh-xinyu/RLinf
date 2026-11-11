@@ -1,6 +1,7 @@
 # LIBERO toolkit: current entry and historical exploration
 
-For the current source-freeze candidate, use the repository-level
+For the current method, use [adaptive query allocation](adaptive_query.md).
+For initialization and runtime acceptance, use the repository-level
 [experiment contract](../../LIBERO_EXPERIMENTS.md) and
 [manual environment guide](../../LIBERO_ENVIRONMENT.md).
 The teacher-rollout SFT initializer and target-cluster admission are still pending.
