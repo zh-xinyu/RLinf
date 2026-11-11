@@ -15,14 +15,18 @@ cp toolkits/libero_gr00t/configs/uniform_machine.example.json \
   outputs/local/libero_machine.json
 ```
 
-Edit `outputs/local/libero_machine.json` using a text editor. Replace its five
-absolute paths: `python`, `models`, `spatial_teacher`, `student`, and `results`.
+Edit `outputs/local/libero_machine.json` using a text editor. Replace its six
+absolute paths: `python`, `models`, `spatial_teacher`, `student`, `results`, and
+`csv_dir`. The last two are configured independently: `results` holds training
+checkpoints/logs and raw evaluations; `csv_dir` is the explicit NAS destination
+for the shared CSVs and their identity/lock files. There is no implicit CSV fallback.
 `python` must point to the prepared **runtime wrapper** `libero-runtime/bin/python`,
 not `venv/bin/python` or the image interpreter. The other keys are resource/logging
 settings, not learning hyperparameters:
 
 | Machine setting | Default / meaning |
 | --- | --- |
+| `csv_dir` | Required absolute NAS path; prepare it before actual launches |
 | `gpus` | `[0,1,2,3]`, four visible GPU IDs in the scheduled job |
 | `cpus` | 32, total training CPUs |
 | `microbatch_size` | 4/card; select 8 only after full node admission, consistently for all nine runs |
@@ -35,6 +39,29 @@ The models directory contains `object/`, `goal/`, `long/`. Spatial is the separa
 student must be used in every run. No tokens belong in this JSON. For online W&B,
 use the platform's existing login/account/team configuration. Project is
 `FORMAL_libero_gr00t`; run/group labels are derived automatically from R/seed.
+
+For example, the machine JSON may contain:
+
+```json
+{
+  "results": "/local/work/libero_runs",
+  "csv_dir": "/nas/project/libero_mopd_results"
+}
+```
+
+These are two entries within the full template, not a complete machine file.
+After confirming the NAS is mounted, create the configured CSV directory once:
+
+```bash
+mkdir -p /nas/project/libero_mopd_results
+```
+
+Replace this illustrative path with the cluster's actual NAS path. Every actual
+training-plus-evaluation or evaluation command checks that `csv_dir` already
+exists and permits a temporary write/fsync before launching GPU work. The probe
+is removed. A missing/read-only directory stops the command; the exporter does
+not create an alternative local destination. Plan-only commands need no NAS write.
+The configured NAS must remain accessible when results are exported after training.
 
 The short entrypoint runs with the image's ordinary `python3`, uses only its
 standard library, and invokes the exact runtime wrapper from the JSON. Activating
@@ -189,7 +216,7 @@ the nine-run evaluation budget and the deferred Adaptive scope.
 ## 6. Automatically merged CSV results
 
 After each complete checkpoint evaluation, the entrypoint updates two files in
-the machine JSON's **results directory**, shared across all nine runs:
+the machine JSON's explicit **`csv_dir` directory**, shared across all nine runs:
 
 | File | Rows / contents |
 | --- | --- |
@@ -200,15 +227,16 @@ The complete nine-run matrix has 91 summary rows (90 trained checkpoints plus
 one shared initial result) and 3640 task rows. SR values are fractions from 0 to 1.
 Filter the summary to round100 to obtain the main-result rows for the three
 training seeds. You do not need to fill these CSVs manually or copy templates into
-the results directory. The final means/std over training seeds can be computed
+the NAS CSV directory. The final means/std over training seeds can be computed
 from these per-seed rows; training seeds are not pooled as extra evaluation states.
 
 Writes use a shared file lock and atomic replacement. Re-exporting the same
 checkpoint updates its key instead of appending a duplicate. Incomplete outcomes,
 changed checkpoint identity or a different base/protocol cannot silently replace
 existing scores. Source/model/protocol identities are also saved in
-`results_identity.json`. Keep the same results root for the intended nine runs;
-distinct storage roots produce separate CSVs.
+`results_identity.json`. Keep the same `csv_dir` for the intended nine runs;
+different CSV destinations produce separate tables. Training/raw outputs retain
+their independently configured `results` location.
 
 Actual simulation counters are read from `libero_uniform/rollout_allocation.jsonl`
 when available. Training wall time stays empty when not independently available;
@@ -223,7 +251,7 @@ GPU job, is also available:
 
 ```bash
 python3 -m toolkits.libero_gr00t.collect_results \
-  --results /absolute/path/results \
+  --csv-dir /absolute/nas/path/libero-mopd-results \
   --evaluation /absolute/path/results/evaluations/Uniform-R4_seed1_round040 \
   --r 4 --seed 1 --round 40 \
   --training-run /absolute/path/results/Uniform-R4_seed1

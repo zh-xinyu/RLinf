@@ -258,8 +258,16 @@ The low-level launchers and runner's inline validation remain separate; the
 manual wrapper coordinates sequential jobs on the same allocation.
 
 The wrapper also automatically merges all completed checkpoints into
-`<results>/checkpoint_summary.csv` (91 rows for the full matrix) and
-`<results>/checkpoint_results.csv` (3640 task rows), with shared initialization
+`<csv_dir>/checkpoint_summary.csv` (91 rows for the full matrix) and
+`<csv_dir>/checkpoint_results.csv` (3640 task rows), with shared initialization
 deduplication, identity checks and locked atomic upserts. Raw episode files remain
 in each evaluation folder. [CSV documentation](LIBERO_COMMANDS.md#6-automatically-merged-csv-results)
 describes fields, incomplete-result guards and export-only recovery.
+
+## Explicit NAS CSV destination
+
+Machine JSON requires `csv_dir` as an absolute, prepared writable directory;
+`results` continues to select checkpoints/logs and raw evaluation outputs.
+Actual training-plus-evaluation/evaluation launches preflight CSV write access
+before GPU work. All nine runs should share `csv_dir`. No implicit local CSV
+fallback is used. The two paths can both be on NAS if desired.

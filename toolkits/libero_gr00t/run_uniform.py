@@ -10,12 +10,13 @@ import json
 import os
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 
 from toolkits.libero_gr00t.collect_results import record_evaluation
 
 REPO = Path(__file__).resolve().parents[2]
-REQUIRED = {"python", "models", "spatial_teacher", "student", "results"}
+REQUIRED = {"python", "models", "spatial_teacher", "student", "results", "csv_dir"}
 OPTIONAL = {
     "gpus",
     "cpus",
@@ -128,6 +129,18 @@ def launch_spec(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
         OPD_WANDB_RUN_NAME=f"Uniform-R{args.r}_T64_B512_seed{args.seed}",
     )
     return command, env
+
+
+def check_csv_directory(path: Path) -> None:
+    """Check the explicitly prepared NAS destination before any GPU job starts."""
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"Prepare and mount the configured CSV directory first: {path}"
+        )
+    with tempfile.NamedTemporaryFile(prefix=".libero-csv-check-", dir=path) as stream:
+        stream.write(b"write-check\n")
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def evaluation_spec(args: argparse.Namespace, config: dict, label: str) -> list[str]:
@@ -262,7 +275,7 @@ def evaluate_saved_checkpoints(
             record["status"] = "EVALUATED"
             persist()
             record_evaluation(
-                Path(config["results"]), output, args.r, args.seed, round_, run
+                Path(config["csv_dir"]), output, args.r, args.seed, round_, run
             )
             record["status"] = "COMPLETE"
             persist()
@@ -320,6 +333,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.evaluate_all and (not args.run or args.output is not None):
         parser.error("--evaluate-all requires --run; use --config for a relocated run")
     config = machine_config(args.machine)
+    if args.run and not args.train_only:
+        check_csv_directory(Path(config["csv_dir"]))
     if args.evaluate_all:
         run = (
             args.config.parent
@@ -335,7 +350,7 @@ def main(argv: list[str] | None = None) -> None:
         output = Path(command[command.index("--output") + 1])
         training_config = Path(command[command.index("--config") + 1])
         record_evaluation(
-            Path(config["results"]),
+            Path(config["csv_dir"]),
             output,
             args.r,
             args.seed,

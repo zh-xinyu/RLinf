@@ -20,6 +20,7 @@ def mock_result_export(monkeypatch):
 
 def setup_machine(tmp_path, repeats=1):
     config = {key: str(tmp_path / key) for key in entry.REQUIRED}
+    (tmp_path / "csv_dir").mkdir()
     machine = tmp_path / "machine.json"
     machine.write_text(json.dumps(config))
     run = tmp_path / "results" / f"Uniform-R{repeats}_seed0"
@@ -62,6 +63,7 @@ def test_default_training_then_all_evaluations_and_evaluate_only(
     entry.main(args)
     assert len(calls) == 12
     assert [args[4] for args in exports] == list(range(0, 101, 10))
+    assert all(args[0] == tmp_path / "csv_dir" for args in exports)
     assert "--baseline" in calls[1]
     for round_, command in zip(range(10, 101, 10), calls[2:], strict=True):
         assert (

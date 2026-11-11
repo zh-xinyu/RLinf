@@ -11,6 +11,12 @@ import pytest
 from toolkits.libero_gr00t import collect_results as results
 
 
+@pytest.fixture(autouse=True)
+def prepared_csv_directory(tmp_path):
+    """Explicit CSV destinations are prepared by the caller, including on NAS."""
+    (tmp_path / "results").mkdir()
+
+
 def evaluation(path, *, repeats=1, round_=0, checkpoint="weights", base="base"):
     path.mkdir(parents=True)
     manifest = {

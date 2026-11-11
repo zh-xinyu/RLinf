@@ -19,11 +19,9 @@ def mock_result_export(monkeypatch):
 
 
 def machine_file(tmp_path, **overrides):
-    config = {
-        key: str(tmp_path / key)
-        for key in ("python", "models", "spatial_teacher", "student", "results")
-    }
+    config = {key: str(tmp_path / key) for key in entry.REQUIRED}
     config.update(overrides)
+    (tmp_path / "csv_dir").mkdir(exist_ok=True)
     path = tmp_path / "machine.json"
     path.write_text(json.dumps(config))
     return path
@@ -77,6 +75,7 @@ def test_manual_commands_agree_with_frozen_recipe_and_logging(
     [
         {"learning_rate": 1e-4},
         {"models": "relative/models"},
+        {"csv_dir": "relative/csv"},
         {"gpus": [0, 0, 1, 2]},
         {"microbatch_size": True},
         {"cpus": 0},
@@ -217,3 +216,65 @@ def test_eval_dry_run_and_relocated_training_config(tmp_path, monkeypatch):
     )
     assert command[command.index("--weights") + 1].startswith(str(relocated.parent))
     assert "global_step_80" in command[command.index("--weights") + 1]
+
+
+def test_csv_directory_must_be_explicit(tmp_path):
+    path = machine_file(tmp_path)
+    config = json.loads(path.read_text())
+    del config["csv_dir"]
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="csv_dir"):
+        entry.machine_config(path)
+
+
+def test_missing_nas_directory_blocks_gpu_launch(tmp_path, monkeypatch):
+    destination = tmp_path / "unmounted_nas/csv"
+    path = machine_file(tmp_path, csv_dir=str(destination))
+    monkeypatch.setattr(
+        entry.subprocess,
+        "run",
+        lambda *a, **k: pytest.fail("GPU launch before NAS check"),
+    )
+    with pytest.raises(FileNotFoundError, match="CSV directory"):
+        entry.main(["--machine", str(path), "--r", "1", "--seed", "0", "--run"])
+    assert not destination.exists()
+
+
+def test_csv_write_check_removes_its_probe_and_rejects_unwritable_nas(
+    tmp_path, monkeypatch
+):
+    entry.check_csv_directory(tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+    def readonly(*args, **kwargs):
+        raise PermissionError("NAS is read-only")
+
+    monkeypatch.setattr(entry.tempfile, "NamedTemporaryFile", readonly)
+    with pytest.raises(PermissionError):
+        entry.check_csv_directory(tmp_path)
+
+
+def test_single_checkpoint_exports_to_nas_independently_of_run_directory(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "nas_exports"
+    destination.mkdir()
+    path = machine_file(tmp_path, csv_dir=str(destination))
+    exports = []
+    monkeypatch.setattr(entry.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(entry, "record_evaluation", lambda *a, **k: exports.append(a))
+    entry.main(
+        [
+            "--machine",
+            str(path),
+            "--r",
+            "2",
+            "--seed",
+            "1",
+            "--eval-round",
+            "10",
+            "--run",
+        ]
+    )
+    assert exports[0][0] == destination
+    assert exports[0][1] == tmp_path / "results/evaluations/Uniform-R2_seed1_round010"

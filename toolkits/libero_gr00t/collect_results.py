@@ -152,6 +152,10 @@ def record_evaluation(
     training_run: Path | None = None,
 ) -> None:
     """Atomically merge task/macro results from one audited checkpoint evaluation."""
+    if not results.is_dir():
+        raise FileNotFoundError(
+            f"Prepare and mount the CSV destination first: {results}"
+        )
     if (
         repeats not in (1, 2, 4)
         or seed not in (0, 1, 2)
@@ -218,7 +222,6 @@ def record_evaluation(
         "episodes": 2000,
     }
     identity = {key: manifest[key] for key in IDENTITY_KEYS}
-    results.mkdir(parents=True, exist_ok=True)
     with (results / ".results_csv.lock").open("a") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         identity_path = results / "results_identity.json"
@@ -244,7 +247,9 @@ def record_evaluation(
 def main() -> None:
     """Rebuild one checkpoint's CSV rows without launching a GPU evaluation."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--results", type=Path, required=True)
+    parser.add_argument(
+        "--csv-dir", "--results", dest="results", type=Path, required=True
+    )
     parser.add_argument("--evaluation", type=Path, required=True)
     parser.add_argument("--r", type=int, choices=(1, 2, 4), required=True)
     parser.add_argument("--seed", type=int, choices=(0, 1, 2), required=True)

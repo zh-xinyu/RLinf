@@ -133,7 +133,7 @@ remain internal until the owner supplies the later recipe.
 Use [LIBERO_COMMANDS.md](LIBERO_COMMANDS.md) for the complete manual workflow,
 including all nine training commands and checkpoint evaluation by physical round.
 Copy `toolkits/libero_gr00t/configs/uniform_machine.example.json` to
-`outputs/local/libero_machine.json`, edit its absolute model/runtime/results paths
+`outputs/local/libero_machine.json`, edit its absolute model/runtime/results/CSV paths
 and admitted resources once, then select the experiment using R and seed:
 
 ```bash
@@ -210,8 +210,10 @@ Record evaluation costs separately from training interaction budgets.
 ## 6. Required results
 
 The manual entrypoint automatically maintains `checkpoint_summary.csv` and
-`checkpoint_results.csv` in the machine JSON's results root after each audited
-evaluation. All nine runs share these files; round0 is deduplicated. Return these
+`checkpoint_results.csv` in the machine JSON's explicitly configured `csv_dir` after each audited
+evaluation. All nine runs share this NAS directory and these files; round0 is deduplicated.
+`results` independently holds checkpoints/logs and raw evaluation folders. The
+CSV destination must be an existing writable absolute path before actual launches. Return these
 generated files instead of manually copying scores into blank templates. The
 first is the convenient one-row-per-checkpoint table for plotting; the second
 matches the task-level template. See [CSV details](LIBERO_COMMANDS.md#6-automatically-merged-csv-results).
