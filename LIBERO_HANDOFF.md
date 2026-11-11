@@ -4,6 +4,10 @@ Start here. The current assignment is **Uniform-R1/R2/R4, seeds 0/1/2: nine runs
 Adaptive will be assigned after owner tuning. Environment and student acceptance
 are completed jointly before long runs; model files are supplied separately.
 
+Student candidate: [teacher-rollout SFT100 HF export](https://huggingface.co/theo-zhou/vla-mopd-checkpoints/tree/939b3f95b2f269af9242794497020bc4abd43027/libero/groot-n15/teacher-rollout-sft/checkpoint-100),
+approximately7.59GB. Download the complete folder and retain its metadata/index.
+The included manifest records file hashes and candidate acceptance status.
+
 ## 1. Get the code and install once
 
 ```bash
