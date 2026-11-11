@@ -125,7 +125,9 @@ wall time. Equal trajectory budgets do not imply equal physics budgets.
 Saving every 10 rounds and independent evaluation are separate jobs.
 
 Tracked YAMLs are `examples/embodiment/config/libero_mopd_uniform_r{1,2,4}.yaml`.
-Use `toolkits.libero_gr00t.launch_uniform --reuse-updates {1,2,4}`. It preserves
+For manual execution use [the command guide](LIBERO_COMMANDS.md): one local
+machine JSON, then `run_uniform --r {1,2,4} --seed {0,1,2}`. The underlying
+`toolkits.libero_gr00t.launch_uniform --reuse-updates {1,2,4}` preserves
 the strict T64 numerical recipe and selects 100/200/400 updates and 10/20/40
 update save intervals. See [the current handoff](LIBERO_HANDOFF.md) for complete
 plan/run commands, artifact paths, seed labels and required delivery.

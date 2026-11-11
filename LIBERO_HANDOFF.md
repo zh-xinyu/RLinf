@@ -128,86 +128,39 @@ microbatch selection is an admission step and must be consistent across all nine
 runs. The common Adaptive runtime supports it, but Adaptive numerical configs
 remain internal until the owner supplies the later recipe.
 
-## 4. Create a Uniform plan, then launch
+## 4. Manual command entrypoint
 
-After installation, use absolute persistent paths. The examples assume job-local
-visible GPU IDs 0–3; adapt IDs to the scheduler's visible namespace. The four
-selected GPUs must be reserved for this job. Do not run two four-GPU jobs on the
-same allocation simultaneously.
-
-```bash
-export LIBERO_REPO=/absolute/path/libero-mopd
-export LIBERO_RUNTIME=/absolute/path/libero-runtime
-export LIBERO_PYTHON="$LIBERO_RUNTIME/bin/python"
-export LIBERO_MODELS=/absolute/path/models
-export LIBERO_SPATIAL="$LIBERO_MODELS/spatial"
-export LIBERO_STUDENT=/absolute/path/accepted-student-hf
-export LIBERO_RESULTS=/absolute/path/results
-cd "$LIBERO_REPO"
-source "$LIBERO_RUNTIME/libero_env.sh"
-export WANDB_MODE=offline
-export LIBERO_TRAIN_SEED=0
-export LIBERO_REUSE=1
-export LIBERO_MICROBATCH=4
-export OPD_WANDB_GROUP=T64_uniform_seed${LIBERO_TRAIN_SEED}
-export OPD_WANDB_RUN_NAME=Uniform-R${LIBERO_REUSE}_T64_B512_seed${LIBERO_TRAIN_SEED}
-
-LIBERO_COMMON=(--microbatch-size "$LIBERO_MICROBATCH" --python "$LIBERO_PYTHON"
-  --models "$LIBERO_MODELS" --student "$LIBERO_STUDENT"
-  --spatial-teacher "$LIBERO_SPATIAL" --gpus 0 1 2 3 --cpus 32
-  --timeout-seconds 604800
-  --actor-cache-retention-gib 20 --actor-cache-preallocate-gib 12
-  --skip-finished-rollout --log-cuda-memory)
-
-"$LIBERO_PYTHON" -m toolkits.libero_gr00t.launch_uniform \
-  --reuse-updates "$LIBERO_REUSE" --seed "$LIBERO_TRAIN_SEED" \
-  "${LIBERO_COMMON[@]}" --output "$LIBERO_RESULTS/Uniform-R1_seed0_plan"
-```
-
-The models directory must contain `object/`, `goal/`, `long/` and the separate
-Spatial directory. Review `resolved_config.yaml`, `launch.json` and code/model
-provenance. A plan starts no training. Keep the explicit timeout: the underlying
-bounded launcher otherwise defaults to only one hour.
-
-After admission and initial-model acceptance, run with a **different, new** output
-directory (existing plan/run directories are rejected):
+Use [LIBERO_COMMANDS.md](LIBERO_COMMANDS.md) for the complete manual workflow,
+including all nine training commands and checkpoint evaluation by physical round.
+Copy `toolkits/libero_gr00t/configs/uniform_machine.example.json` to
+`outputs/local/libero_machine.json`, edit its absolute model/runtime/results paths
+and admitted resources once, then select the experiment using R and seed:
 
 ```bash
-# Example: R1 seed 0. Every seed/R combination needs a new output path.
-"$LIBERO_PYTHON" -m toolkits.libero_gr00t.launch_uniform \
-  --reuse-updates "$LIBERO_REUSE" --seed "$LIBERO_TRAIN_SEED" \
-  "${LIBERO_COMMON[@]}" \
-  --output "$LIBERO_RESULTS/Uniform-R${LIBERO_REUSE}_seed${LIBERO_TRAIN_SEED}" --run
+# Plan only; no training job starts.
+python3 -m toolkits.libero_gr00t.run_uniform \
+  --machine outputs/local/libero_machine.json --r 4 --seed 1
+# Actual experiment after admission, using a separate automatically named path.
+python3 -m toolkits.libero_gr00t.run_uniform \
+  --machine outputs/local/libero_machine.json --r 4 --seed 1 --run
 ```
 
-For the next run, set `LIBERO_REUSE` to 2 or 4, or `LIBERO_TRAIN_SEED` to 1 or 2;
-then refresh both W&B group/name exports and repeat the launch with the resulting
-new output directory. Do not reuse an existing run directory. For seed 0 R2,
-for example, the labels are `T64_uniform_seed0` and
-`Uniform-R2_T64_B512_seed0`. The complete grid is in `experiment_list.csv`.
+The wrapper calls the configured runtime without requiring activation or repeated
+exports. R/seed determine the tracked numerical preset, result directory and W&B
+labels together. Machine JSON fields cannot override T/B/LR/rounds. Existing
+outputs are rejected; use `--output` for a separately agreed new path.
 
-
-For the exclusive collaborator allocation, start node acceptance at **microbatch
-4/card**, then test **8/card**. Use the same global B512, chosen samples, M3 loss,
-learning rate and optimizer cadence. The launcher accepts `--microbatch-size
-2/4/8`; the default YAML is 4. Select one value before all nine formal runs, record
-it in the result/config receipts and use that value for every R and seed. Changing
-microbatch during a resumed run is not the prescribed protocol.
-
-Measure complete first-teacher query, R4 flow-refresh supervision and student
-forward/backward peaks, plus checkpoint save/resume, on all four GPUs. Warm-up
-alone is insufficient. Choose 8 only if the full sequence fits with operating
-headroom and improves update wall time. At B512/four ranks the nominal gradient
-accumulation is 32 slots/rank for micro4, 16 for micro8; actual native text buckets
-can need extra masked slots, so speedup is measured, not assumed. The mathematical
-per-query objective is preserved; BF16 accumulation is not bitwise identical.
+Default microbatch is 4/card; test 8 through first teacher supervision, every R4
+refresh/update, backward and save/resume on all GPUs before selecting it. The
+nominal accumulation is 32 slots/rank at micro4 and 16 at micro8; native text
+buckets can add masked slots. Choose one admitted value and cache settings for
+all nine runs, based on actual peaks and update wall time. Keep B512/LR fixed.
 Rollout inference stays native B1 and independent evaluation stays unchanged.
+The mathematical objective is preserved; BF16 accumulation is not bitwise exact.
 
-These allocator-cache settings retain the existing operational choice and need
-admission on the actual GPU. Keep the admitted settings identical across runs.
-W&B project is `FORMAL_libero_gr00t`; online
-logging is optional. Use your own account/team or retain offline/local logs.
-Set both run name and group explicitly when later changing the training seed.
+W&B project is `FORMAL_libero_gr00t`. Machine JSON defaults to offline; online is
+optional using the platform's normal login. Runtime/image/model and initial
+student acceptance remain prerequisites, not actions performed by this wrapper.
 
 ## 5. Independent evaluations
 
@@ -216,19 +169,19 @@ runtime. It is scheduled separately from training, not automatically by saving.
 Every checkpoint uses 40 tasks x 50 official states 0–49, seed 1234, five parallel
 states/task/GPU and eight CPUs per active GPU. Require complete episode coverage.
 
-Initial evaluation (use the planned config before a training run exists):
+Use `--eval-round 0` for the shared initial student after creating an R1/seed0
+training plan, or choose a saved round for a trained model:
 
 ```bash
-export LIBERO_RESOLVED_CONFIG="$LIBERO_RESULTS/Uniform-R1_seed0_plan/resolved_config.yaml"
-"$LIBERO_PYTHON" -m toolkits.libero_gr00t.launch_parallel_evaluation \
-  --python "$LIBERO_PYTHON" --config "$LIBERO_RESOLVED_CONFIG" \
-  --student "$LIBERO_STUDENT" --baseline --gpus 0 1 2 3 \
-  --envs-per-task 5 --cpus 8 --output "$LIBERO_RESULTS/initial_eval_plan"
-# Repeat with a new output path and --run after reviewing the plan.
+python3 -m toolkits.libero_gr00t.run_uniform \
+  --machine outputs/local/libero_machine.json --r 1 --seed 0 --eval-round 0 --run
+python3 -m toolkits.libero_gr00t.run_uniform \
+  --machine outputs/local/libero_machine.json --r 4 --seed 1 --eval-round 40 --run
 ```
 
-For a trained checkpoint, use its run's `resolved_config.yaml`, remove
-`--baseline` and pass `--weights` with the absolute path:
+Omit `--run` to inspect each evaluation plan first. The latter command selects
+update160 automatically. Full instructions and relocated-config handling are in
+[the command guide](LIBERO_COMMANDS.md). Checkpoints retain the layout:
 
 ```text
 <run>/libero_uniform/checkpoints/global_step_<update>/actor/model_state_dict/full_weights.pt

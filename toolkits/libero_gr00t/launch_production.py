@@ -723,10 +723,18 @@ def main() -> None:
         raise FileExistsError("Use a new output directory for each dry-run or run")
     if args.cpus < 1 or args.timeout_seconds <= 0:
         raise ValueError("cpus and timeout-seconds must be positive")
-    runtime_env_file = args.python.parent.parent / "env.sh"
-    if not runtime_env_file.is_file():
+    runtime_root = args.python.parent.parent
+    runtime_env_file = next(
+        (
+            p
+            for p in (runtime_root / "libero_env.sh", runtime_root / "env.sh")
+            if p.is_file()
+        ),
+        None,
+    )
+    if runtime_env_file is None:
         raise FileNotFoundError(
-            f"Expected runtime env.sh beside bin/: {runtime_env_file}"
+            f"Expected runtime libero_env.sh or env.sh beside bin/: {runtime_root}"
         )
     checkpoint_paths = {
         "student": args.student.resolve(strict=True),

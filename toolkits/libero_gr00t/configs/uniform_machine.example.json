@@ -1,0 +1,14 @@
+{
+  "python": "/absolute/persistent/path/libero-runtime/bin/python",
+  "models": "/absolute/persistent/path/models",
+  "spatial_teacher": "/absolute/persistent/path/models/spatial",
+  "student": "/absolute/persistent/path/accepted-student-hf",
+  "results": "/absolute/persistent/path/results",
+  "gpus": [0, 1, 2, 3],
+  "cpus": 32,
+  "microbatch_size": 4,
+  "wandb_mode": "offline",
+  "timeout_seconds": 604800,
+  "actor_cache_retention_gib": 20,
+  "actor_cache_preallocate_gib": 12
+}
