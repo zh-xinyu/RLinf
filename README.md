@@ -20,17 +20,21 @@ student's flow trajectories and teacher supervision.
 | Inspect implementation and historical pilots | [Toolkit notes](toolkits/libero_gr00t/README.md) |
 | Reproduce the separate RoboCasa environment | [RoboCasa profile](OPD_ENVIRONMENT.md) |
 
-This development branch aligns squared-gap rollout/query allocation with RoboTwin.
+This release branch packages Uniform-R1/R2/R4 controls and retains the
+squared-gap rollout/query implementation aligned with RoboTwin for later tuning.
 It retains the tested LIBERO T64 recipe and the previous candidate snapshot. The new teacher-rollout SFT
 initializer still requires complete screening, confirmation and a short MOPD
 transition check. New cluster hardware also requires admission tests. The
 experiment contract lists these gates explicitly; do not treat historical
 Offline-Distilled-50 experiments as results of the new initialization.
 
-The default main matrix is four arms, one node/four GPUs, T64trajectories/round,
-100rounds, B512 and Refresh-R1/R2. Independent evaluation uses40tasks ×50states
-per saved checkpoint through the training environment/rollout implementation.
-Installation is isolated from RoboCasa and requires no personal node profiles.
+The current collaborator matrix is Uniform-R1/R2/R4, each with training seeds
+0/1/2: nine runs, one node/four GPUs, T64 trajectories/round, 100 rounds and B512.
+Save and independently evaluate every 10 rounds. Adaptive experiments will be
+assigned separately after local tuning; their source and common runtime are
+retained. Independent evaluation uses 40 tasks x 50 states per checkpoint through
+the training environment/rollout implementation. Installation is isolated from
+RoboCasa and requires no personal node profiles.
 
 Checkpoints, raw experiments, credentials and machine paths are distributed
 separately. Source/configuration files and portable setup instructions belong in

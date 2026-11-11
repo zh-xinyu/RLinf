@@ -1,0 +1,13 @@
+# Uniform-R4: 100 physical rounds, save every 10 rounds.
+defaults:
+  - libero_mopd_uniform_r2
+  - _self_
+
+runner:
+  max_steps: 400
+  save_interval: 40
+  logger:
+    wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,Uniform-R4_T64_B512}
+
+algorithm:
+  flow_refresh_updates: 4

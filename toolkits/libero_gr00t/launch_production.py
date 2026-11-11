@@ -297,6 +297,7 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
             for i in range(4)
         }
         | {f"libero_mopd_adaptive_query_m{i}" for i in range(4)}
+        | {f"libero_mopd_uniform_r{r}" for r in (1, 2, 4)}
         or not mixed_execution
         or allocation_smoke
     ):
@@ -446,9 +447,13 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
         cfg.runner.logger.log_path = str(args.output)
         cfg.runner.logger.experiment_name = (
             (
-                "libero_gap_query"
-                if config_name.startswith("libero_mopd_adaptive_query_")
-                else "libero_formal"
+                "libero_uniform"
+                if config_name.startswith("libero_mopd_uniform_")
+                else (
+                    "libero_gap_query"
+                    if config_name.startswith("libero_mopd_adaptive_query_")
+                    else "libero_formal"
+                )
             )
             if formal
             else "libero_production_smoke"
@@ -599,7 +604,8 @@ def main() -> None:
         + [f"libero_mopd_mixed_k_m{i}" for i in range(4)]
         + [f"libero_mopd_formal_m{i}" for i in range(4)]
         + [f"libero_mopd_formal_t64_m{i}" for i in range(4)]
-        + [f"libero_mopd_adaptive_query_m{i}" for i in range(4)],
+        + [f"libero_mopd_adaptive_query_m{i}" for i in range(4)]
+        + [f"libero_mopd_uniform_r{r}" for r in (1, 2, 4)],
         default=CONFIG_NAME,
     )
     parser.add_argument("--run-purpose", choices=["pilot", "formal"], default="pilot")

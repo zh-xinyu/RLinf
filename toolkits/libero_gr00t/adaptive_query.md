@@ -1,6 +1,6 @@
 # LIBERO: squared SR gap with synchronized rollout and query allocation
 
-Implementation branch: `experiment/libero-gr00t-adaptive-query`, based on the
+Implementation branch: `release/libero-gr00t`, based on the
 candidate snapshot `e5b21cc6`. This aligns the method with RoboTwin while keeping
 LIBERO's tested numerical and interaction settings. It does not copy RoboTwin's
 T32, B256 or50-round budget. The controller uses the agreed single10-round
@@ -73,7 +73,13 @@ physical/query share changes. Keep interval10so each decision can use one comple
 window collected under the preceding quota. The bound remains disclosed and fixed
 rather than swept. No new EMA, mixing coefficient or demand proxy is introduced.
 
-## Matrix and entrypoint
+## Internal candidate matrix and entrypoint
+
+Adaptive is retained for owner-side tuning and a later handoff. The current
+collaborator assignment is Uniform-R1/R2/R4 x three seeds; follow
+[the release handoff](../../LIBERO_HANDOFF.md) for that queue. The four-arm matrix
+and its evaluation counts below describe the separate internal candidate plan.
+
 
 | Arm | Rollout / query allocation | R | Updates | Save at updates |
 | --- | --- | ---: | ---: | --- |

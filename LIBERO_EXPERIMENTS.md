@@ -7,7 +7,7 @@ rollout allocation with synchronized query counts, teacher-rollout SFT,
 and independent evaluation through the training rollout implementation.
 
 **Status: new-method development, not a launch-ready final experiment release.**
-The current branch is `experiment/libero-gr00t-adaptive-query`, based on the
+The current branch is `release/libero-gr00t`, based on the
 candidate snapshot `e5b21cc6`. The source-freeze candidate remains available as
 `release/libero-gr00t-candidate`. Use the [current method/commands](toolkits/libero_gr00t/adaptive_query.md)
 for squared-gap rollout/query allocation. Historical formal YAMLs/launchers are
@@ -92,72 +92,44 @@ probe. Freeze and distribute exactly one accepted HF export plus content hashes.
 All arms must start from that same export with a fresh MOPD optimizer. The
 public upload location for this new artifact is still pending.
 
-## Main matrix once initialization is accepted
+## Current collaborator matrix once initialization is accepted
 
-| Arm | Rollout allocation / query allocation | R | Rounds | Optimizer updates | Save at updates |
+| Control | Training seeds | R | Rounds/run | Optimizer updates/run | Save at updates |
 | --- | --- | ---: | ---: | ---: | --- |
-| M0 | Uniform / equal | 1 | 100 | 100 | 10/20/.../100 |
-| M1 | Uniform / equal | 2 | 100 | 200 | 20/40/.../200 |
-| M2 | Adaptive / synchronized | 2 | 100 | 200 | 20/40/.../200 |
-| M3 | Adaptive / synchronized | 1 | 100 | 100 | 10/20/.../100 |
+| Uniform-R1 | 0/1/2 | 1 | 100 | 100 | 10/20/.../100 |
+| Uniform-R2 | 0/1/2 | 2 | 100 | 200 | 20/40/.../200 |
+| Uniform-R4 | 0/1/2 | 4 | 100 | 400 | 40/80/.../400 |
 
-Shared: one node/four ranks; T64trajectories/round,16environment slots/rank,
-B512, micro2/rank, LR3e-5, four **optimizer-update** warmup steps then constant,
-AdamW(.9,.95), decay0, clip1. Each update samples the full rollout observation
-pool with128examples/suite in Uniform arms; Adaptive uses global counts8*q_s.
-Refresh regenerates flow noise/trajectories and
-teacher targets for the current student. B/LR are not divided by R. Seeds0/1/2
-are repeats; start with0. Existing YAMLs and launch validation encode this recipe.
+Nine runs are assigned. Start with the three reuse settings at seed 0, then
+repeat with seeds 1 and 2. All runs use the same accepted initialization with
+fresh optimizers. Adaptive source remains available, but its experiments are
+**not assigned to the collaborator yet**: the owner will tune it and supply a
+later pinned handoff. The retained M2/M3 configs are internal candidates.
 
-Adaptive uses the verified teacher calibration, rho1, epsilon0 and squared
-positive suite SR gaps. The current controller uses warmup=window=interval=10
-physical rounds, a one-episode/task validity check and fixed quota-change cap8
-per suite/decision. Uniform quotas are16/16/16/16. Query counts follow actual
-projected quotas; extra suite loss coefficients are disabled. Learning progress
-is diagnostic only. First adaptive decision is round11. At the minimum quota4,
-round-robin scheduling still supplies at least4episodes/task/window; the validity
-check is not a tunable confidence threshold. Base training parameters stay fixed.
+Shared: one node/four ranks; T64 trajectories/round, 16 env slots/rank, B512,
+micro2/rank, LR3e-5, four optimizer-update warmup steps then constant,
+AdamW(.9,.95), decay0, clip1. Every update uses 128 examples/suite, with the
+unchanged M3 time weights and execution prefixes. Refresh draws observations
+from the full current rollout pool, regenerates current-student flow with fresh
+noise and queries the matching teachers. B/LR are not divided by R.
 
-All arms collect6400student trajectories; optimizer compute differs by design.
-Use rollout rounds as the main x-axis, and retain trajectories, actual simulation
-steps, optimizer updates and wall time. Equal trajectory budgets do not imply
-equal physics budgets when suite allocation and episode lengths change.
-Use the same operational allocator/cache settings across compared arms and
-record GPU sharing. Saving every10rounds and independent evaluation are separate
-jobs: saving does not automatically launch evaluation.
+Each run collects 6400 student trajectories; the nine-run total is 57,600.
+Optimizer compute differs by design. Use physical rollout rounds as the main
+x-axis; also retain trajectories, executed simulation steps, update count and
+wall time. Equal trajectory budgets do not imply equal physics budgets.
+Saving every 10 rounds and independent evaluation are separate jobs.
 
-## Portable command contract
+Tracked YAMLs are `examples/embodiment/config/libero_mopd_uniform_r{1,2,4}.yaml`.
+Use `toolkits.libero_gr00t.launch_uniform --reuse-updates {1,2,4}`. It preserves
+the strict T64 numerical recipe and selects 100/200/400 updates and 10/20/40
+update save intervals. See [the current handoff](LIBERO_HANDOFF.md) for complete
+plan/run commands, artifact paths, seed labels and required delivery.
 
-First follow [LIBERO_ENVIRONMENT.md](LIBERO_ENVIRONMENT.md). Arrange separate
-artifact directories: `LIBERO_MODELS/object`, `goal`, `long`, a Spatial checkpoint
-directory and the accepted student export. Include `config.json`, all required
-weight shards/index and `experiment_cfg/metadata.json`; retain immutable upstream
-revisions and hashes. The historical `download.py` has a private output layout
-and an older strong student; it is not the current portable acquisition entry.
-
-Example **plan only** for M1, using paths populated after initialization acceptance:
-
-```bash
-export OPD_WANDB_GROUP=T64_gap_query_seed0
-export OPD_WANDB_RUN_NAME=M1_Uniform-R2_T64_B512_seed0
-export WANDB_MODE=offline
-"$LIBERO_PYTHON" -m toolkits.libero_gr00t.launch_adaptive_query \
-  --arm m1 --seed 0 --python "$LIBERO_PYTHON" \
-  --models "$LIBERO_MODELS" --student "$LIBERO_STUDENT" \
-  --spatial-teacher "$LIBERO_SPATIAL" --gpus 0 1 2 3 --cpus 32 \
-  --actor-cache-retention-gib 20 --actor-cache-preallocate-gib 12 \
-  --skip-finished-rollout --log-cuda-memory \
-  --output "$LIBERO_RESULTS/M1_plan"
-```
-
-Without `--run`, the launcher writes a plan. Inspect the resolved config and
-model identities. Run acceptance and actual training only under an allocation,
-using a new output directory and `--run`. W&B project is `FORMAL_libero_gr00t`;
-offline/local records remain sufficient. M0/M3 use100updates; M1/M2 use200.
-For M2/M3, `OPD_LIBERO_TEACHER_REFERENCE` must identify a validated reference
-bound to the relocated, hash-identical teacher files and execution signature.
-The old reference embeds local paths: do not edit those paths by hand or silently
-recalibrate. Preparing that portable bundle is a remaining handoff task.
+Uniform needs all four teacher checkpoints for supervision but does not need a
+teacher SR reference. The later Adaptive handoff requires the fixed teacher50
+calibration and content-verified binding to relocated artifacts. Do not hand-edit
+old absolute reference paths or change a reference during training. The retained
+method is documented [separately](toolkits/libero_gr00t/adaptive_query.md).
 
 ## Independent evaluation and required delivery
 
@@ -168,8 +140,10 @@ packets and private episode RNG replace training quota sampling; the physics,
 observation conversion, action execution and policy interfaces are shared.
 The historical standalone K8 YAML/launcher is not the current protocol.
 
-Evaluate round0once and each arm every10rounds through round100:41checkpoints
-for the first seed, each40tasks×50official initial states0–49=2000episodes. Fixed seed1234, private episode
+Evaluate round 0 once and every run every 10 rounds through round 100:
+31 checkpoints for seed 0 including the shared initial result (62,000 episodes),
+or 91 across all three seeds (182,000 episodes). Each checkpoint uses 40 tasks x
+50 official initial states 0–49 = 2000 episodes. Fixed seed1234, private episode
 noise seed `1234 + local_task_id*100 + trial_id`; five parallel states/task/GPU.
 Require full pair coverage before computing a reportable score.
 
@@ -242,3 +216,11 @@ for LIBERO T64. Use min_task_episodes1solely to
 reject an undefined task SR. No rollout/query/loss equation changed. The numerical
 training settings, save/evaluation grid and pending initializer/GPU gates remain
 unchanged. Stability of policy gains still requires real multi-seed experiments.
+
+## Uniform release queue revision
+
+The collaborator queue is now Uniform-R1/R2/R4 with three seeds, superseding the
+earlier four-arm seed-0-first allocation handoff. Historical development and
+measurement-grid notes above describe their then-current internal candidate
+matrix. Adaptive implementation remains on this release branch for later owner
+tuning; those experiments are not part of the current collaborator assignment.

@@ -17,8 +17,8 @@ The numerical experiment contract stays in
 [LIBERO_EXPERIMENTS.md](LIBERO_EXPERIMENTS.md).
 
 Start the collaborator queue from [LIBERO_HANDOFF.md](LIBERO_HANDOFF.md):
-environment admission, shared initial evaluation, then Uniform-R1 and Uniform-R2,
-training seed 0. The team will debug the selected image together; internal pip
+environment admission, shared initial evaluation, then Uniform-R1/R2/R4,
+each with training seeds 0/1/2. Adaptive is held for a later owner-tuned handoff. The team will debug the selected image together; internal pip
 configuration is owned by the platform.
 
 ## Information needed to finish the manual commands

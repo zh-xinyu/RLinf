@@ -1,0 +1,10 @@
+# Uniform-R2: 100 physical rounds, save every 10 rounds.
+defaults:
+  - libero_mopd_adaptive_query_m1
+  - _self_
+
+runner:
+  logger:
+    experiment_name: libero_uniform
+    wandb_group: ${oc.env:OPD_WANDB_GROUP,T64_uniform}
+    wandb_run_name: ${oc.env:OPD_WANDB_RUN_NAME,Uniform-R2_T64_B512}
