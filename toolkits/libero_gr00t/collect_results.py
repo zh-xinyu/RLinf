@@ -11,6 +11,8 @@ import json
 import math
 from pathlib import Path
 
+from toolkits.libero_gr00t.offline50_recipe import rho_tag
+
 SUITES = ("libero_spatial", "libero_object", "libero_goal", "libero_10")
 HORIZONS = (240, 240, 320, 480)
 EXECUTION = (5, 5, 5, 10)
@@ -170,6 +172,7 @@ def record_evaluation(
     *,
     method: str = "uniform",
     interval: int | None = None,
+    rho: float | None = None,
     episodes_per_task: int = 50,
 ) -> None:
     """Atomically merge task/macro results from one audited checkpoint evaluation."""
@@ -177,6 +180,10 @@ def record_evaluation(
         raise FileNotFoundError(
             f"Prepare and mount the CSV destination first: {results}"
         )
+    if rho is not None:
+        if method != "adaptive" or rho not in (0.5, 1.0) or interval not in (None, 5):
+            raise ValueError("Rho variants require Adaptive rho0.5/1 and interval5")
+        interval = 5
     if (
         method not in ("uniform", "adaptive")
         or repeats not in (1, 2, 4)
@@ -201,7 +208,10 @@ def record_evaluation(
         ):
             raise ValueError("Weights do not match the requested physical round and R")
         checkpoint = manifest["weights_sha256"]
-    arm = method.capitalize() + (f"-I{interval}" if interval is not None else "")
+    arm = method.capitalize()
+    if rho is not None:
+        arm += f"-Rho{rho_tag(rho)}"
+    arm += f"-I{interval}" if interval is not None else ""
     row = {
         "arm": "INITIAL" if round_ == 0 else f"{arm}-R{repeats}",
         "seed": "" if round_ == 0 else seed,
@@ -293,6 +303,7 @@ def main() -> None:
     parser.add_argument("--evaluation", type=Path, required=True)
     parser.add_argument("--method", choices=("uniform", "adaptive"), default="uniform")
     parser.add_argument("--interval", type=int, choices=(5, 10))
+    parser.add_argument("--rho", type=float, choices=(0.5, 1.0))
     parser.add_argument(
         "--episodes-per-task", type=int, choices=(10, 20, 50), default=50
     )
@@ -310,6 +321,7 @@ def main() -> None:
         args.training_run,
         method=args.method,
         interval=args.interval,
+        rho=args.rho,
         episodes_per_task=args.episodes_per_task,
     )
 

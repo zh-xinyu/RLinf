@@ -1,0 +1,17 @@
+# Squared-gap allocation: vary uniform-mixing strength only; fixed I5/W10.
+defaults:
+  - libero_mopd_adaptive_release_r2
+  - _self_
+
+runner:
+  max_steps: 160
+  save_interval: 20
+  rollout_allocation:
+    warmup_rounds: 10
+    window_rounds: 10
+    interval_rounds: 5
+    priority_power: 2.0
+    rho: 0.5
+    epsilon: 0.0
+    min_task_episodes: 1
+    max_quota_change: 8

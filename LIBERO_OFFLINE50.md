@@ -67,21 +67,34 @@ All runs: seed0, T64, B512, LR3e-5, four optimizer-update LR warmup steps then
 constant, original M3 and fresh optimizer. K5/5/5/10, native B1 inference, metadata
 adapters and four ODE steps are unchanged. Every run collects5120trajectories.
 
-| Run | Allocator warmup / window | Interval | R | Rounds | Updates | Server |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Uniform-R1 | — | — | 1 | 80 | 80 | 1 |
-| Uniform-R2 | — | — | 2 | 80 | 160 | 2 |
-| Adaptive-I10-R1 | 10 / 10 rounds | 10 | 1 | 80 | 80 | 3 |
-| Adaptive-I10-R2 | 10 / 10 rounds | 10 | 2 | 80 | 160 | 1 |
-| Adaptive-I5-R1 | 10 / 10 rounds | 5 | 1 | 80 | 80 | 2 |
-| Adaptive-I5-R2 | 10 / 10 rounds | 5 | 2 | 80 | 160 | 3 |
+| Run | rho | Warmup / window | Interval | R | Rounds | Updates | Server |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Uniform-R1 | — | — | — | 1 | 80 | 80 | 1 |
+| Uniform-R2 | — | — | — | 2 | 80 | 160 | 2 |
+| Adaptive-Rho1-I5-R1 | 1.0 | 10 / 10 rounds | 5 | 1 | 80 | 80 | 3 |
+| Adaptive-Rho1-I5-R2 | 1.0 | 10 / 10 rounds | 5 | 2 | 80 | 160 | 1 |
+| Adaptive-Rho0p5-I5-R1 | 0.5 | 10 / 10 rounds | 5 | 1 | 80 | 80 | 2 |
+| Adaptive-Rho0p5-I5-R2 | 0.5 | 10 / 10 rounds | 5 | 2 | 80 | 160 | 3 |
 
-Both Adaptive settings use squared positive teacher/student SR gaps, rho1,
-epsilon0, minimum suite quota4 and maximum quota change8 per decision. Realized
-rollout quotas determine query counts; there is no additional suite loss weight.
-Both start adapting at round11. I10 makes7decisions through80rounds; I5 makes14.
-Their ten-round windows overlap for I5. Keep both results; neither setting is a
-cross-seed replication. Each server performs160rounds/240updates in total.
+Both Adaptive settings use squared positive teacher/student SR gaps. They differ
+**only in rho**, with target probabilities:
+
+```text
+gap[s] = max(teacher_sr[s] - student_window_sr[s], 0)
+probability[s] = (1-rho)/4 + rho * gap[s]**2 / sum(gap**2)
+```
+
+All-zero gaps return a uniform target. Rho1 matches the current RoboTwin law;
+rho0.5 retains half the uniform allocation and allocates the other half by
+squared gap. Project to integer actual quotas using minimum suite quota4 and
+maximum quota change8 per decision. Actual quotas determine query counts; no
+additional suite loss weight is applied. Epsilon0, warmup/window10 and interval5
+are identical. Both first affect round11 and make14decisions through80rounds;
+windows overlap. The filename tag `Rho0p5` means the CLI value `--rho 0.5`.
+
+Each server performs160rounds/240updates. Keep both strength settings; neither
+is a cross-seed replication. These settings replace the preceding I5/I10 sweep;
+the old YAMLs are retained for historical recovery, not silently relabeled.
 
 First inspect a plan on each server (change `--server` to its assigned1/2/3):
 
@@ -105,7 +118,7 @@ python3 -m toolkits.libero_gr00t.queue_offline50 --machine outputs/local/libero_
 Each queue trains its two jobs first, then automatically evaluates both. Run one
 queue per four-GPU allocation. No separate evaluation command is needed normally.
 For one job, use `run_offline50` instead; select `--r 1|2`, and for Adaptive add
-`--method adaptive --interval 10|5`. Its `--run` trains and evaluates that job.
+`--method adaptive --rho 0.5|1`. Its `--run` trains and evaluates that job.
 
 ## 4. Automatic evaluation and result delivery
 
@@ -116,6 +129,7 @@ implementation remain unchanged. The initial and final **curve points use the
 first twenty raw trials of their full fifty-trial evaluation**, without new physics.
 
 Evaluation prioritizes shared initial and final results, then intermediate curves.
+Independent evaluation outcomes never feed the allocator; its window uses training rollouts.
 The initial result is locked/audited/reused through the shared NAS CSV namespace.
 All three machine files must point `csv_dir` at the same existing prepared NAS
 root to reuse it across servers. Each job adds6000evaluation episodes; the shared
@@ -134,7 +148,7 @@ Existing destinations are preserved. New outputs go under:
 
 The configured parent `csv_dir` must already exist and permit write/fsync. The
 new child namespace is created automatically; no local fallback or JSON edit is
-used. Adaptive-I5/I10 have distinct run labels/CSV arms. W&B, when enabled through
+used. Adaptive-Rho0p5-I5/Rho1-I5 have distinct run labels/CSV arms. W&B, when enabled through
 existing local settings, uses distinct Offline50 labels in `FORMAL_libero_gr00t`;
 no login/account/team change is required.
 
@@ -142,6 +156,13 @@ Return the four CSVs, two protocol identities, and share raw training/evaluation
 artifacts. Retain checkpoints until audits finish; transferring them is not required.
 
 ### Recovery without retraining
+
+Completed Uniform runs keep the same paths and can be reused. The new rho variants
+have explicit new labels; old I5/I10 experiments remain separate. Do not resume
+an old I10 optimizer under a new rho setting or rename it as rho0.5. For an actual
+old interval-study run, `--interval 5|10` remains supported **only for evaluation
+recovery**; it cannot start new training. Existing I5/rho1 results may be assessed
+for scientific equivalence separately rather than automatically relabeled.
 
 The evaluation-only10-to-20upgrade accepts unchanged completed80-round training
 from the preceding release. Full50-state endpoint results can be reused after
@@ -161,10 +182,10 @@ For evaluation-only recovery of one run:
 ```bash
 python3 -m toolkits.libero_gr00t.run_offline50 \
   --machine outputs/local/libero_machine.json --student /absolute/offline50/hf \
-  --method adaptive --interval 10 --r 2 --seed 0 --evaluate-all --run
+  --method adaptive --rho 1 --r 2 --seed 0 --evaluate-all --run
 ```
 
-Use that run's exact method/interval/R. `--config /relocated/run/resolved_config.yaml`
+Use that run's exact method/rho/R. `--config /relocated/run/resolved_config.yaml`
 can identify a relocated completed run. Source/model/protocol mismatches are
 rejected; do not mix code updates into an active training/evaluation session.
 

@@ -24,11 +24,11 @@ The installation guide is needed once; the other pages below are references.
 | Inspect earlier 100-round experiments | [Historical contract](LIBERO_EXPERIMENTS.md) |
 | Reproduce the separate RoboCasa environment | [RoboCasa profile](OPD_ENVIRONMENT.md) |
 
-The current matrix is Uniform-R1/R2 and Adaptive-I5/I10-R1/R2, seed0,
+The current matrix is Uniform-R1/R2 and Adaptive-rho0.5/rho1-R1/R2, seed0,
 80physical rollout rounds, T64 and B512. All methods use the restored
 Offline-Distilled-50 initialization and unchanged specialist teachers. The two
-Adaptive variants keep the squared-gap law and differ only in decision interval;
-allocator warmup/window are10rounds. The additional SFT100 export and older
+Adaptive variants keep the squared-gap law and differ only in uniform-mixing
+strength rho0.5/1; interval is5rounds and warmup/window are10rounds. The additional SFT100 export and older
 100-round controls remain separate historical artifacts.
 
 New `queue_offline50` / `run_offline50` commands use the existing runtime and

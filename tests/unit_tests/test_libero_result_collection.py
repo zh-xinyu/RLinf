@@ -278,3 +278,23 @@ def test_actual_training_root_counter_is_exported(tmp_path):
         row["training_simulation_steps"] == "456789"
         and row["training_trajectories"] == "5120"
     )
+
+
+def test_strength_and_historical_interval_results_have_distinct_csv_arms(tmp_path):
+    root = tmp_path / "results"
+    old = evaluation(tmp_path / "old", round_=80, repeats=2, checkpoint="old")
+    results.record_evaluation(root, old, 2, 0, 80, method="adaptive", interval=5)
+    for rho in (0.5, 1.0):
+        out = evaluation(
+            tmp_path / f"rho{rho}", round_=80, repeats=2, checkpoint=f"weights{rho}"
+        )
+        results.record_evaluation(root, out, 2, 0, 80, method="adaptive", rho=rho)
+    assert {r["arm"] for r in rows(root / "checkpoint_summary.csv")} == {
+        "Adaptive-I5-R2",
+        "Adaptive-Rho0p5-I5-R2",
+        "Adaptive-Rho1-I5-R2",
+    }
+    with pytest.raises(ValueError, match="interval5"):
+        results.record_evaluation(
+            root, old, 2, 0, 80, method="adaptive", rho=0.5, interval=10
+        )

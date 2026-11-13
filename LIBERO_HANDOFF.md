@@ -7,7 +7,7 @@ and machine JSON; local GPU/CPU/microbatch/logging choices remain local.
 Start with **[LIBERO_OFFLINE50.md](LIBERO_OFFLINE50.md)** for checkpoint download,
 three server queue commands, exact settings, automatic measurement, CSV paths,
 recovery and timing estimates. The two Adaptive variants retain the squared-gap
-law and differ only in decision interval5/10; warmup/window are10rounds.
+law and differ only in rho0.5/1; interval5 and warmup/window10 are shared.
 
 The legacy `run_experiment` / `run_uniform` commands retain their historical
 100-round behavior. Use the new `queue_offline50` / `run_offline50` commands for

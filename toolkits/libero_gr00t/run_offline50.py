@@ -15,10 +15,13 @@ from pathlib import Path
 
 from toolkits.libero_gr00t.collect_results import record_evaluation
 from toolkits.libero_gr00t.offline50_recipe import (
+    ADAPTIVE_INTERVAL,
     CURVE_EPISODES,
     CURVE_ROUNDS,
+    RHO_VALUES,
     ROUNDS,
     config_name,
+    rho_tag,
 )
 from toolkits.libero_gr00t.run_uniform import (
     REPO,
@@ -83,6 +86,8 @@ def verify_initializer(student: Path) -> str:
 def label(args: argparse.Namespace) -> str:
     """Separate all six variants from old SFT100 and historical runs."""
     method = args.method.capitalize()
+    if getattr(args, "rho", None) is not None:
+        method += f"-Rho{rho_tag(args.rho)}"
     if args.interval is not None:
         method += f"-I{args.interval}"
     return f"Offline50_80r_{method}-R{args.r}_seed{args.seed}"
@@ -98,7 +103,7 @@ def training_spec(args: argparse.Namespace, settings: dict) -> tuple[list[str], 
         "-m",
         "toolkits.libero_gr00t.launch_production",
         "--config-name",
-        config_name(args.method, args.r, args.interval),
+        config_name(args.method, args.r, args.interval, rho=getattr(args, "rho", None)),
         "--run-purpose",
         "formal",
         "--execution-protocol",
@@ -154,7 +159,7 @@ def training_spec(args: argparse.Namespace, settings: dict) -> tuple[list[str], 
 
 def contract(args: argparse.Namespace, identity: str, resolved: Path) -> dict:
     """Keep evaluation recovery tied to the exact training recipe."""
-    return {
+    result = {
         "schema_version": 1,
         "method": args.method,
         "r": args.r,
@@ -167,6 +172,9 @@ def contract(args: argparse.Namespace, identity: str, resolved: Path) -> dict:
         "curve_episodes_per_task": CURVE_EPISODES,
         "final_episodes_per_task": 50,
     }
+    if getattr(args, "rho", None) is not None:
+        result["rho"] = args.rho
+    return result
 
 
 def weights(run: Path, args: argparse.Namespace, round_: int) -> Path:
@@ -243,6 +251,8 @@ def export_evaluation(
 ) -> None:
     """Separate curve CSVs from final CSVs; reuse full endpoints without physics."""
     common = {"method": args.method, "interval": args.interval}
+    if getattr(args, "rho", None) is not None:
+        common["rho"] = args.rho
     record_evaluation(
         Path(settings["csv_dir"]),
         output,
@@ -375,11 +385,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--method", choices=("uniform", "adaptive"), default="uniform")
     parser.add_argument("--r", type=int, choices=(1, 2), required=True)
     parser.add_argument("--seed", type=int, choices=(0, 1, 2), default=0)
-    parser.add_argument(
+    selector = parser.add_mutually_exclusive_group()
+    selector.add_argument(
+        "--rho",
+        type=float,
+        choices=RHO_VALUES,
+        help="Required for new Adaptive runs; interval is fixed to five physical rounds",
+    )
+    selector.add_argument(
         "--interval",
         type=int,
         choices=(5, 10),
-        help="Required for Adaptive; rounds, not optimizer updates",
+        help="Historical I5/I10 evaluation recovery only; use --rho for new training",
     )
     parser.add_argument(
         "--output",
@@ -412,8 +429,17 @@ def main(argv: list[str] | None = None) -> None:
         help="Train80 rounds, then automatically evaluate; default is plan-only",
     )
     args = parser.parse_args(argv)
-    if (args.method == "adaptive") != (args.interval is not None):
-        parser.error("Adaptive requires --interval 5 or 10; Uniform must omit it")
+    if args.method == "uniform" and (args.rho is not None or args.interval is not None):
+        parser.error("Uniform must omit --rho and --interval")
+    if args.method == "adaptive":
+        if args.rho is not None:
+            args.interval = ADAPTIVE_INTERVAL
+        elif args.interval is None:
+            parser.error("New Adaptive runs require --rho 0.5 or 1")
+        elif not (args.evaluate_all or args.eval_round is not None or args.verify_only):
+            parser.error(
+                "--interval is historical recovery only; new training requires --rho"
+            )
     if args.episodes_per_task is not None and args.eval_round is None:
         parser.error("--episodes-per-task requires --eval-round")
     if args.eval_round is not None and (

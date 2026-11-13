@@ -14,9 +14,9 @@ from toolkits.libero_gr00t.run_offline50 import REPO, effective_settings, label
 
 # Each four-GPU server collects160 rounds and performs240 optimizer updates.
 ASSIGNMENTS = {
-    1: (("uniform", 1, None), ("adaptive", 2, 10)),
-    2: (("uniform", 2, None), ("adaptive", 1, 5)),
-    3: (("adaptive", 1, 10), ("adaptive", 2, 5)),
+    1: (("uniform", 1, None), ("adaptive", 2, 1.0)),
+    2: (("uniform", 2, None), ("adaptive", 1, 0.5)),
+    3: (("adaptive", 1, 1.0), ("adaptive", 2, 0.5)),
 }
 
 
@@ -33,9 +33,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     measurements = []
-    for method, r, interval in ASSIGNMENTS[args.server]:
+    for method, r, rho in ASSIGNMENTS[args.server]:
         selected = argparse.Namespace(
-            **vars(args), method=method, r=r, interval=interval, seed=0
+            **vars(args),
+            method=method,
+            r=r,
+            rho=rho,
+            interval=5 if rho is not None else None,
+            seed=0,
         )
         settings = effective_settings(selected)
         run = Path(settings["results"]) / label(selected)
@@ -54,8 +59,8 @@ def main(argv: list[str] | None = None) -> None:
         ]
         if args.student is not None:
             command += ["--student", str(args.student.absolute())]
-        if interval is not None:
-            command += ["--interval", str(interval)]
+        if rho is not None:
+            command += ["--rho", str(rho)]
         if args.run:
             complete = (run / "status").is_file() and (
                 run / "status"

@@ -18,18 +18,18 @@ from toolkits.libero_gr00t.offline50_recipe import config_name
 
 
 @pytest.mark.parametrize(
-    "method,interval", [("uniform", None), ("adaptive", 5), ("adaptive", 10)]
+    "method,rho", [("uniform", None), ("adaptive", 0.5), ("adaptive", 1.0)]
 )
 @pytest.mark.parametrize("repeats", [1, 2])
-def test_six_recipes_preserve_shared_numerics_and_change_only_interval(
-    tmp_path, monkeypatch, method, interval, repeats
+def test_six_recipes_preserve_shared_numerics_and_change_only_rho(
+    tmp_path, monkeypatch, method, rho, repeats
 ):
     monkeypatch.setenv("OPD_LIBERO_TEACHER_REFERENCE", str(tmp_path / "reference.json"))
     args = SimpleNamespace(
         python=tmp_path / "runtime/bin/python",
         output=tmp_path / "run",
         gpus=[0, 1, 2, 3],
-        config_name=config_name(method, repeats, interval),
+        config_name=config_name(method, repeats, rho=rho),
         updates=80 * repeats,
         save_every_updates=10 * repeats,
         rollout_steps=480,
@@ -64,14 +64,15 @@ def test_six_recipes_preserve_shared_numerics_and_change_only_interval(
     assert a.mode == method
     assert a.priority_power == 2 and a.window_rounds == a.warmup_rounds == 10
     if method == "adaptive":
-        assert a.interval_rounds == interval and a.max_quota_change == 8
+        assert a.interval_rounds == 5 and a.max_quota_change == 8
+        assert a.rho == rho
         original = OmegaConf.to_container(cfg, resolve=True)
-        args.config_name = config_name(method, repeats, 15 - interval)
+        args.config_name = config_name(method, repeats, rho=1.5 - rho)
         other = OmegaConf.to_container(
             production.build_config(args, paths), resolve=True
         )
-        original["runner"]["rollout_allocation"].pop("interval_rounds")
-        other["runner"]["rollout_allocation"].pop("interval_rounds")
+        original["runner"]["rollout_allocation"].pop("rho")
+        other["runner"]["rollout_allocation"].pop("rho")
         assert original == other
 
 
@@ -197,11 +198,17 @@ def test_failed_training_does_not_start_measurements(tmp_path, monkeypatch):
 
 def test_variant_labels_and_explicit_selection(tmp_path):
     labels = set()
-    for method, interval in [("uniform", None), ("adaptive", 5), ("adaptive", 10)]:
+    for method, rho in [("uniform", None), ("adaptive", 0.5), ("adaptive", 1.0)]:
         for r in (1, 2):
             labels.add(
                 entry.label(
-                    argparse.Namespace(method=method, interval=interval, r=r, seed=0)
+                    argparse.Namespace(
+                        method=method,
+                        rho=rho,
+                        interval=5 if rho is not None else None,
+                        r=r,
+                        seed=0,
+                    )
                 )
             )
     assert len(labels) == 6
@@ -315,3 +322,66 @@ def test_twenty_episode_upgrade_reuses_training_and_preserves_old_receipt(
     }
     changed = {**original, "r": 2}
     assert not entry.compatible_training_contract(changed, new["identity"])
+
+
+@pytest.mark.parametrize("rho", [0.5, 1.0])
+def test_strength_selection_drives_names_contracts_and_automatic_exports(
+    tmp_path, monkeypatch, rho
+):
+    path, _ = machine(tmp_path)
+    monkeypatch.setattr(entry, "verify_initializer", lambda _: "identity")
+    monkeypatch.setattr(
+        entry, "bind_reference", lambda *args: tmp_path / "reference.json"
+    )
+    calls = []
+    exports = []
+
+    def dispatch(command, **kwargs):
+        calls.append(command)
+        if command[2].endswith("launch_production"):
+            fake_training(command)
+            assert "Rho" in kwargs["env"]["OPD_WANDB_RUN_NAME"]
+
+    monkeypatch.setattr(entry.subprocess, "run", dispatch)
+    monkeypatch.setattr(
+        entry, "record_evaluation", lambda *args, **kwargs: exports.append(kwargs)
+    )
+    entry.main(
+        [
+            "--machine",
+            str(path),
+            "--method",
+            "adaptive",
+            "--rho",
+            str(rho),
+            "--r",
+            "2",
+            "--run",
+        ]
+    )
+    assert len(calls) == 8 and len(exports) == 9
+    assert all(row["rho"] == rho and row["interval"] == 5 for row in exports)
+    run = Path(calls[0][calls[0].index("--output") + 1])
+    saved = json.loads((run / "offline50_experiment.json").read_text())
+    assert saved["rho"] == rho and saved["interval"] == 5
+    assert (
+        json.loads((run / "post_training_evaluation_n20.json").read_text())["status"]
+        == "COMPLETE"
+    )
+
+
+def test_old_interval_selector_cannot_silently_start_an_old_recipe(tmp_path):
+    with pytest.raises(SystemExit):
+        entry.main(
+            [
+                "--machine",
+                str(tmp_path / "unused"),
+                "--method",
+                "adaptive",
+                "--interval",
+                "10",
+                "--r",
+                "1",
+                "--run",
+            ]
+        )
