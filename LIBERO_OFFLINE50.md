@@ -96,6 +96,14 @@ Each server performs160rounds/240updates. Keep both strength settings; neither
 is a cross-seed replication. These settings replace the preceding I5/I10 sweep;
 the old YAMLs are retained for historical recovery, not silently relabeled.
 
+The sequential training order on each server is:
+
+| Server | First training job | Second training job |
+| --- | --- | --- |
+| 1 | Uniform-R1 | Adaptive-Rho1-I5-R2 |
+| 2 | Uniform-R2 | Adaptive-Rho0p5-I5-R1 |
+| 3 | **Adaptive-Rho0p5-I5-R2** | Adaptive-Rho1-I5-R1 |
+
 First inspect a plan on each server (change `--server` to its assigned1/2/3):
 
 ```bash

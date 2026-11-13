@@ -16,7 +16,7 @@ from toolkits.libero_gr00t.run_offline50 import REPO, effective_settings, label
 ASSIGNMENTS = {
     1: (("uniform", 1, None), ("adaptive", 2, 1.0)),
     2: (("uniform", 2, None), ("adaptive", 1, 0.5)),
-    3: (("adaptive", 1, 1.0), ("adaptive", 2, 0.5)),
+    3: (("adaptive", 2, 0.5), ("adaptive", 1, 1.0)),
 }
 
 
