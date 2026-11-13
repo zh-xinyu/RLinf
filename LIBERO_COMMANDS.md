@@ -1,3 +1,7 @@
+> **Historical 100-round recipe.** The current six-run Offline50/80-round
+> assignment uses new commands in [LIBERO_OFFLINE50.md](LIBERO_OFFLINE50.md).
+> Existing runtime and local machine settings are retained.
+
 # LIBERO Uniform experiments: manual commands
 
 Use `release/libero-gr00t` at the commit recorded in the handoff receipt.

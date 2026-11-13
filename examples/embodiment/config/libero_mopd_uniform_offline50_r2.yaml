@@ -1,0 +1,8 @@
+# Offline-Distilled-50 comparison: 80 rounds; save every ten rounds.
+defaults:
+  - libero_mopd_uniform_r2
+  - _self_
+
+runner:
+  max_steps: 160
+  save_interval: 20

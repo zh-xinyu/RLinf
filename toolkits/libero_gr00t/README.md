@@ -1,3 +1,5 @@
+> Current entry: [six Offline50 runs](../../LIBERO_OFFLINE50.md), with the restored initializer and existing runtime. The exploration notes below are historical.
+
 # LIBERO toolkit: current entry and historical exploration
 
 For the current method, use [adaptive query allocation](adaptive_query.md).

@@ -26,6 +26,7 @@ from omegaconf import OmegaConf, open_dict
 from rlinf.config import validate_flow_refresh_cfg, validate_rollout_allocation_cfg
 from rlinf.scheduler.cluster.config import ClusterConfig
 from rlinf.utils.execution_protocol import rollout_decision_steps
+from toolkits.libero_gr00t.offline50_recipe import CONFIG_NAMES as OFFLINE50_CONFIGS
 from toolkits.libero_gr00t.padding_profile import (
     PADDING_PROFILES,
     apply_student_padding_profile,
@@ -299,6 +300,7 @@ def build_config(args, checkpoint_paths: dict[str, Path]):
         | {f"libero_mopd_adaptive_query_m{i}" for i in range(4)}
         | {f"libero_mopd_uniform_r{r}" for r in (1, 2, 4)}
         | {f"libero_mopd_adaptive_release_r{r}" for r in (1, 2, 4)}
+        | set(OFFLINE50_CONFIGS)
         or not mixed_execution
         or allocation_smoke
     ):
@@ -611,7 +613,8 @@ def main() -> None:
         + [f"libero_mopd_formal_t64_m{i}" for i in range(4)]
         + [f"libero_mopd_adaptive_query_m{i}" for i in range(4)]
         + [f"libero_mopd_uniform_r{r}" for r in (1, 2, 4)]
-        + [f"libero_mopd_adaptive_release_r{r}" for r in (1, 2, 4)],
+        + [f"libero_mopd_adaptive_release_r{r}" for r in (1, 2, 4)]
+        + list(OFFLINE50_CONFIGS),
         default=CONFIG_NAME,
     )
     parser.add_argument("--run-purpose", choices=["pilot", "formal"], default="pilot")

@@ -14,6 +14,7 @@ import signal
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -163,6 +164,8 @@ def launch_task(args: argparse.Namespace, task: int, gpu: int) -> None:
         return
     if args.cancelled.is_set():
         raise RuntimeError("Evaluation dispatch cancelled")
+    started = time.monotonic()
+    timing = {}
     ports = choose_ports()
     owner = "opd-libero-parallel-eval-" + uuid.uuid4().hex
     root = Path(tempfile.mkdtemp(prefix="opdlpe-", dir="/tmp"))
@@ -228,15 +231,18 @@ def launch_task(args: argparse.Namespace, task: int, gpu: int) -> None:
         run_logged(
             ray_cmd, {**env, OWNER_KEY: owner}, output / "ray.log", timeout_seconds=300
         )
+        timing["startup_seconds"] = time.monotonic() - started
         env["RAY_ADDRESS"] = (ray_dir / "ray_current_cluster").read_text().strip()
         if int(env["RAY_ADDRESS"].rsplit(":", 1)[1]) != ports["port"]:
             raise RuntimeError("Private Ray address differs from plan")
+        inference_started = time.monotonic()
         run_logged(
             command,
             {**env, OWNER_KEY: owner},
             output / "driver.log",
             timeout_seconds=args.timeout_seconds,
         )
+        timing["driver_seconds"] = time.monotonic() - inference_started
         rows = json.loads((output / "episodes.json").read_text())
         summary = audit_episodes(rows, [task], args.trials)
         write_json(output / "summary.json", summary)
@@ -248,6 +254,8 @@ def launch_task(args: argparse.Namespace, task: int, gpu: int) -> None:
         raise
     finally:
         stop_owned(owner)
+        timing["wall_seconds"] = time.monotonic() - started
+        write_json(output / "timing.json", timing)
 
 
 def parse_args() -> argparse.Namespace:
@@ -274,12 +282,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Reuse an existing run only after identity and full raw coverage audit",
     )
+    parser.add_argument(
+        "--resume-incomplete",
+        action="store_true",
+        help="With --reuse-complete, audit/retain completed tasks and retry unfinished tasks",
+    )
     parser.add_argument("--run", action="store_true")
     return parser.parse_args()
 
 
-def reuse_completed(output: Path, expected: dict) -> None:
-    """Reject stale/incomplete evaluation folders rather than overwrite results."""
+def verify_reuse_identity(output: Path, expected: dict) -> None:
+    """Reject another checkpoint/protocol before reusing any raw outcomes."""
     actual = json.loads((output / "manifest.json").read_text())
     if actual.get("mode") != "run":
         raise ValueError(f"Cannot reuse a plan as completed evaluation: {output}")
@@ -298,6 +311,47 @@ def reuse_completed(output: Path, expected: dict) -> None:
     ):
         if key not in actual or actual[key] != expected[key]:
             raise ValueError(f"Existing evaluation identity differs at {key}: {output}")
+
+
+def completed_task(output: Path, task: int, trials: list[int]) -> list[dict]:
+    """Require an audited complete task, including its saved summary."""
+    directory = output / f"task_{task:02d}"
+    if (directory / "status").read_text().strip() != "OK":
+        raise ValueError(f"Incomplete evaluation task: {directory}")
+    rows = json.loads((directory / "episodes.json").read_text())
+    audited = audit_episodes(rows, [task], trials)
+    if not audited["complete"]:
+        raise ValueError(f"Incomplete evaluation coverage: {directory}")
+    if json.loads((directory / "summary.json").read_text()) != audited:
+        raise ValueError(f"Task summary differs from raw outcomes: {directory}")
+    return rows
+
+
+def prepare_resumed_tasks(output: Path, expected: dict) -> set[int]:
+    """Preserve unfinished evidence and retain only proven complete tasks."""
+    verify_reuse_identity(output, expected)
+    completed = set()
+    for task in expected["tasks"]:
+        directory = output / f"task_{task:02d}"
+        if not directory.exists():
+            continue
+        status = directory / "status"
+        if status.is_file() and status.read_text().strip() == "OK":
+            completed_task(output, task, expected["trials"])
+            completed.add(task)
+            continue
+        attempt = 1
+        archived = output / f".failed_task_{task:02d}_attempt{attempt}"
+        while archived.exists():
+            attempt += 1
+            archived = output / f".failed_task_{task:02d}_attempt{attempt}"
+        directory.rename(archived)
+    return completed
+
+
+def reuse_completed(output: Path, expected: dict) -> None:
+    """Reject stale/incomplete evaluation folders rather than overwrite results."""
+    verify_reuse_identity(output, expected)
     rows = []
     for task in expected["tasks"]:
         directory = output / f"task_{task:02d}"
@@ -316,6 +370,7 @@ def reuse_completed(output: Path, expected: dict) -> None:
 
 
 def main() -> None:
+    started = time.monotonic()
     args = parse_args()
     if args.driver_config:
         driver(args.driver_config)
@@ -326,6 +381,8 @@ def main() -> None:
         raise ValueError(
             "Require --config, --python, --output and --baseline or --weights"
         )
+    if args.resume_incomplete and not (args.run and args.reuse_complete):
+        raise ValueError("--resume-incomplete requires --run --reuse-complete")
     validate_selection(args.tasks, args.trials, args.envs_per_task)
     if not args.gpus or len(set(args.gpus)) != len(args.gpus) or min(args.gpus) < 0:
         raise ValueError("Specify distinct nonnegative physical GPU IDs")
@@ -392,18 +449,27 @@ def main() -> None:
         opd_skip_finished_rollout=False,
     )
     manifest["inference_model_config"] = inference
+    completed = set()
     if args.output.exists():
-        reuse_completed(args.output, manifest)
-        print(f"Reused audited complete evaluation: {args.output}")
-        return
+        if (args.output / "summary.json").is_file() or not args.resume_incomplete:
+            reuse_completed(args.output, manifest)
+            print(f"Reused audited complete evaluation: {args.output}")
+            return
+        completed = prepare_resumed_tasks(args.output, manifest)
+        print(
+            f"Resuming evaluation; {len(completed)} audited tasks retained", flush=True
+        )
     # Hydra uses process-global state: compose serially before GPU threads.
     configs = {}
     for i, task in enumerate(args.tasks):
+        if task in completed:
+            continue
         configs[task] = task_config(
             args, task, args.output / f"task_{task:02d}", args.gpus[i % len(args.gpus)]
         )
-    args.output.mkdir(parents=True)
-    write_json(args.output / "manifest.json", manifest)
+    if not args.output.exists():
+        args.output.mkdir(parents=True)
+        write_json(args.output / "manifest.json", manifest)
     for task, cfg in configs.items():
         output = args.output / f"task_{task:02d}"
         output.mkdir()
@@ -437,7 +503,14 @@ def main() -> None:
             pool.map(
                 shard,
                 [
-                    (gpu, args.tasks[i :: len(args.gpus)])
+                    (
+                        gpu,
+                        [
+                            task
+                            for task in args.tasks[i :: len(args.gpus)]
+                            if task not in completed
+                        ],
+                    )
                     for i, gpu in enumerate(args.gpus)
                 ],
             )
@@ -452,6 +525,15 @@ def main() -> None:
         ]
         report = audit_episodes(rows, args.tasks, args.trials)
         write_json(args.output / "summary.json", report)
+        write_json(
+            args.output / "evaluation_timing.json",
+            {
+                "wall_seconds": time.monotonic() - started,
+                "episodes": report["episodes"],
+                "reused_tasks": len(completed),
+                "new_tasks": len(args.tasks) - len(completed),
+            },
+        )
         with (args.output / "episodes.csv").open("w", newline="") as stream:
             fields = [
                 "suite",

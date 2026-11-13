@@ -178,3 +178,77 @@ def test_uniform_and_adaptive_share_csvs_and_initial_but_keep_distinct_arms(tmp_
     assert {r["arm"] for r in summary} == {"INITIAL", "Uniform-R2", "Adaptive-R2"}
     assert len(summary) == 3
     assert len(rows(root / "checkpoint_results.csv")) == 120
+
+
+def test_curve_uses_first_ten_raw_states_and_keeps_final_csv_separate(tmp_path):
+    root = tmp_path / "results"
+    output = evaluation(tmp_path / "full")
+    results.record_evaluation(root, output, 1, 0, 0)
+    results.record_evaluation(root, output, 1, 0, 0, episodes_per_task=10)
+    assert float(rows(root / "checkpoint_summary.csv")[0]["macro_sr"]) == pytest.approx(
+        0.09
+    )
+    assert float(
+        rows(root / "curve_checkpoint_summary.csv")[0]["macro_sr"]
+    ) == pytest.approx(0.45)
+    assert rows(root / "curve_checkpoint_summary.csv")[0]["episodes"] == "400"
+    assert rows(root / "checkpoint_summary.csv")[0]["episodes"] == "2000"
+    # Full50 outcomes are audited before selecting the subset, including state49.
+    f = output / "task_00/episodes.json"
+    data = json.loads(f.read_text())
+    data.pop()
+    f.write_text(json.dumps(data))
+    with pytest.raises(ValueError):
+        results.record_evaluation(root, output, 1, 0, 0, episodes_per_task=10)
+
+
+def test_small_protocol_cannot_export_as_final_and_variants_do_not_collide(tmp_path):
+    root = tmp_path / "results"
+    for interval in (5, 10):
+        output = evaluation(
+            tmp_path / f"i{interval}",
+            round_=80,
+            repeats=2,
+            checkpoint=f"weights{interval}",
+        )
+        results.record_evaluation(
+            root, output, 2, 0, 80, method="adaptive", interval=interval
+        )
+    assert {r["arm"] for r in rows(root / "checkpoint_summary.csv")} == {
+        "Adaptive-I5-R2",
+        "Adaptive-I10-R2",
+    }
+    output = evaluation(tmp_path / "small", round_=10)
+    manifest = json.loads((output / "manifest.json").read_text())
+    manifest["trials"] = list(range(10))
+    (output / "manifest.json").write_text(json.dumps(manifest))
+    summary = json.loads((output / "summary.json").read_text())
+    summary.update(
+        episodes=400,
+        expected_episodes=400,
+        suite_success_rates=dict.fromkeys(results.SUITES, 0.45),
+        macro_success_rate=0.45,
+    )
+    (output / "summary.json").write_text(json.dumps(summary))
+    for f in output.glob("task_*/episodes.json"):
+        f.write_text(json.dumps(json.loads(f.read_text())[:10]))
+    results.record_evaluation(root, output, 1, 0, 10, episodes_per_task=10)
+    with pytest.raises(ValueError, match="40x50"):
+        results.record_evaluation(root, output, 1, 0, 10)
+
+
+def test_actual_training_root_counter_is_exported(tmp_path):
+    root = tmp_path / "results"
+    run = tmp_path / "training"
+    run.mkdir()
+    (run / "rollout_allocation.jsonl").write_text(
+        json.dumps({"rounds": 80, "trajectories": 5120, "simulation_steps": 456789})
+        + "\n"
+    )
+    output = evaluation(tmp_path / "eval", round_=80)
+    results.record_evaluation(root, output, 1, 0, 80, run)
+    row = rows(root / "checkpoint_summary.csv")[0]
+    assert (
+        row["training_simulation_steps"] == "456789"
+        and row["training_trajectories"] == "5120"
+    )

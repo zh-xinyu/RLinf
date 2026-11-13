@@ -1,3 +1,5 @@
+> Current 80-round Offline50 assignment and I5/I10 variants: [LIBERO_OFFLINE50.md](../../LIBERO_OFFLINE50.md). The historical matrix below is retained.
+
 # LIBERO: squared SR gap with synchronized rollout and query allocation
 
 Implementation branch: `release/libero-gr00t`, based on the

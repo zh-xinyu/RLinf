@@ -259,3 +259,27 @@ def test_failed_task_and_inconsistent_summary_cannot_be_reused(tmp_path):
     (output / "summary.json").write_text("{}")
     with pytest.raises(ValueError, match="summary"):
         evaluator.reuse_completed(output, expected)
+
+
+def test_partial_evaluation_recovery_keeps_good_tasks_and_failed_evidence(tmp_path):
+    output, expected = evaluation_folder(tmp_path)
+    (output / "summary.json").unlink()
+    task = output / "task_00"
+    raw = json.loads((task / "episodes.json").read_text())
+    (task / "summary.json").write_text(json.dumps(audit_episodes(raw, [0], [0])))
+    expected["tasks"] = [0, 1]
+    (output / "manifest.json").write_text(json.dumps(expected))
+    failed = output / "task_01"
+    failed.mkdir()
+    (failed / "status").write_text("FAILED\n")
+    (failed / "ray.log").write_text("preserve startup failure")
+    before = (task / "episodes.json").read_bytes()
+    assert evaluator.prepare_resumed_tasks(output, expected) == {0}
+    assert (task / "episodes.json").read_bytes() == before
+    assert not failed.exists()
+    assert (
+        output / ".failed_task_01_attempt1/ray.log"
+    ).read_text() == "preserve startup failure"
+    expected["weights_sha256"] = "different"
+    with pytest.raises(ValueError, match="weights_sha256"):
+        evaluator.prepare_resumed_tasks(output, expected)

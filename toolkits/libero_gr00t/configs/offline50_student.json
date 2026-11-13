@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "artifact": "Offline-Distilled-50",
+  "objective": "Offline M3 velocity distillation on a fixed teacher-trajectory observation pool; student flow is regenerated during updates",
+  "additional_optimizer_updates": 50,
+  "source_checkpoint": {
+    "repository": "RLobot-jun/gr00t-n1.5-libero-fewshot-combined-1k",
+    "revision": "9f0ac4146e3bbd54daa1efad285b334a48d1aa79"
+  },
+  "recipe": {
+    "global_batch_size": 512,
+    "learning_rate": 3e-05,
+    "warmup_updates": 10,
+    "seed": 42,
+    "noise_level": 0.3,
+    "flow_steps": 4,
+    "execution_lengths": [
+      5,
+      5,
+      5,
+      10
+    ]
+  },
+  "teacher_data": {
+    "successful_trajectories": 196,
+    "attempted_trajectories": 277,
+    "policy_simulation_steps": 40047,
+    "settling_steps": 2770
+  },
+  "screening": {
+    "episodes": 200,
+    "trials": [
+      42,
+      43,
+      44,
+      45,
+      46
+    ],
+    "suite_success_rates": [
+      0.72,
+      0.84,
+      0.42,
+      0.46
+    ],
+    "macro_sr": 0.61,
+    "note": "Exploratory initialization screening, not the final 50-episode/task benchmark result"
+  },
+  "checkpoint_identity": {
+    "files": [
+      {
+        "path": "config.json",
+        "size_bytes": 1728,
+        "sha256": "a4e560ff2fee39a909c0de3f1cb247e4728678ef11efd955680f720292072a63"
+      },
+      {
+        "path": "experiment_cfg/metadata.json",
+        "size_bytes": 8422,
+        "sha256": "62c5e077d178a65b8c65cdf391c56d7d8f6a48acf88e646f809aaafd16e637b2"
+      },
+      {
+        "path": "model-00001-of-00002.safetensors",
+        "size_bytes": 4999367032,
+        "sha256": "f80789134e09ed97119f5974482335ef4f9ee12499463aba16d8a9ad3fcfe46a"
+      },
+      {
+        "path": "model-00002-of-00002.safetensors",
+        "size_bytes": 2586705312,
+        "sha256": "bddabfae6112695e74c693dc87126ee2b583d4d91face8ae8660042fb5db0ccc"
+      },
+      {
+        "path": "model.safetensors.index.json",
+        "size_bytes": 104606,
+        "sha256": "bec674fcd06f1c6c29e5ab0f057d148a5c76e7ef92d1688d6b4b8f838afc9746"
+      }
+    ],
+    "content_sha256": "61263131573a9d9980dfa05b57c325fdd025929314d7b3c54e88e9544b10dda3"
+  },
+  "normalization": "Original source student metadata retained; checkpoint-specific coordinate adapters are in the experiment code",
+  "license": "nvidia-open-model-license"
+}

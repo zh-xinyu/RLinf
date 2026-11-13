@@ -1,0 +1,17 @@
+# Squared-gap allocation; only the decision interval differs between I5/I10.
+defaults:
+  - libero_mopd_adaptive_release_r1
+  - _self_
+
+runner:
+  max_steps: 80
+  save_interval: 10
+  rollout_allocation:
+    warmup_rounds: 10
+    window_rounds: 10
+    interval_rounds: 10
+    priority_power: 2.0
+    rho: 1.0
+    epsilon: 0.0
+    min_task_episodes: 1
+    max_quota_change: 8

@@ -15,34 +15,30 @@ The installation guide is needed once; the other pages below are references.
 
 | Purpose | Entry |
 | --- | --- |
-| Prepare the collaborator queue, starting with Uniform | [Experiment handoff](LIBERO_HANDOFF.md) |
-| Manually start training/evaluation by R and seed | [Command guide](LIBERO_COMMANDS.md) |
-| Tune Adaptive and publish a later runnable recipe | [Adaptive release workflow](LIBERO_ADAPTIVE.md) |
-| Inspect the current adaptive method and four-arm commands | [Adaptive query protocol](toolkits/libero_gr00t/adaptive_query.md) |
-| Check current setting and acceptance status | [Experiment contract](LIBERO_EXPERIMENTS.md) |
-| Install on the collaborator's approved platform image | [Cluster setup plan](LIBERO_CLUSTER_SETUP.md) |
-| Inspect reference profiles and installation acceptance | [Environment guide](LIBERO_ENVIRONMENT.md) |
+| Run the current six Offline50 experiments | [80-round commands and results](LIBERO_OFFLINE50.md) |
+| Update an existing installation | [Experiment handoff](LIBERO_HANDOFF.md) |
+| Install on a new approved platform image | [Cluster setup](LIBERO_CLUSTER_SETUP.md) |
+| Inspect reference environment profiles | [Environment guide](LIBERO_ENVIRONMENT.md) |
 | Inspect shared rollout-worker evaluation | [Evaluation protocol](toolkits/libero_gr00t/parallel_evaluation.md) |
-| Inspect implementation and historical pilots | [Toolkit notes](toolkits/libero_gr00t/README.md) |
+| Inspect the adaptive law | [Adaptive query protocol](toolkits/libero_gr00t/adaptive_query.md) |
+| Inspect earlier 100-round experiments | [Historical contract](LIBERO_EXPERIMENTS.md) |
 | Reproduce the separate RoboCasa environment | [RoboCasa profile](OPD_ENVIRONMENT.md) |
 
-This release branch packages Uniform-R1/R2/R4 controls and retains the
-squared-gap rollout/query implementation aligned with RoboTwin for later tuning.
-It retains the tested LIBERO T64 recipe and the previous candidate snapshot. The new teacher-rollout SFT
-initializer still requires complete screening, confirmation and a short MOPD
-transition check. New cluster hardware also requires admission tests. The
-experiment contract lists these gates explicitly; do not treat historical
-Offline-Distilled-50 experiments as results of the new initialization.
+The current matrix is Uniform-R1/R2 and Adaptive-I5/I10-R1/R2, seed0,
+80physical rollout rounds, T64 and B512. All methods use the restored
+Offline-Distilled-50 initialization and unchanged specialist teachers. The two
+Adaptive variants keep the squared-gap law and differ only in decision interval;
+allocator warmup/window are10rounds. The additional SFT100 export and older
+100-round controls remain separate historical artifacts.
 
-The current collaborator matrix is Uniform-R1/R2/R4, each with training seeds
-0/1/2: nine runs, one node/four GPUs, T64 trajectories/round, 100 rounds and B512. Training microbatch defaults to 4/card; node acceptance may
-select 8/card consistently for all nine runs.
-Save every 10 rounds; after training, the manual entrypoint automatically
-evaluates all saved rounds on the same allocation. Adaptive experiments will be
-assigned separately after local tuning; their source and common runtime are
-retained. Independent evaluation uses 40 tasks x 50 states per checkpoint through
-the training environment/rollout implementation. Installation is isolated from
-RoboCasa and requires no personal node profiles.
+New `queue_offline50` / `run_offline50` commands use the existing runtime and
+machine JSON, preserve local resource/logging choices, and automatically train,
+evaluate and export results. Three four-GPU servers can run the six jobs with
+one two-job queue per server. Intermediate curves use10episodes/task; the shared
+initial and final results use50episodes/task through the training rollout path.
+New output/CSV namespaces prevent mixing with previous experiments. No dependency
+profile or environment rebuild is required for this update. See the current
+command guide for CPU validation evidence and the cloud acceptance boundary.
 
 Checkpoints, raw experiments, credentials and machine paths are distributed
 separately. Source/configuration files and portable setup instructions belong in

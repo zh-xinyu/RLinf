@@ -1,0 +1,533 @@
+{
+  "schema_version": 1,
+  "minimum_episodes_per_task": 20,
+  "source_reference_sha256": "ba0d9eb2398c42d6e0e584f3546ffb1765a75ba69fd315d845cf3fc5c6fd5154",
+  "teacher_files_sha256": {
+    "libero_spatial": {
+      "config.json": "6713ae6e9ee07ebf30f18a231bedcf9c06f8c64595d62529b6eb175498ef0526",
+      "experiment_cfg/metadata.json": "0b8fffeb48a0bde4b12fb8cb2244136ddfebce60cd8b69c2233fdb4d55b85b24",
+      "model.safetensors": "83984aabcad10167d417285c1718c1d5a3807cf2f8b991c6815dcd781756aec6"
+    },
+    "libero_object": {
+      "config.json": "6713ae6e9ee07ebf30f18a231bedcf9c06f8c64595d62529b6eb175498ef0526",
+      "experiment_cfg/metadata.json": "d51be25113a71c36076b7da659d17901793fe7f061dd026374275291bf573e29",
+      "model.safetensors": "de83718feddf371f84f3d2a3aea56ab792e6990d81b794b79158d9a78987998f"
+    },
+    "libero_goal": {
+      "config.json": "6713ae6e9ee07ebf30f18a231bedcf9c06f8c64595d62529b6eb175498ef0526",
+      "experiment_cfg/metadata.json": "0f5700f7f1157f0b350d1844fba6fbb179db49ccaa881da9e76e8784081457ef",
+      "model.safetensors": "f5b00a36b3f9891f73bf7e1100190840ab818c65c5c164acd4a67e70b172a78c"
+    },
+    "libero_10": {
+      "config.json": "6713ae6e9ee07ebf30f18a231bedcf9c06f8c64595d62529b6eb175498ef0526",
+      "experiment_cfg/metadata.json": "5264eacf563b1481ebe4b3d08dd48d2c7f4390f37d79985765dfa3c3c1eed74b",
+      "model.safetensors": "eed4991e325b906d2976e53903fe3b5dd34bdf8b23961ca605db04d02313a5df"
+    }
+  },
+  "reference": {
+    "schema_version": 1,
+    "status": "COMPLETE",
+    "training_signature": {
+      "env": {
+        "env_type": "libero",
+        "task_source": null,
+        "dataset_source": null,
+        "split": null,
+        "task_soup": null,
+        "task_filter": null,
+        "task_mode": null,
+        "episode_horizon_source": null,
+        "auto_reset": false,
+        "ignore_terminations": false,
+        "init_params": {
+          "camera_heights": 256,
+          "camera_widths": 256
+        },
+        "observation": null,
+        "action_space": null
+      },
+      "model": {
+        "model_type": "gr00t",
+        "precision": "bf16",
+        "action_head_precision": "fp32",
+        "num_action_chunks": 10,
+        "action_dim": 7,
+        "denoising_steps": 4,
+        "obs_converter_type": "libero_grouped",
+        "embodiment_tag": "new_embodiment",
+        "policy_setup": "widowx_bridge",
+        "rl_head_config": {
+          "joint_logprob": true,
+          "noise_method": "flow_ode",
+          "ignore_last": false,
+          "safe_get_logprob": false,
+          "noise_anneal": false,
+          "noise_params": [
+            0.7,
+            0.3,
+            400
+          ],
+          "noise_level": 0.3,
+          "add_value_head": false,
+          "chunk_critic_input": false,
+          "detach_critic_input": true,
+          "disable_dropout": true,
+          "use_vlm_value": false,
+          "value_vlm_mode": "mean_token",
+          "padding_value": 570
+        }
+      },
+      "teacher_action_head_precision": {
+        "libero_spatial": "bf16",
+        "libero_object": "bf16",
+        "libero_goal": "bf16",
+        "libero_10": "bf16"
+      },
+      "libero_protocol": {
+        "task_suite_names": [
+          "libero_spatial",
+          "libero_object",
+          "libero_goal",
+          "libero_10"
+        ],
+        "task_suite_horizons": {
+          "libero_spatial": 240,
+          "libero_object": 240,
+          "libero_goal": 320,
+          "libero_10": 480
+        },
+        "task_id_filter": null,
+        "freeze_finished_episodes": true,
+        "reset_settle_steps": 10,
+        "initial_state_protocol": "task_occurrence_mod_trial_count",
+        "student_input": {
+          "data_config_class": "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoGroupedDataConfig",
+          "embodiment_projector_id": 31,
+          "opd_fixed_text_padding": false,
+          "disable_image_tiling": true,
+          "inference_autocast_dtype": "bf16"
+        },
+        "teacher_input": {
+          "libero_spatial": {
+            "data_config_class": "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoFrankaDataConfig",
+            "embodiment_projector_id": 31,
+            "opd_fixed_text_padding": true,
+            "disable_image_tiling": true,
+            "inference_autocast_dtype": "bf16"
+          },
+          "libero_object": {
+            "data_config_class": "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoFrankaDataConfig",
+            "embodiment_projector_id": 31,
+            "opd_fixed_text_padding": true,
+            "disable_image_tiling": true,
+            "inference_autocast_dtype": "bf16"
+          },
+          "libero_goal": {
+            "data_config_class": "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoFrankaDataConfig",
+            "embodiment_projector_id": 31,
+            "opd_fixed_text_padding": true,
+            "disable_image_tiling": true,
+            "inference_autocast_dtype": "bf16"
+          },
+          "libero_10": {
+            "data_config_class": "rlinf.models.embodiment.gr00t.gr00t_n1d5.modality_config:LiberoFrankaDataConfig",
+            "embodiment_projector_id": 31,
+            "opd_fixed_text_padding": true,
+            "disable_image_tiling": true,
+            "inference_autocast_dtype": "bf16"
+          }
+        },
+        "task_suite_execution_lengths": {
+          "libero_spatial": 5,
+          "libero_object": 5,
+          "libero_goal": 5,
+          "libero_10": 10
+        },
+        "teacher_rotary_precision": {
+          "libero_spatial": "bf16",
+          "libero_object": "bf16",
+          "libero_goal": "bf16",
+          "libero_10": "bf16"
+        },
+        "skip_finished_rollout": true
+      }
+    },
+    "tasks": [
+      {
+        "task": "libero_spatial/0",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1131,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/1",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 1657,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/2",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 17,
+        "simulation_steps": 1514,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/3",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1070,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/4",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 1742,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/5",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1190,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/6",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1419,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/7",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 17,
+        "simulation_steps": 1689,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/8",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1256,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_spatial/9",
+        "suite": "libero_spatial",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1684,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/0",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1724,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/1",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1222,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/2",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1343,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/3",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1247,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/4",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1685,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/5",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 1552,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/6",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 2019,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/7",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1686,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/8",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1574,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_object/9",
+        "suite": "libero_object",
+        "horizon": 240,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1173,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/0",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 1264,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/1",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1282,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/2",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 16,
+        "simulation_steps": 2138,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/3",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 1,
+        "simulation_steps": 6186,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/4",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1568,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/5",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 1535,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/6",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 16,
+        "simulation_steps": 2148,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/7",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 658,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/8",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 1451,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_goal/9",
+        "suite": "libero_goal",
+        "horizon": 320,
+        "episodes": 20,
+        "successes": 17,
+        "simulation_steps": 2083,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/0",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 4282,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/1",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 3928,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/2",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 3373,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/3",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 2948,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/4",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 13,
+        "simulation_steps": 5443,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/5",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 19,
+        "simulation_steps": 2076,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/6",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 20,
+        "simulation_steps": 3180,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/7",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 18,
+        "simulation_steps": 4247,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/8",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 17,
+        "simulation_steps": 5707,
+        "settling_steps": 200
+      },
+      {
+        "task": "libero_10/9",
+        "suite": "libero_10",
+        "horizon": 480,
+        "episodes": 20,
+        "successes": 16,
+        "simulation_steps": 4763,
+        "settling_steps": 200
+      }
+    ],
+    "wall_seconds": 5737.009859323502,
+    "calibration_budget": {
+      "trajectories": 800,
+      "simulation_steps": 89837,
+      "settling_steps": 8000
+    }
+  },
+  "calibration_provenance": {
+    "capture_manifest_sha256": "b6213030a9c56589a827c15eb57fd3c17ccd74bd66626fc0b3110dfe3d8dd385",
+    "episode_files_sha256": {
+      "spatial_K5": "8c1e19abf382eba9b04e7e4958ef05706b5cdf81c309c3c9429e7155822999a3",
+      "object_K5": "f662335e46d7d11e217fa6332fb2d26e321a04c010e2aa07ce320dfb796d6d04",
+      "goal_K5": "8380e4c42dc8d67ab457054edda30045a16cd3278fe59f9c78189c547e5f0956",
+      "long_K10": "80d8f7c2f691a0baad11b84c5acecb09a30e283e4cc7f006ccb9a1ad785f1cce"
+    }
+  }
+}

@@ -1,3 +1,28 @@
+# LIBERO experiment handoff
+
+The current assignment is **six Offline-Distilled-50 experiments, seed0,
+80rounds**, with automatic tiered evaluation. Use the existing installed runtime
+and machine JSON; local GPU/CPU/microbatch/logging choices remain local.
+
+Start with **[LIBERO_OFFLINE50.md](LIBERO_OFFLINE50.md)** for checkpoint download,
+three server queue commands, exact settings, automatic measurement, CSV paths,
+recovery and timing estimates. The two Adaptive variants retain the squared-gap
+law and differ only in decision interval5/10; warmup/window are10rounds.
+
+The legacy `run_experiment` / `run_uniform` commands retain their historical
+100-round behavior. Use the new `queue_offline50` / `run_offline50` commands for
+this assignment; no environment rebuild is needed. Existing teacher checkpoints
+are unchanged. The restored student is linked in the current command guide.
+
+For a fresh installation only, use [LIBERO_CLUSTER_SETUP.md](LIBERO_CLUSTER_SETUP.md).
+Earlier experimental contracts and commands remain historical references rather
+than the current six-job assignment. Preserve local adaptations when updating the
+tracking branch `release/libero-gr00t`.
+
+---
+
+## Historical handoff (preserved; use the revision above)
+
 # LIBERO collaborator handoff
 
 Start here. The current assignment is **Uniform-R1/R2/R4, seeds 0/1/2: nine runs**.
