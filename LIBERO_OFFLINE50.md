@@ -23,8 +23,7 @@ The update does not change dependency profiles or the existing machine template.
 
 ## 2. Stage the restored student once
 
-All runs use **Offline-Distilled-50**, identical to the initializer in historical
-run `formal-libero-m2-t64-handoff-offline50-s0-20261108`. It is not SFT100. Download
+All runs switch from teacher-rollout SFT100 to **Offline-Distilled-50**. Download
 [the complete checkpoint](https://huggingface.co/theo-zhou/vla-mopd-checkpoints/tree/6cfe84dee38d843fff2340873da8cb1272eef474/libero/groot-n15/offline-velocity-distillation/checkpoint-50)
 at revision `6cfe84dee38d843fff2340873da8cb1272eef474`. All shards, index, config and
 `experiment_cfg/metadata.json` are required. Content identity is
@@ -110,17 +109,17 @@ For one job, use `run_offline50` instead; select `--r 1|2`, and for Adaptive add
 
 ## 4. Automatic evaluation and result delivery
 
-Save every10rounds. Measure rounds10/20/30/40/60 with40tasks ×10official states
-0–9; measure the shared initial and round80 with40tasks ×50states0–49. Seed1234,
+Save every10rounds. Measure rounds10/20/30/40/60 with40tasks ×20official states
+0–19; measure the shared initial and round80 with40tasks ×50states0–49. Seed1234,
 episode-private noise, five states/task/GPU, and the training rollout/environment
 implementation remain unchanged. The initial and final **curve points use the
-first ten raw trials of their full fifty-trial evaluation**, without new physics.
+first twenty raw trials of their full fifty-trial evaluation**, without new physics.
 
 Evaluation prioritizes shared initial and final results, then intermediate curves.
 The initial result is locked/audited/reused through the shared NAS CSV namespace.
 All three machine files must point `csv_dir` at the same existing prepared NAS
-root to reuse it across servers. Each job adds4000evaluation episodes; the shared
-initial adds2000once: **26,000 episodes for all six jobs**. Different/unshared CSV
+root to reuse it across servers. Each job adds6000evaluation episodes; the shared
+initial adds2000once: **38,000 episodes for all six jobs**. Different/unshared CSV
 roots produce separate initial measurements instead.
 
 Existing destinations are preserved. New outputs go under:
@@ -128,10 +127,10 @@ Existing destinations are preserved. New outputs go under:
 - `<results>/offline50_80r/Offline50_80r_<method>-R<R>_seed0/`
 - `<csv_dir>/offline50_80r/checkpoint_summary.csv` and `checkpoint_results.csv`:
   **7summary rows /280task rows**,50episodes/task, including one shared initial.
-- `<csv_dir>/offline50_80r/curve_checkpoint_summary.csv` and
-  `curve_checkpoint_results.csv`: **37summary rows /1480task rows**,10episodes/task.
-- Both protocol identity JSONs, each run's `offline50_experiment.json`,
-  `post_training_evaluation.json`, raw logs/episodes/configs and evaluation timing.
+- `<csv_dir>/offline50_80r/curve20_checkpoint_summary.csv` and
+  `curve20_checkpoint_results.csv`: **37summary rows /1480task rows**,20episodes/task.
+- `results_identity.json` and `curve20_results_identity.json`, each run's `offline50_experiment.json`,
+  `post_training_evaluation_n20.json`, raw logs/episodes/configs and evaluation timing.
 
 The configured parent `csv_dir` must already exist and permit write/fsync. The
 new child namespace is created automatically; no local fallback or JSON edit is
@@ -143,6 +142,14 @@ Return the four CSVs, two protocol identities, and share raw training/evaluation
 artifacts. Retain checkpoints until audits finish; transferring them is not required.
 
 ### Recovery without retraining
+
+The evaluation-only10-to-20upgrade accepts unchanged completed80-round training
+from the preceding release. Full50-state endpoint results can be reused after
+identity audit. New20-state curve CSVs and the `_n20` evaluation receipt are
+separate; earlier ten-state results/receipts are retained, not overwritten.
+Existing ten-state intermediate measurements are not combined automatically:
+the new queue produces separate twenty-state intermediate measurements. The
+38,000-episode total describes a fresh campaign, excluding earlier evaluations.
 
 Rerun the same server queue command: completed training is retained, complete
 measurements are audited/reused, and an interrupted measurement retries only
@@ -165,10 +172,13 @@ rejected; do not mix code updates into an active training/evaluation session.
 
 On our A6000 nodes, a complete200-episode/eight-GPU measurement took8.5minutes;
 completed tasks in a separate2000-episode measurement averaged8.7minutes/task.
-These imply approximately **20–35minutes per400-episode/four-GPU curve point** and
-**1–2hours per2000-episode endpoint**, not a cloud-hardware guarantee. Five curve
-points plus a final endpoint add roughly **3–5hours/run**; shared initial adds
-1–2hours once. Use the first cloud `evaluation_timing.json` and per-task
+The older protocol suggested approximately **20–35minutes per400-episode/four-GPU
+measurement** and **1–2hours per2000-episode endpoint**, not a cloud-hardware
+guarantee. The current intermediate protocol uses800episodes, so those points require more
+work. A rough planning allowance is **4–8hours/run** for five intermediate points
+and one final endpoint; shared initial adds1–2hours once. This is an extrapolation,
+not an800-episode cloud benchmark. Use the first cloud `evaluation_timing.json`
+and per-task
 `timing.json` to replace this estimate. Host/CPU/GPU contention and policy SR matter.
 
 This update preserves policy numerics and dependencies. Release validation covers

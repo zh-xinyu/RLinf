@@ -34,7 +34,7 @@ allocator warmup/window are10rounds. The additional SFT100 export and older
 New `queue_offline50` / `run_offline50` commands use the existing runtime and
 machine JSON, preserve local resource/logging choices, and automatically train,
 evaluate and export results. Three four-GPU servers can run the six jobs with
-one two-job queue per server. Intermediate curves use10episodes/task; the shared
+one two-job queue per server. Intermediate curves use20episodes/task; the shared
 initial and final results use50episodes/task through the training rollout path.
 New output/CSV namespaces prevent mixing with previous experiments. No dependency
 profile or environment rebuild is required for this update. See the current

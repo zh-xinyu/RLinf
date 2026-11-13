@@ -14,7 +14,12 @@ import subprocess
 from pathlib import Path
 
 from toolkits.libero_gr00t.collect_results import record_evaluation
-from toolkits.libero_gr00t.offline50_recipe import CURVE_ROUNDS, ROUNDS, config_name
+from toolkits.libero_gr00t.offline50_recipe import (
+    CURVE_EPISODES,
+    CURVE_ROUNDS,
+    ROUNDS,
+    config_name,
+)
 from toolkits.libero_gr00t.run_uniform import (
     REPO,
     check_csv_directory,
@@ -159,7 +164,7 @@ def contract(args: argparse.Namespace, identity: str, resolved: Path) -> dict:
         "initializer": identity,
         "training_config_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
         "curve_rounds": list(CURVE_ROUNDS),
-        "curve_episodes_per_task": 10,
+        "curve_episodes_per_task": CURVE_EPISODES,
         "final_episodes_per_task": 50,
     }
 
@@ -171,6 +176,17 @@ def weights(run: Path, args: argparse.Namespace, round_: int) -> Path:
         / f"libero_{args.method}/checkpoints"
         / f"global_step_{round_ * args.r}"
         / "actor/model_state_dict/full_weights.pt"
+    )
+
+
+def compatible_training_contract(actual: dict, expected: dict) -> bool:
+    """Allow the evaluation-only 10-to-20 upgrade without retraining a policy."""
+    if actual == expected:
+        return True
+    return (
+        actual.get("curve_episodes_per_task") == 10
+        and expected["curve_episodes_per_task"] == 20
+        and {**actual, "curve_episodes_per_task": 20} == expected
     )
 
 
@@ -245,7 +261,7 @@ def export_evaluation(
             args.seed,
             round_,
             run,
-            episodes_per_task=10,
+            episodes_per_task=CURVE_EPISODES,
             **common,
         )
 
@@ -259,7 +275,9 @@ def evaluate(
             "Training has not completed successfully; no evaluation started"
         )
     expected = contract(args, identity, run / "resolved_config.yaml")
-    if json.loads((run / "offline50_experiment.json").read_text()) != expected:
+    if not compatible_training_contract(
+        json.loads((run / "offline50_experiment.json").read_text()), expected
+    ):
         raise ValueError(
             "Training recipe/variant changed; use the original run arguments"
         )
@@ -268,20 +286,20 @@ def evaluate(
             (
                 args.eval_round,
                 args.episodes_per_task
-                or (50 if args.eval_round in (0, ROUNDS) else 10),
+                or (50 if args.eval_round in (0, ROUNDS) else CURVE_EPISODES),
             )
         ]
         if args.eval_round is not None
         else [
             (0, 50),
             (ROUNDS, 50),
-            *[(r, 10) for r in CURVE_ROUNDS if r not in (0, ROUNDS)],
+            *[(r, CURVE_EPISODES) for r in CURVE_ROUNDS if r not in (0, ROUNDS)],
         ]
     )
     for round_, _ in selected:
         if round_ and not weights(run, args, round_).is_file():
             raise FileNotFoundError(weights(run, args, round_))
-    receipt = run / "post_training_evaluation.json"
+    receipt = run / f"post_training_evaluation_n{CURVE_EPISODES}.json"
     state = {"identity": expected, "status": "RUNNING", "measurements": {}}
     if receipt.exists():
         old = json.loads(receipt.read_text())
@@ -377,7 +395,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--episodes-per-task",
         type=int,
-        choices=(10, 50),
+        choices=(CURVE_EPISODES, 50),
         help="Single-checkpoint evaluation only",
     )
     mode = parser.add_mutually_exclusive_group()

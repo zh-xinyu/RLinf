@@ -52,10 +52,10 @@ IDENTITY_KEYS = (
 def audited_counts(
     output: Path, *, episodes_per_task: int = 50
 ) -> tuple[dict, list[int]]:
-    """Audit complete raw coverage, optionally taking the first ten of fifty."""
-    if episodes_per_task not in (10, 50):
+    """Audit raw coverage before selecting a complete ten/twenty-state subset."""
+    if episodes_per_task not in (10, 20, 50):
         raise ValueError(
-            "Only the declared 40x10 curve and 40x50 final protocols are supported"
+            "Only 40x10/20 curves and the 40x50 final protocol are supported"
         )
     manifest = json.loads((output / "manifest.json").read_text())
     summary = json.loads((output / "summary.json").read_text())
@@ -65,7 +65,7 @@ def audited_counts(
     if (
         manifest.get("mode") != "run"
         or manifest.get("tasks") != list(range(40))
-        or source_count not in (10, 50)
+        or source_count not in (10, 20, 50)
         or source_count < episodes_per_task
         or trials != list(range(source_count))
         or manifest.get("seed") != 1234
@@ -77,7 +77,7 @@ def audited_counts(
         or summary.get("missing_pairs") != []
     ):
         raise ValueError(
-            "Unified CSVs require the complete official 40x50 protocol, or explicit 40x10 curve export"
+            "Unified CSVs require complete official 40x50 results, or explicit 40x10/20 curve export"
         )
     counts = [0] * 40
     selected_counts = [0] * 40
@@ -250,9 +250,15 @@ def record_evaluation(
         "episodes": 40 * episodes_per_task,
     }
     identity = {key: manifest[key] for key in IDENTITY_KEYS}
-    prefix = "curve_" if episodes_per_task == 10 else ""
+    prefix = (
+        "curve20_"
+        if episodes_per_task == 20
+        else "curve_"
+        if episodes_per_task == 10
+        else ""
+    )
     if prefix:
-        identity["reported_trials"] = list(range(10))
+        identity["reported_trials"] = list(range(episodes_per_task))
     with (results / ".results_csv.lock").open("a") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         identity_path = results / f"{prefix}results_identity.json"
@@ -287,7 +293,9 @@ def main() -> None:
     parser.add_argument("--evaluation", type=Path, required=True)
     parser.add_argument("--method", choices=("uniform", "adaptive"), default="uniform")
     parser.add_argument("--interval", type=int, choices=(5, 10))
-    parser.add_argument("--episodes-per-task", type=int, choices=(10, 50), default=50)
+    parser.add_argument(
+        "--episodes-per-task", type=int, choices=(10, 20, 50), default=50
+    )
     parser.add_argument("--r", type=int, choices=(1, 2, 4), required=True)
     parser.add_argument("--seed", type=int, choices=(0, 1, 2), required=True)
     parser.add_argument("--round", type=int, choices=range(0, 101, 10), required=True)

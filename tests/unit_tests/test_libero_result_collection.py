@@ -180,18 +180,37 @@ def test_uniform_and_adaptive_share_csvs_and_initial_but_keep_distinct_arms(tmp_
     assert len(rows(root / "checkpoint_results.csv")) == 120
 
 
-def test_curve_uses_first_ten_raw_states_and_keeps_final_csv_separate(tmp_path):
+@pytest.mark.parametrize("episodes_per_task", [10, 20])
+def test_curve_uses_raw_prefix_and_keeps_final_csv_separate(
+    tmp_path, episodes_per_task
+):
     root = tmp_path / "results"
     output = evaluation(tmp_path / "full")
     results.record_evaluation(root, output, 1, 0, 0)
-    results.record_evaluation(root, output, 1, 0, 0, episodes_per_task=10)
+    results.record_evaluation(
+        root, output, 1, 0, 0, episodes_per_task=episodes_per_task
+    )
     assert float(rows(root / "checkpoint_summary.csv")[0]["macro_sr"]) == pytest.approx(
         0.09
     )
     assert float(
-        rows(root / "curve_checkpoint_summary.csv")[0]["macro_sr"]
-    ) == pytest.approx(0.45)
-    assert rows(root / "curve_checkpoint_summary.csv")[0]["episodes"] == "400"
+        rows(
+            root
+            / (
+                "curve20_checkpoint_summary.csv"
+                if episodes_per_task == 20
+                else "curve_checkpoint_summary.csv"
+            )
+        )[0]["macro_sr"]
+    ) == pytest.approx(4.5 / episodes_per_task)
+    assert rows(
+        root
+        / (
+            "curve20_checkpoint_summary.csv"
+            if episodes_per_task == 20
+            else "curve_checkpoint_summary.csv"
+        )
+    )[0]["episodes"] == str(40 * episodes_per_task)
     assert rows(root / "checkpoint_summary.csv")[0]["episodes"] == "2000"
     # Full50 outcomes are audited before selecting the subset, including state49.
     f = output / "task_00/episodes.json"
@@ -199,10 +218,15 @@ def test_curve_uses_first_ten_raw_states_and_keeps_final_csv_separate(tmp_path):
     data.pop()
     f.write_text(json.dumps(data))
     with pytest.raises(ValueError):
-        results.record_evaluation(root, output, 1, 0, 0, episodes_per_task=10)
+        results.record_evaluation(
+            root, output, 1, 0, 0, episodes_per_task=episodes_per_task
+        )
 
 
-def test_small_protocol_cannot_export_as_final_and_variants_do_not_collide(tmp_path):
+@pytest.mark.parametrize("episodes_per_task", [10, 20])
+def test_small_protocol_cannot_export_as_final_and_variants_do_not_collide(
+    tmp_path, episodes_per_task
+):
     root = tmp_path / "results"
     for interval in (5, 10):
         output = evaluation(
@@ -220,19 +244,21 @@ def test_small_protocol_cannot_export_as_final_and_variants_do_not_collide(tmp_p
     }
     output = evaluation(tmp_path / "small", round_=10)
     manifest = json.loads((output / "manifest.json").read_text())
-    manifest["trials"] = list(range(10))
+    manifest["trials"] = list(range(episodes_per_task))
     (output / "manifest.json").write_text(json.dumps(manifest))
     summary = json.loads((output / "summary.json").read_text())
     summary.update(
-        episodes=400,
-        expected_episodes=400,
-        suite_success_rates=dict.fromkeys(results.SUITES, 0.45),
-        macro_success_rate=0.45,
+        episodes=40 * episodes_per_task,
+        expected_episodes=40 * episodes_per_task,
+        suite_success_rates=dict.fromkeys(results.SUITES, 4.5 / episodes_per_task),
+        macro_success_rate=4.5 / episodes_per_task,
     )
     (output / "summary.json").write_text(json.dumps(summary))
     for f in output.glob("task_*/episodes.json"):
-        f.write_text(json.dumps(json.loads(f.read_text())[:10]))
-    results.record_evaluation(root, output, 1, 0, 10, episodes_per_task=10)
+        f.write_text(json.dumps(json.loads(f.read_text())[:episodes_per_task]))
+    results.record_evaluation(
+        root, output, 1, 0, 10, episodes_per_task=episodes_per_task
+    )
     with pytest.raises(ValueError, match="40x50"):
         results.record_evaluation(root, output, 1, 0, 10)
 

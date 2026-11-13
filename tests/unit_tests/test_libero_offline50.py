@@ -165,14 +165,14 @@ def test_training_then_final_first_and_five_small_curve_evaluations(
     assert len(calls) == 8  # one training, seven unique measurements
     evaluation = calls[1:]
     sizes = [c.index("--seed") - c.index("--trials") - 1 for c in evaluation]
-    assert sizes == [50, 50, 10, 10, 10, 10, 10]
-    assert sum(sizes) * 40 == 6000  # includes the shared initial measurement once
+    assert sizes == [50, 50, 20, 20, 20, 20, 20]
+    assert sum(sizes) * 40 == 8000  # includes the shared initial measurement once
     assert "global_step_160" in evaluation[1][evaluation[1].index("--weights") + 1]
     assert all("--resume-incomplete" in c for c in evaluation)
-    assert len(exports) == 9  # initial/final export both50 and10 without new rollouts
+    assert len(exports) == 9  # initial/final export both50 and20 without new rollouts
     run = Path(calls[0][calls[0].index("--output") + 1])
     assert (
-        json.loads((run / "post_training_evaluation.json").read_text())["status"]
+        json.loads((run / "post_training_evaluation_n20.json").read_text())["status"]
         == "COMPLETE"
     )
     calls.clear()
@@ -267,3 +267,51 @@ def test_server_queue_trains_both_before_automatic_evaluation(tmp_path, monkeypa
     assert all(
         c[c.index("--student") + 1] == str(tmp_path / "offline50") for c in calls
     )
+
+
+def test_twenty_episode_upgrade_reuses_training_and_preserves_old_receipt(
+    tmp_path, monkeypatch
+):
+    machine_path, _ = machine(tmp_path)
+    args = argparse.Namespace(
+        machine=machine_path, student=None, method="uniform", r=1, interval=None, seed=0
+    )
+    settings = entry.effective_settings(args)
+    run = Path(settings["results"]) / entry.label(args)
+    fake_training(
+        [
+            "--output",
+            str(run),
+            "--updates",
+            "80",
+            "--config-name",
+            "libero_mopd_uniform_offline50_r1",
+        ]
+    )
+    original = entry.contract(args, "identity", run / "resolved_config.yaml")
+    original["curve_episodes_per_task"] = 10
+    (run / "offline50_experiment.json").write_text(json.dumps(original))
+    old_receipt = run / "post_training_evaluation.json"
+    old_receipt.write_text("preserve legacy ten-episode receipt")
+    monkeypatch.setattr(entry, "verify_initializer", lambda _: "identity")
+    calls = []
+    monkeypatch.setattr(
+        entry.subprocess, "run", lambda command, **kwargs: calls.append(command)
+    )
+    monkeypatch.setattr(entry, "record_evaluation", lambda *args, **kwargs: None)
+    entry.main(["--machine", str(machine_path), "--r", "1", "--evaluate-all", "--run"])
+    assert len(calls) == 7
+    assert all(c[2].endswith("launch_parallel_evaluation") for c in calls)
+    assert old_receipt.read_text() == "preserve legacy ten-episode receipt"
+    new = json.loads((run / "post_training_evaluation_n20.json").read_text())
+    assert new["status"] == "COMPLETE"
+    assert new["identity"]["curve_episodes_per_task"] == 20
+    assert {key for key in new["measurements"] if key.endswith(":20")} == {
+        "10:20",
+        "20:20",
+        "30:20",
+        "40:20",
+        "60:20",
+    }
+    changed = {**original, "r": 2}
+    assert not entry.compatible_training_contract(changed, new["identity"])

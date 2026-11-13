@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 ROUNDS = 80
+CURVE_EPISODES = 20
 CURVE_ROUNDS = (0, 10, 20, 30, 40, 60, 80)
 INTERVALS = (5, 10)
 REUSE = (1, 2)
