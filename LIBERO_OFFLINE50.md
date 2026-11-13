@@ -117,8 +117,38 @@ python3 -m toolkits.libero_gr00t.queue_offline50 --machine outputs/local/libero_
 
 Each queue trains its two jobs first, then automatically evaluates both. Run one
 queue per four-GPU allocation. No separate evaluation command is needed normally.
-For one job, use `run_offline50` instead; select `--r 1|2`, and for Adaptive add
-`--method adaptive --rho 0.5|1`. Its `--run` trains and evaluates that job.
+### Standalone commands for all six experiments
+
+These are alternatives to the server queues. Each command trains one80-round
+experiment and then automatically evaluates it. Replace the machine/student paths
+with the same existing paths used by the queue; no JSON/environment edits are needed.
+Use one command per four-GPU allocation, and do not duplicate a job already running
+in its server queue.
+
+```bash
+# Uniform-R1
+python3 -m toolkits.libero_gr00t.run_offline50 --machine outputs/local/libero_machine.json --student /absolute/offline50/hf --method uniform --r 1 --seed 0 --run
+
+# Uniform-R2
+python3 -m toolkits.libero_gr00t.run_offline50 --machine outputs/local/libero_machine.json --student /absolute/offline50/hf --method uniform --r 2 --seed 0 --run
+
+# Adaptive-Rho0p5-I5-R1
+python3 -m toolkits.libero_gr00t.run_offline50 --machine outputs/local/libero_machine.json --student /absolute/offline50/hf --method adaptive --rho 0.5 --r 1 --seed 0 --run
+
+# Adaptive-Rho0p5-I5-R2
+python3 -m toolkits.libero_gr00t.run_offline50 --machine outputs/local/libero_machine.json --student /absolute/offline50/hf --method adaptive --rho 0.5 --r 2 --seed 0 --run
+
+# Adaptive-Rho1-I5-R1
+python3 -m toolkits.libero_gr00t.run_offline50 --machine outputs/local/libero_machine.json --student /absolute/offline50/hf --method adaptive --rho 1 --r 1 --seed 0 --run
+
+# Adaptive-Rho1-I5-R2
+python3 -m toolkits.libero_gr00t.run_offline50 --machine outputs/local/libero_machine.json --student /absolute/offline50/hf --method adaptive --rho 1 --r 2 --seed 0 --run
+```
+
+Remove `--run` to inspect that experiment's plan only. If training has already
+completed, keep its method/rho/R/seed and add `--evaluate-all --run` to recover
+measurement without retraining, as shown below. A repeated plain `--run` does not
+resume existing training; output directories are protected against overwriting.
 
 ## 4. Automatic evaluation and result delivery
 

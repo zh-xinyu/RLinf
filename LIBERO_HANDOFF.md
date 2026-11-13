@@ -5,7 +5,7 @@ The current assignment is **six Offline-Distilled-50 experiments, seed0,
 and machine JSON; local GPU/CPU/microbatch/logging choices remain local.
 
 Start with **[LIBERO_OFFLINE50.md](LIBERO_OFFLINE50.md)** for checkpoint download,
-three server queue commands, exact settings, automatic measurement, CSV paths,
+three server queues, six standalone commands, exact settings, automatic measurement, CSV paths,
 recovery and timing estimates. The two Adaptive variants retain the squared-gap
 law and differ only in rho0.5/1; interval5 and warmup/window10 are shared.
 
